@@ -36,8 +36,7 @@ use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, HashMap};
 
 #[path = "protocol_ports.rs"]
-mod protocol_ports;
-pub use protocol_ports::role_port_fixture;
+pub mod protocol_ports;
 
 pub fn retention_definition() -> CheckedExtensionDefinition {
     CheckedExtensionDefinition {
@@ -189,7 +188,7 @@ pub fn all_families_read_work() -> u64 {
         let mid = lo + (hi - lo) / 2;
         let mut limits = bounded;
         limits.work = mid;
-        match CheckedPackageV2::read(&bytes, limits, &evidence) {
+        match super::fixture_read(&bytes, limits, &evidence) {
             CheckedPackageV2ReadResult::Admitted(_) => hi = mid,
             _ => lo = mid,
         }
@@ -747,7 +746,7 @@ pub fn evidence_with_document(
 
 /// Reads `package` with only its own evidence.
 fn read_admitting(package: &Value) -> CheckedPackageV2ReadResult {
-    CheckedPackageV2::read(
+    super::fixture_read(
         &canonical(package),
         CheckedPackageReadLimits::bounded(),
         &evidence_for(package),
@@ -773,7 +772,7 @@ pub fn read_with_dependencies(
             .insert_dependency_package(*identity, (*dependency).clone())
             .expect("dependency evidence declarations agree on admitted content");
     }
-    CheckedPackageV2::read(
+    super::fixture_read(
         &canonical(package),
         CheckedPackageReadLimits::bounded(),
         &evidence,

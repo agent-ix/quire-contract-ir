@@ -19,13 +19,13 @@
 //! it, a member of a cycle being among its own ancestors.
 
 use super::model_members::{
-    check_declaration_node, member_name, units, Budget, CollectionKind, DeclarationForm,
+    arc_bytes, arc_str_bytes, check_declaration_node, checked_member_type_bytes, field_decl_bytes,
+    member_name, relationship_decl_bytes, units, Budget, CollectionKind, DeclarationForm,
     DomainModel, FieldBearingTypeDecl, FieldDecl, MemberType, ModelOperationClass, NativeTypeRef,
-    Owner, RelationshipDecl, SelectedTypeRef, SelectedVariantCase,
+    Owner, RelationshipDecl, SelectedTypeRef, SelectedVariantCase, SortedMap, SortedSet,
 };
-use super::{CheckedNodeId, CheckedPackageV2, CheckedTerm, WorkMeter};
+use super::{CheckedNodeId, CheckedPackageV2, CheckedTerm, PackageReadStage, WorkMeter};
 use crate::checked_package::common::ValidationFailure;
-use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::sync::Arc;
 
@@ -46,7 +46,7 @@ pub(super) struct FieldEntry {
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct OrderedField {
     entry: Arc<FieldEntry>,
-    origins: BTreeSet<Arc<str>>,
+    origins: SortedSet<Arc<str>>,
 }
 
 impl FieldEntry {
@@ -69,6 +69,8 @@ pub(super) struct FieldTable {
     hidden: Vec<Arc<str>>,
     /// The smallest name that two exposed fields share.
     ambiguous: Option<Box<str>>,
+    /// Ascending, without repeats: the name of each exposed field.
+    names: Vec<Box<str>>,
 }
 
 impl FieldTable {
@@ -93,16 +95,25 @@ impl FieldTable {
     }
 
     /// The effective record field types in inherited source order.
-    pub(super) fn binder_types(&self, package: &str) -> Option<RecordBinderTypes> {
+    pub(super) fn binder_types(
+        &self,
+        package: &str,
+        budget: &mut Budget<'_, '_>,
+    ) -> Result<Option<RecordBinderTypes>, ValidationFailure> {
         if self.ambiguous.is_some() {
-            return Some(RecordBinderTypes::Ambiguous);
+            return Ok(Some(RecordBinderTypes::Ambiguous));
         }
-        let types = self
-            .ordered_exposed
-            .iter()
-            .map(|entry| entry.entry.member_type.as_ref()?.node_id(package))
-            .collect::<Option<Vec<_>>>()?;
-        Some(RecordBinderTypes::Known(types))
+        let mut types = budget.vec(self.ordered_exposed.len(), "binder_types")?;
+        for entry in &self.ordered_exposed {
+            let Some(member) = entry.entry.member_type.as_ref() else {
+                return Ok(None);
+            };
+            let Some(id) = member.node_id_in(package, budget)? else {
+                return Ok(None);
+            };
+            types.push(id);
+        }
+        Ok(Some(RecordBinderTypes::Known(types)))
     }
 }
 
@@ -131,7 +142,7 @@ pub(super) enum Selected<'t> {
 /// connected component of its field-bearing types, and the component of each type.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(super) struct FieldTables {
-    by_type: BTreeMap<Box<str>, usize>,
+    by_type: SortedMap<Box<str>, usize>,
     components: Vec<FieldTable>,
 }
 
@@ -141,14 +152,10 @@ impl FieldTables {
         self.components.get(*self.by_type.get(node)?)
     }
 
-    pub(super) fn exposed_names(&self, node: &str) -> Option<BTreeSet<Box<str>>> {
-        Some(
-            self.of(node)?
-                .exposed
-                .iter()
-                .map(|field| Box::from(field.name()))
-                .collect(),
-        )
+    /// The names of the exposed fields of the object type `node`, ascending
+    /// and without repeats, borrowed from its table.
+    pub(super) fn exposed_names(&self, node: &str) -> Option<&[Box<str>]> {
+        Some(self.of(node)?.names.as_slice())
     }
 }
 
@@ -159,13 +166,17 @@ pub(super) fn build_field_tables(
     models: &mut [DomainModel],
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
-    for model in models.iter_mut() {
-        let mut budget = Budget::new(meter, model.root, model.bytes);
+    for (position, model) in models.iter_mut().enumerate() {
+        let mut budget =
+            Budget::new(meter, model.root, model.bytes).at(PackageReadStage::Lock, position);
         let tables = tables_of(model, &mut budget)?;
         model.fields = tables;
     }
     Ok(())
 }
+
+/// The `form` every request and work charge of the field tables is made at.
+const F: &str = "field_tables";
 
 /// A strongly connected component of the supertype graph.
 struct Component<'m> {
@@ -178,13 +189,19 @@ fn tables_of(
     model: &DomainModel,
     budget: &mut Budget<'_, '_>,
 ) -> Result<FieldTables, ValidationFailure> {
-    let mut tables = FieldTables::default();
-    for component in components(model) {
-        let table = build_component(model, &component, &tables, budget)?;
+    let found = components(model, budget)?;
+    let nodes = model.object_types.len() + model.record_types.len();
+    let mut tables = FieldTables {
+        by_type: SortedMap::with_capacity(budget, nodes, F)?,
+        components: budget.vec(found.len(), F)?,
+    };
+    for component in &found {
+        let table = build_component(model, component, &tables, budget)?;
         let index = tables.components.len();
         tables.components.push(table);
         for (node, _) in &component.members {
-            tables.by_type.insert(Box::from(*node), index);
+            let key = budget.text(node, F)?;
+            tables.by_type.insert(budget, key, index, F)?;
         }
     }
     Ok(tables)
@@ -192,13 +209,19 @@ fn tables_of(
 
 /// The strongly connected components of the supertype graph of `model`'s
 /// objects and records, a component after every component of its supertypes
-/// (Tarjan's algorithm over an explicit stack).
-fn components(model: &DomainModel) -> Vec<Component<'_>> {
+/// (Tarjan's algorithm over an explicit stack). Every table the search keeps
+/// is requested at the capacity the search can need: the number of nodes.
+fn components<'m>(
+    model: &'m DomainModel,
+    budget: &mut Budget<'_, '_>,
+) -> Result<Vec<Component<'m>>, ValidationFailure> {
+    let nodes = model.object_types.len() + model.record_types.len();
     let mut search = Tarjan {
         model,
-        visits: BTreeMap::new(),
-        stack: Vec::new(),
-        found: Vec::new(),
+        visits: SortedMap::with_capacity(budget, nodes, F)?,
+        stack: budget.vec(nodes, F)?,
+        open: budget.vec(nodes, F)?,
+        found: budget.vec(nodes, F)?,
     };
     for root in model
         .object_types
@@ -207,10 +230,10 @@ fn components(model: &DomainModel) -> Vec<Component<'_>> {
         .map(AsRef::as_ref)
     {
         if !search.visits.contains_key(root) {
-            search.visit(root);
+            search.visit(root, budget)?;
         }
     }
-    search.found
+    Ok(search.found)
 }
 
 /// Tarjan's search state: a node's discovery index, its lowest reachable
@@ -221,46 +244,52 @@ struct Visit {
     on_stack: bool,
 }
 
-/// An open node with the supertypes it has still to follow.
-type Open<'m> = Vec<(&'m str, std::vec::IntoIter<&'m str>)>;
+/// An open node with the position of the next supertype it follows.
+type Open<'m> = (&'m str, usize);
 
 struct Tarjan<'m> {
     model: &'m DomainModel,
-    visits: BTreeMap<&'m str, Visit>,
+    visits: SortedMap<&'m str, Visit>,
     stack: Vec<&'m str>,
+    open: Vec<Open<'m>>,
     found: Vec<Component<'m>>,
 }
 
 impl<'m> Tarjan<'m> {
-    /// The declared supertypes of `node` that the document declares as
-    /// field-bearing types; any other has no table and no members.
-    fn supertypes(&self, node: &str) -> std::vec::IntoIter<&'m str> {
+    /// The next declared supertype of `node` at or after `from` that the
+    /// document declares as a field-bearing type, and the position after it;
+    /// any other has no table and no members.
+    fn next_supertype(&self, node: &str, from: usize) -> Option<(&'m str, usize)> {
         let model = self.model;
-        model
-            .field_owner(node)
-            .map(|declared| {
-                declared
-                    .supertypes
-                    .iter()
-                    .map(AsRef::as_ref)
-                    .filter(|supertype| model.field_owner(supertype).is_some())
-                    .collect::<Vec<_>>()
-            })
-            .unwrap_or_default()
-            .into_iter()
+        let declared = model.field_owner(node)?;
+        declared
+            .supertypes
+            .iter()
+            .enumerate()
+            .skip(from)
+            .find(|(_, supertype)| model.field_owner(supertype).is_some())
+            .map(|(at, supertype)| (supertype.as_ref(), at + 1))
     }
 
-    fn enter(&mut self, node: &'m str) {
+    fn enter(
+        &mut self,
+        node: &'m str,
+        budget: &mut Budget<'_, '_>,
+    ) -> Result<(), ValidationFailure> {
         let index = self.visits.len();
         self.visits.insert(
+            budget,
             node,
             Visit {
                 index,
                 low: index,
                 on_stack: true,
             },
-        );
+            F,
+        )?;
         self.stack.push(node);
+        self.open.push((node, 0));
+        Ok(())
     }
 
     fn lower(&mut self, node: &str, to: usize) {
@@ -271,48 +300,71 @@ impl<'m> Tarjan<'m> {
 
     /// Searches from `root` over an explicit stack, so a chain of any length
     /// needs no call stack.
-    fn visit(&mut self, root: &'m str) {
-        self.enter(root);
-        let mut open: Open<'m> = vec![(root, self.supertypes(root))];
-        while let Some((node, pending)) = open.last_mut() {
-            let node = *node;
-            match pending.next() {
-                Some(next) => self.follow(node, next, &mut open),
+    fn visit(
+        &mut self,
+        root: &'m str,
+        budget: &mut Budget<'_, '_>,
+    ) -> Result<(), ValidationFailure> {
+        self.enter(root, budget)?;
+        while let Some(&(node, from)) = self.open.last() {
+            match self.next_supertype(node, from) {
+                Some((next, after)) => {
+                    if let Some(top) = self.open.last_mut() {
+                        top.1 = after;
+                    }
+                    self.follow(node, next, budget)?;
+                }
                 None => {
-                    open.pop();
-                    self.leave(node, open.last().map(|(parent, _)| *parent));
+                    self.open.pop();
+                    let parent = self.open.last().map(|(parent, _)| *parent);
+                    self.leave(node, parent, budget)?;
                 }
             }
         }
+        Ok(())
     }
 
-    fn follow(&mut self, node: &str, next: &'m str, open: &mut Open<'m>) {
+    fn follow(
+        &mut self,
+        node: &str,
+        next: &'m str,
+        budget: &mut Budget<'_, '_>,
+    ) -> Result<(), ValidationFailure> {
         match self.visits.get(next) {
-            None => {
-                self.enter(next);
-                open.push((next, self.supertypes(next)));
-            }
+            None => self.enter(next, budget)?,
             Some(seen) if seen.on_stack => {
                 let index = seen.index;
                 self.lower(node, index);
             }
             Some(_) => {}
         }
+        Ok(())
     }
 
     /// Closes `node`; it roots a component when no node below it reached an
     /// earlier one.
-    fn leave(&mut self, node: &'m str, parent: Option<&str>) {
+    fn leave(
+        &mut self,
+        node: &'m str,
+        parent: Option<&str>,
+        budget: &mut Budget<'_, '_>,
+    ) -> Result<(), ValidationFailure> {
         let Some(&Visit { index, low, .. }) = self.visits.get(node) else {
-            return;
+            return Ok(());
         };
         if let Some(parent) = parent {
             self.lower(parent, low);
         }
         if low != index {
-            return;
+            return Ok(());
         }
-        let mut members = Vec::new();
+        // The component is the stack above `node`.
+        let size = self
+            .stack
+            .iter()
+            .rposition(|member| *member == node)
+            .map_or(0, |at| self.stack.len() - at);
+        let mut members = budget.vec(size, F)?;
         while let Some(member) = self.stack.pop() {
             if let Some(visit) = self.visits.get_mut(member) {
                 visit.on_stack = false;
@@ -329,7 +381,7 @@ impl<'m> Tarjan<'m> {
                 break;
             }
         }
-        members.sort_by(|a, b| a.0.cmp(b.0));
+        members.sort_unstable_by(|a, b| a.0.cmp(b.0));
         let cyclic = members.len() > 1
             || members.iter().any(|(member, declared)| {
                 declared
@@ -338,13 +390,84 @@ impl<'m> Tarjan<'m> {
                     .any(|supertype| supertype.as_ref() == *member)
             });
         self.found.push(Component { members, cyclic });
+        Ok(())
     }
+}
+
+/// Where a slot's origins are held: in the table it was copied from, or among
+/// the origins built for this component's own fields.
+#[derive(Clone, Copy)]
+enum Origins<'t> {
+    Shared(&'t [Arc<str>]),
+    Own(usize),
+}
+
+/// The inherited redefiners of `target` among `rows`, which are sorted by target.
+fn redefined<'a, 't>(
+    rows: &'a [(&'a str, &'a Arc<str>)],
+    target: &'t str,
+) -> impl Iterator<Item = &'a (&'a str, &'a Arc<str>)> + use<'a, 't> {
+    let start = rows.partition_point(|row| row.0 < target);
+    rows.get(start..)
+        .unwrap_or_default()
+        .iter()
+        .take_while(move |row| row.0 == target)
+}
+
+/// The origins `origins` names.
+fn origins_in<'a>(origins: Origins<'a>, own: &'a [Vec<Arc<str>>]) -> &'a [Arc<str>] {
+    match origins {
+        Origins::Shared(origins) => origins,
+        Origins::Own(index) => own.get(index).map_or(&[], Vec::as_slice),
+    }
+}
+
+/// One effective field in inherited source order, then own declaration order.
+struct Slot<'t> {
+    entry: &'t Arc<FieldEntry>,
+    origins: Origins<'t>,
+}
+
+fn name(shared: &Arc<str>) -> &str {
+    shared
+}
+
+/// A name with the shared handle that spells it, when there is one.
+type Named<'t> = (&'t str, Option<&'t Arc<str>>);
+
+/// Sorts `names` by name, a handle before none, and drops repeats; returns
+/// the bytes the names without a handle take as shared text.
+fn distinct(names: &mut Vec<Named<'_>>) -> usize {
+    names.sort_unstable_by_key(|(name, arc)| (*name, arc.is_none()));
+    names.dedup_by(|later, earlier| later.0 == earlier.0);
+    names
+        .iter()
+        .filter(|(_, arc)| arc.is_none())
+        .map(|(name, _)| arc_str_bytes(name.len()))
+        .sum()
+}
+
+/// The shared names `names` spell, in order, those without a handle made
+/// from their text (the request for them is `fresh`).
+fn spell(
+    names: &[Named<'_>],
+    fresh: usize,
+    budget: &mut Budget<'_, '_>,
+) -> Result<Vec<Arc<str>>, ValidationFailure> {
+    budget.request(fresh, F)?;
+    let mut spelled = budget.vec(names.len(), F)?;
+    for (name, arc) in names {
+        spelled.push(arc.map_or_else(|| Arc::from(*name), Arc::clone));
+    }
+    Ok(spelled)
 }
 
 /// The table of one component, from its members' own fields and the tables of
 /// the supertypes outside it, charged: one unit per own field and per
 /// declared supertype edge of each member, and one per exposed or hidden entry
-/// copied from the table of a supertype outside the component.
+/// copied from the table of a supertype outside the component. Every
+/// container is requested at its exact capacity before it is made, and an
+/// entry's text, declaration and member type before they are copied.
 fn build_component(
     model: &DomainModel,
     component: &Component<'_>,
@@ -361,153 +484,349 @@ fn build_component(
                 .saturating_add(declared.fields.len())
                 .saturating_add(declared.supertypes.len())
         });
-    budget.charge(units(own_units))?;
-    let mut inherited: Vec<Arc<FieldEntry>> = Vec::new();
-    let mut ordered_slots = Vec::new();
-    let mut hidden: BTreeSet<Arc<str>> = BTreeSet::new();
+    budget.charge_form(units(own_units), F)?;
+    let (mut inherited_slots, mut inherited_hidden, mut own_fields) = (0_usize, 0_usize, 0_usize);
     for (_, declared) in &component.members {
+        own_fields += declared.fields.len();
         for supertype in &declared.supertypes {
             // A supertype of the component itself has no table yet.
             let Some(table) = built.of(supertype) else {
                 continue;
             };
-            budget.charge(units(table.entries()))?;
-            inherited.extend(
-                table
-                    .ordered_exposed
-                    .iter()
-                    .map(|slot| Arc::clone(&slot.entry)),
-            );
-            ordered_slots.extend(table.ordered_exposed.iter().cloned());
-            hidden.extend(table.hidden.iter().cloned());
+            budget.charge_form(units(table.entries()), F)?;
+            inherited_slots += table.ordered_exposed.len();
+            inherited_hidden += table.hidden.len();
+        }
+    }
+    // The hidden entries of the supertypes' tables.
+    let mut hidden0: Vec<&Arc<str>> = budget.vec(inherited_hidden, F)?;
+    for (_, declared) in &component.members {
+        for supertype in &declared.supertypes {
+            if let Some(table) = built.of(supertype) {
+                hidden0.extend(table.hidden.iter());
+            }
+        }
+    }
+    hidden0.sort_unstable_by(|a, b| name(a).cmp(name(b)));
+    hidden0.dedup_by(|later, earlier| name(later) == name(earlier));
+
+    // The declarations of this component's own fields, one entry per
+    // identity: a later declaration replaces an earlier one and the entry
+    // keeps the position of the first.
+    let mut declared: Vec<(&str, usize, &str, &FieldDecl)> = budget.vec(own_fields, F)?;
+    for (owner, members) in &component.members {
+        for decl in &members.fields {
+            declared.push((decl.identity.as_ref(), declared.len(), owner, decl));
+        }
+    }
+    declared.sort_unstable_by(|a, b| a.0.cmp(b.0).then(a.1.cmp(&b.1)));
+    let distinct_own = declared
+        .iter()
+        .enumerate()
+        .filter(|(at, row)| *at == 0 || declared.get(at - 1).is_none_or(|prior| prior.0 != row.0))
+        .count();
+    // Own entries in identity order, each with the position of its first
+    // declaration.
+    let mut own: Vec<(usize, Arc<FieldEntry>)> = budget.vec(distinct_own, F)?;
+    let mut at = 0;
+    while let Some(&(identity, first, _, _)) = declared.get(at) {
+        let group = declared
+            .get(at..)
+            .map_or(0, |rest| rest.partition_point(|row| row.0 == identity));
+        let &(_, _, owner, decl) = declared.get(at + group - 1).ok_or_else(|| {
+            ValidationFailure::refused(
+                crate::checked_package::shared::CheckedPackageRefusalCode::InvalidSemanticGraph,
+                budget.row(),
+            )
+        })?;
+        budget.request(
+            arc_str_bytes(identity.len())
+                .saturating_add(owner.len())
+                .saturating_add(field_decl_bytes(decl))
+                .saturating_add(arc_bytes::<FieldEntry>()),
+            F,
+        )?;
+        let member_type = model.field_type_charged(decl, budget, F)?;
+        own.push((
+            first,
+            Arc::new(FieldEntry {
+                identity: Arc::from(identity),
+                declaring_owner: Box::from(owner),
+                member_type,
+                decl: decl.clone(),
+            }),
+        ));
+        at += group;
+    }
+    drop(declared);
+    // Own entries in declaration order.
+    let mut own_order: Vec<usize> = budget.vec(own.len(), F)?;
+    own_order.extend(0..own.len());
+    own_order.sort_unstable_by_key(|&at| own.get(at).map_or(usize::MAX, |entry| entry.0));
+
+    // The effective fields of the supertypes' tables, in order, then the own
+    // ones.
+    let mut slots: Vec<Slot<'_>> = budget.vec(inherited_slots + own.len(), F)?;
+    for (_, members) in &component.members {
+        for supertype in &members.supertypes {
+            if let Some(table) = built.of(supertype) {
+                slots.extend(table.ordered_exposed.iter().map(|slot| Slot {
+                    entry: &slot.entry,
+                    origins: Origins::Shared(slot.origins.as_slice()),
+                }));
+            }
         }
     }
     // A diamond reaches one entry twice; a field one supertype exposes and
-    // another hides is hidden.
-    inherited.sort_by(|a, b| a.identity.cmp(&b.identity));
-    inherited.dedup_by(|a, b| a.identity == b.identity);
-    inherited.retain(|entry| !hidden.contains(&entry.identity));
-    // A later declaration of one identity replaces an earlier one, as
-    // `resolve`'s member map does.
-    let mut own: BTreeMap<Arc<str>, Arc<FieldEntry>> = BTreeMap::new();
-    let mut own_order = Vec::new();
-    for (owner, declared) in &component.members {
-        for decl in &declared.fields {
-            let identity: Arc<str> = Arc::from(decl.identity.as_ref());
-            if !own.contains_key(&identity) {
-                own_order.push(Arc::clone(&identity));
-            }
-            own.insert(
-                Arc::clone(&identity),
-                Arc::new(FieldEntry {
-                    identity,
-                    declaring_owner: Box::from(*owner),
-                    member_type: model.field_type(decl),
-                    decl: decl.clone(),
-                }),
-            );
-        }
-    }
+    // another hides is hidden. The first of each identity stays.
+    let mut inherited: Vec<(&str, usize, &Arc<FieldEntry>)> = budget.vec(slots.len(), F)?;
+    inherited.extend(
+        slots
+            .iter()
+            .enumerate()
+            .map(|(at, slot)| (slot.entry.identity.as_ref(), at, slot.entry)),
+    );
+    inherited.sort_unstable_by(|a, b| a.0.cmp(b.0).then(a.1.cmp(&b.1)));
+    inherited.dedup_by(|later, earlier| later.0 == earlier.0);
+    inherited.retain(|(identity, _, _)| {
+        hidden0
+            .binary_search_by(|hidden| name(hidden).cmp(identity))
+            .is_err()
+    });
+    drop(hidden0);
+
     // FR-322 step 3: a redefinition hides its target; a redefiner of a target
     // that a redefiner in a more derived owner also redefines is hidden, and
     // every owner here is more derived than every owner copied. A member of a
     // cycle is its own ancestor, so each of its redefiners hides itself.
-    let mut by_target: BTreeMap<&str, Vec<&Arc<str>>> = BTreeMap::new();
-    for entry in &inherited {
+    let redefiners = inherited
+        .iter()
+        .filter(|(_, _, entry)| entry.decl.redefines.is_some())
+        .count();
+    let mut by_target: Vec<(&str, &Arc<str>)> = budget.vec(redefiners, F)?;
+    for (_, _, entry) in &inherited {
         if let Some(target) = entry.decl.redefines.as_deref() {
-            by_target.entry(target).or_default().push(&entry.identity);
+            by_target.push((target, &entry.identity));
         }
     }
-    for entry in own.values() {
+    by_target.sort_unstable_by(|a, b| a.0.cmp(b.0));
+    let mut hiding = 0_usize;
+    for (_, entry) in &own {
+        if let Some(target) = entry.decl.redefines.as_deref() {
+            hiding += 1 + usize::from(component.cyclic) + redefined(&by_target, target).count();
+        }
+    }
+    let mut hidden_names: Vec<Named<'_>> = budget.vec(hiding, F)?;
+    for (_, entry) in &own {
         let Some(target) = entry.decl.redefines.as_deref() else {
             continue;
         };
-        hidden.insert(Arc::from(target));
+        hidden_names.push((target, None));
         if component.cyclic {
-            hidden.insert(Arc::clone(&entry.identity));
+            hidden_names.push((entry.identity.as_ref(), Some(&entry.identity)));
         }
-        hidden.extend(
-            by_target
-                .get(target)
-                .into_iter()
-                .flatten()
-                .map(|id| Arc::clone(*id)),
-        );
+        hidden_names.extend(redefined(&by_target, target).map(|(_, id)| (id.as_ref(), Some(*id))));
     }
-    drop(by_target);
-    for identity in own_order {
-        let Some(entry) = own.get(&identity) else {
-            continue;
-        };
-        let mut origins = BTreeSet::from([Arc::clone(&entry.identity)]);
-        if let Some(target) = entry.decl.redefines.as_deref() {
-            origins.insert(Arc::from(target));
-            for slot in &ordered_slots {
-                if slot.origins.contains(target) {
-                    origins.extend(slot.origins.iter().cloned());
-                }
+    // The hidden entries the supertypes' tables carry are part of the result.
+    let mut hidden_all: Vec<Named<'_>> = budget.vec(hidden_names.len() + inherited_hidden, F)?;
+    for (_, members) in &component.members {
+        for supertype in &members.supertypes {
+            if let Some(table) = built.of(supertype) {
+                hidden_all.extend(table.hidden.iter().map(|id| (id.as_ref(), Some(id))));
             }
         }
-        ordered_slots.push(OrderedField {
-            entry: Arc::clone(entry),
-            origins,
+    }
+    hidden_all.extend(hidden_names.iter().copied());
+    drop(hidden_names);
+    let fresh = distinct(&mut hidden_all);
+    let hidden = spell(&hidden_all, fresh, budget)?;
+    drop(hidden_all);
+    let is_hidden = |identity: &str| {
+        hidden
+            .binary_search_by(|hidden| name(hidden).cmp(identity))
+            .is_ok()
+    };
+
+    // Each own field's slot: its identity, the member it redefines, and the
+    // origins of every slot already placed that holds that member.
+    let mut own_origins: Vec<Vec<Arc<str>>> = budget.vec(own.len(), F)?;
+    for &at in &own_order {
+        let Some((_, entry)) = own.get(at) else {
+            continue;
+        };
+        let target = entry.decl.redefines.as_deref();
+        let holds = |slot: &Slot<'_>| {
+            target.is_some_and(|target| {
+                origins_in(slot.origins, &own_origins)
+                    .binary_search_by(|origin| origin.as_ref().cmp(target))
+                    .is_ok()
+            })
+        };
+        let mut count = 1 + usize::from(target.is_some());
+        for slot in &slots {
+            if holds(slot) {
+                count += origins_in(slot.origins, &own_origins).len();
+            }
+        }
+        let origins = {
+            let mut names: Vec<Named<'_>> = budget.vec(count, F)?;
+            names.push((entry.identity.as_ref(), Some(&entry.identity)));
+            if let Some(target) = target {
+                names.push((target, None));
+            }
+            for slot in &slots {
+                if holds(slot) {
+                    names.extend(
+                        origins_in(slot.origins, &own_origins)
+                            .iter()
+                            .map(|id| (id.as_ref(), Some(id))),
+                    );
+                }
+            }
+            let fresh = distinct(&mut names);
+            spell(&names, fresh, budget)?
+        };
+        let index = own_origins.len();
+        own_origins.push(origins);
+        slots.push(Slot {
+            entry,
+            origins: Origins::Own(index),
         });
     }
-    let mut exposed: Vec<Arc<FieldEntry>> = inherited;
-    exposed.extend(own.into_values());
-    exposed.sort_by(|a, b| a.identity.cmp(&b.identity));
-    exposed.dedup_by(|a, b| a.identity == b.identity);
-    exposed.retain(|entry| !hidden.contains(&entry.identity));
-    let mut first_origin = BTreeMap::new();
-    let mut first_entry = BTreeMap::new();
-    let mut origins_by_identity: BTreeMap<Arc<str>, BTreeSet<Arc<str>>> = BTreeMap::new();
-    for (position, slot) in ordered_slots.iter().enumerate() {
-        first_entry
-            .entry(Arc::clone(&slot.entry.identity))
-            .or_insert(position);
-        origins_by_identity
-            .entry(Arc::clone(&slot.entry.identity))
-            .or_default()
-            .extend(slot.origins.iter().cloned());
-        for origin in &slot.origins {
-            first_origin.entry(Arc::clone(origin)).or_insert(position);
+
+    // The exposed fields: inherited and own, one per identity (an inherited
+    // one wins), those not hidden.
+    let mut merged: Vec<(&str, u8, &Arc<FieldEntry>)> =
+        budget.vec(inherited.len() + own.len(), F)?;
+    merged.extend(
+        inherited
+            .iter()
+            .map(|(identity, _, entry)| (*identity, 0, *entry)),
+    );
+    merged.extend(
+        own.iter()
+            .map(|(_, entry)| (entry.identity.as_ref(), 1, entry)),
+    );
+    drop(inherited);
+    merged.sort_unstable_by(|a, b| a.0.cmp(b.0).then(a.1.cmp(&b.1)));
+    merged.dedup_by(|later, earlier| later.0 == earlier.0);
+    merged.retain(|(identity, _, _)| !is_hidden(identity));
+    let mut exposed: Vec<Arc<FieldEntry>> = budget.vec(merged.len(), F)?;
+    exposed.extend(merged.iter().map(|(_, _, entry)| Arc::clone(entry)));
+    drop(merged);
+
+    // Where each identity and each origin first appears among the slots.
+    let mut by_identity: Vec<(&str, usize)> = budget.vec(slots.len(), F)?;
+    by_identity.extend(
+        slots
+            .iter()
+            .enumerate()
+            .map(|(at, slot)| (slot.entry.identity.as_ref(), at)),
+    );
+    by_identity.sort_unstable();
+    let origin_count: usize = slots
+        .iter()
+        .map(|slot| origins_in(slot.origins, &own_origins).len())
+        .sum();
+    let mut by_origin: Vec<(&str, usize)> = budget.vec(origin_count, F)?;
+    for (at, slot) in slots.iter().enumerate() {
+        by_origin.extend(
+            origins_in(slot.origins, &own_origins)
+                .iter()
+                .map(|origin| (origin.as_ref(), at)),
+        );
+    }
+    by_origin.sort_unstable();
+    by_origin.dedup_by(|later, earlier| later.0 == earlier.0);
+
+    let mut ordered_exposed: Vec<OrderedField> = budget.vec(exposed.len(), F)?;
+    let mut keys: Vec<(&str, usize, usize)> = budget.vec(exposed.len(), F)?;
+    for entry in &exposed {
+        let identity = entry.identity.as_ref();
+        let start = by_identity.partition_point(|row| row.0 < identity);
+        let group = by_identity
+            .get(start..)
+            .unwrap_or_default()
+            .iter()
+            .take_while(|row| row.0 == identity);
+        let mut count = 0;
+        let mut declared_position = usize::MAX;
+        let mut inherited_position = usize::MAX;
+        for &(_, at) in group.clone() {
+            declared_position = declared_position.min(at);
+            if let Some(slot) = slots.get(at) {
+                count += origins_in(slot.origins, &own_origins).len();
+            }
+        }
+        let origins = {
+            let mut names: Vec<Named<'_>> = budget.vec(count.max(1), F)?;
+            if count == 0 {
+                names.push((identity, Some(&entry.identity)));
+            }
+            for &(_, at) in group {
+                let Some(slot) = slots.get(at) else {
+                    continue;
+                };
+                for origin in origins_in(slot.origins, &own_origins) {
+                    names.push((origin.as_ref(), Some(origin)));
+                    if let Ok(found) = by_origin.binary_search_by(|row| row.0.cmp(origin.as_ref()))
+                    {
+                        if let Some(&(_, first)) = by_origin.get(found) {
+                            inherited_position = inherited_position.min(first);
+                        }
+                    }
+                }
+            }
+            let fresh = distinct(&mut names);
+            spell(&names, fresh, budget)?
+        };
+        keys.push((identity, inherited_position, declared_position));
+        ordered_exposed.push(OrderedField {
+            entry: Arc::clone(entry),
+            origins: SortedSet::from_sorted(origins),
+        });
+    }
+    let key = |slot: &OrderedField| {
+        keys.binary_search_by(|row| row.0.cmp(slot.entry.identity.as_ref()))
+            .ok()
+            .and_then(|at| keys.get(at))
+            .map_or((usize::MAX, usize::MAX), |row| (row.1, row.2))
+    };
+    ordered_exposed.sort_unstable_by(|a, b| {
+        key(a)
+            .cmp(&key(b))
+            .then_with(|| a.entry.identity.cmp(&b.entry.identity))
+    });
+    drop((keys, by_identity, by_origin));
+    drop(own_origins);
+
+    // The smallest name two exposed fields share.
+    let mut names: Vec<&str> = budget.vec(exposed.len(), F)?;
+    names.extend(exposed.iter().map(|entry| entry.name()));
+    names.sort_unstable();
+    let ambiguous = names
+        .windows(2)
+        .find(|pair| pair.first() == pair.get(1))
+        .and_then(|pair| pair.first().copied())
+        .map(|name| budget.text(name, F))
+        .transpose()?;
+    let distinct = names
+        .iter()
+        .enumerate()
+        .filter(|&(at, name)| at == 0 || names.get(at - 1) != Some(name))
+        .count();
+    let mut spelled: Vec<Box<str>> = budget.vec(distinct, F)?;
+    for (at, &name) in names.iter().enumerate() {
+        if at == 0 || names.get(at - 1) != Some(&name) {
+            spelled.push(budget.text(name, F)?);
         }
     }
-    let mut ordered_exposed: Vec<OrderedField> = exposed
-        .iter()
-        .map(|entry| OrderedField {
-            entry: Arc::clone(entry),
-            origins: origins_by_identity
-                .remove(&entry.identity)
-                .unwrap_or_else(|| BTreeSet::from([Arc::clone(&entry.identity)])),
-        })
-        .collect();
-    ordered_exposed.sort_by_key(|slot| {
-        let inherited_position = slot
-            .origins
-            .iter()
-            .filter_map(|origin| first_origin.get(origin))
-            .copied()
-            .min()
-            .unwrap_or(usize::MAX);
-        let declared_position = first_entry
-            .get(&slot.entry.identity)
-            .copied()
-            .unwrap_or(usize::MAX);
-        (inherited_position, declared_position)
-    });
-    let mut seen = BTreeSet::new();
-    let ambiguous = exposed
-        .iter()
-        .map(|entry| entry.name())
-        .filter(|name| !seen.insert(*name))
-        .min()
-        .map(Box::from);
     Ok(FieldTable {
         exposed,
         ordered_exposed,
-        hidden: hidden.into_iter().collect(),
+        hidden,
         ambiguous,
+        names: spelled,
     })
 }
 
@@ -524,7 +843,7 @@ pub(super) struct DeclaredNode {
 /// An owned index from each selected declaration's model declaration node key
 /// to its selection row, form and node identity.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub(super) struct DeclarationIndex(pub(super) BTreeMap<CheckedNodeId, DeclaredNode>);
+pub(super) struct DeclarationIndex(pub(super) SortedMap<CheckedNodeId, DeclaredNode>);
 
 /// What an admitted [`CheckedPackageV2`] retains of its selected documents:
 /// the declaration index, each document's field tables, the selected
@@ -535,21 +854,36 @@ pub(super) struct DeclarationIndex(pub(super) BTreeMap<CheckedNodeId, DeclaredNo
 #[derive(Clone, Debug, Default)]
 pub(super) struct RetainedModels {
     index: DeclarationIndex,
-    original_declarations: BTreeMap<(usize, Box<str>), Option<CheckedNodeId>>,
-    by_identity: BTreeMap<Box<str>, usize>,
-    object_declarations: BTreeMap<usize, BTreeMap<Box<str>, DeclaringNode>>,
+    /// The declarations by selection and original identity, sorted.
+    original_declarations: Vec<OriginalRow>,
+    /// The selected documents' numbers, sorted by identity.
+    by_identity: Vec<usize>,
+    /// The object declarations by selection and original identity, sorted.
+    object_declarations: Vec<OriginalRow>,
     /// Admitted selected documents, including their field tables, for
     /// catalog binder resolution only when a refinement requests it.
     models: Vec<DomainModel>,
-    operation_types: BTreeMap<(usize, Box<str>, Box<str>), OperationTypes>,
-    relationships: BTreeMap<(usize, Box<str>), RetainedRelationship>,
+    operation_types: SortedMap<OperationKey, OperationTypes>,
+    relationships: SortedMap<(usize, Box<str>), RetainedRelationship>,
+}
+
+/// A selection, an object and an operation name.
+type OperationKey = (usize, Box<str>, Box<str>);
+
+/// A selection's declaration of one original identity: the entry of the
+/// declaration index that holds it, or that several do.
+#[derive(Clone, Copy, Debug)]
+struct OriginalRow {
+    selection: usize,
+    entry: usize,
+    ambiguous: bool,
 }
 
 /// The selected document's complete retained body for one admitted variant declaration.
 #[derive(Clone, Copy, Debug)]
 pub struct CheckedModelVariantBody<'a> {
     document: &'a str,
-    cases: &'a BTreeMap<Box<str>, SelectedVariantCase>,
+    cases: &'a SortedMap<Box<str>, SelectedVariantCase>,
 }
 
 impl<'a> CheckedModelVariantBody<'a> {
@@ -661,8 +995,8 @@ fn native_type_reference(native: &NativeTypeRef) -> &'static str {
 
 /// A selected owner has either one genuine declaration node or several.
 #[derive(Clone, Debug)]
-enum DeclaringNode {
-    One(CheckedNodeId),
+pub(super) enum DeclaringNode<'a> {
+    One(&'a CheckedNodeId),
     Ambiguous,
 }
 
@@ -677,8 +1011,59 @@ pub(super) struct RetainedRelationship {
 /// The selected model signature already checked against a clause by FR-341.
 #[derive(Clone, Debug)]
 pub(super) struct OperationTypes {
+    /// The order the operation was declared in, which settles a repeat.
+    seq: usize,
     pub(super) has_result: bool,
     pub(super) parameters: Vec<Option<CheckedMemberType>>,
+}
+
+/// The rows of the declarations of `entries` that `keep` admits, one for each
+/// selection and original identity, sorted by it; a pair several entries hold
+/// is marked ambiguous and names the first.
+fn original_rows(
+    entries: &[(CheckedNodeId, DeclaredNode)],
+    keep: impl Fn(&DeclaredNode) -> bool,
+    budget: &mut Budget<'_, '_>,
+) -> Result<Vec<OriginalRow>, ValidationFailure> {
+    budget.set_index(0);
+    let mut rows: Vec<OriginalRow> = budget.vec(entries.len(), "declarations")?;
+    for (entry, (_, declared)) in entries.iter().enumerate() {
+        if keep(declared) {
+            rows.push(OriginalRow {
+                selection: declared.selection,
+                entry,
+                ambiguous: false,
+            });
+        }
+    }
+    let node = |row: &OriginalRow| {
+        (
+            row.selection,
+            entries
+                .get(row.entry)
+                .map_or("", |entry| entry.1.node.as_ref()),
+            row.entry,
+        )
+    };
+    rows.sort_unstable_by_key(node);
+    let mut kept = 0;
+    let mut at = 0;
+    while let Some(first) = rows.get(at).copied() {
+        let same =
+            |row: &OriginalRow| node(row).0 == node(&first).0 && node(row).1 == node(&first).1;
+        let mut end = at + 1;
+        while rows.get(end).is_some_and(same) {
+            end += 1;
+        }
+        rows.swap(kept, at);
+        if let Some(row) = rows.get_mut(kept) {
+            row.ambiguous = end - at > 1;
+        }
+        kept += 1;
+        at = end;
+    }
+    rows.truncate(kept);
+    Ok(rows)
 }
 
 impl RetainedModels {
@@ -711,9 +1096,47 @@ impl RetainedModels {
         selection: usize,
         original: &str,
     ) -> Option<&CheckedNodeId> {
-        self.original_declarations
-            .get(&(selection, Box::from(original)))?
-            .as_ref()
+        let row = self.original_row(&self.original_declarations, selection, original)?;
+        if row.ambiguous {
+            return None;
+        }
+        self.index.0.as_slice().get(row.entry).map(|entry| &entry.0)
+    }
+
+    /// The row of `rows` for this selection and original identity.
+    fn original_row<'r>(
+        &self,
+        rows: &'r [OriginalRow],
+        selection: usize,
+        original: &str,
+    ) -> Option<&'r OriginalRow> {
+        let entries = self.index.0.as_slice();
+        let at = rows
+            .binary_search_by(|row| {
+                let node = entries
+                    .get(row.entry)
+                    .map_or("", |entry| entry.1.node.as_ref());
+                (row.selection, node).cmp(&(selection, original))
+            })
+            .ok()?;
+        rows.get(at)
+    }
+
+    /// The object declaration of this selection and original identity.
+    pub(super) fn object_declaration(
+        &self,
+        selection: usize,
+        original: &str,
+    ) -> Option<DeclaringNode<'_>> {
+        let row = self.original_row(&self.object_declarations, selection, original)?;
+        if row.ambiguous {
+            return Some(DeclaringNode::Ambiguous);
+        }
+        self.index
+            .0
+            .as_slice()
+            .get(row.entry)
+            .map(|entry| DeclaringNode::One(&entry.0))
     }
 
     /// The complete effective record fields in selected declaration order.
@@ -790,7 +1213,15 @@ impl RetainedModels {
 
     /// Look up one admitted selected document without visiting other selections.
     pub(super) fn selected_model(&self, identity: &str) -> Option<&DomainModel> {
-        self.models.get(*self.by_identity.get(identity)?)
+        let after = self.by_identity.partition_point(|&at| {
+            self.models
+                .get(at)
+                .is_some_and(|model| model.identity.as_ref() <= identity)
+        });
+        let model = self
+            .models
+            .get(*self.by_identity.get(after.checked_sub(1)?)?)?;
+        (model.identity.as_ref() == identity).then_some(model)
     }
 
     /// Effective operation classes of the selected model document named by its identity.
@@ -800,7 +1231,7 @@ impl RetainedModels {
         meter: &mut WorkMeter,
     ) -> Result<Vec<ModelOperationClass>, ValidationFailure> {
         let mut classes = Vec::new();
-        for (id, declared) in &self.index.0 {
+        for (id, declared) in self.index.0.iter() {
             let Some(model) = self.models.get(declared.selection) else {
                 continue;
             };
@@ -819,12 +1250,18 @@ impl RetainedModels {
             for operation in model.effective_operation_names(&declared.node, &mut budget)? {
                 let binder_types =
                     model.model_operation_binder_types(&declared.node, &operation, &mut budget)?;
-                classes.push(ModelOperationClass {
-                    object: member_name(&declared.node).into(),
-                    operation,
-                    node: id.clone(),
-                    binder_types,
-                });
+                let object = budget.text(member_name(&declared.node), "operation_class")?;
+                let node = budget.clone_id(id, "operation_class")?;
+                budget.push(
+                    &mut classes,
+                    ModelOperationClass {
+                        object,
+                        operation,
+                        node,
+                        binder_types,
+                    },
+                    "operation_class",
+                )?;
             }
         }
         Ok(classes)
@@ -916,10 +1353,7 @@ impl RetainedModels {
             .get(case)
     }
 
-    pub(super) fn refinement_object_fields(
-        &self,
-        key: &CheckedNodeId,
-    ) -> Option<BTreeSet<Box<str>>> {
+    pub(super) fn refinement_object_fields(&self, key: &CheckedNodeId) -> Option<&[Box<str>]> {
         let declared = self.index.0.get(key)?;
         if declared.form != DeclarationForm::ObjectType {
             return None;
@@ -929,83 +1363,134 @@ impl RetainedModels {
             .fields
             .exposed_names(&declared.node)
     }
+    #[cfg(test)]
+    /// The retained tables of `models` with nothing charged to a read-storage
+    /// budget.
     pub(super) fn new(index: DeclarationIndex, models: Vec<DomainModel>) -> Self {
-        let by_identity = models
+        let mut meter = WorkMeter::new(u64::MAX);
+        let mut budget = Budget::node(&mut meter, 0);
+        Self::build(index, models, &mut budget)
+            .unwrap_or_else(|_| unreachable!("an unmetered budget admits every request"))
+    }
+
+    /// [`Self::new`], each table and each owned key, name and type requested
+    /// of `budget` at `PackageRead(Graph, selection)` before it is made.
+    pub(super) fn build(
+        index: DeclarationIndex,
+        models: Vec<DomainModel>,
+        budget: &mut Budget<'_, '_>,
+    ) -> Result<Self, ValidationFailure> {
+        const F: &str = "declarations";
+        budget.set_index(0);
+        let mut by_identity: Vec<usize> = budget.vec(models.len(), F)?;
+        by_identity.extend(0..models.len());
+        by_identity.sort_unstable_by(|&a, &b| {
+            let identity = |at: usize| models.get(at).map(|model| model.identity.as_ref());
+            identity(a).cmp(&identity(b)).then(a.cmp(&b))
+        });
+        let entries = index.0.as_slice();
+        let original_declarations = original_rows(entries, |_| true, budget)?;
+        let object_declarations = original_rows(
+            entries,
+            |declared| declared.form == DeclarationForm::ObjectType,
+            budget,
+        )?;
+        let operations: usize = models
             .iter()
-            .enumerate()
-            .map(|(selection, model)| (model.identity.clone(), selection))
-            .collect();
-        let mut object_declarations: BTreeMap<usize, BTreeMap<Box<str>, DeclaringNode>> =
-            BTreeMap::new();
-        let mut original_declarations = BTreeMap::new();
-        for (key, declared) in &index.0 {
-            original_declarations
-                .entry((declared.selection, declared.node.clone()))
-                .and_modify(|entry| *entry = None)
-                .or_insert_with(|| Some(key.clone()));
-            if declared.form == DeclarationForm::ObjectType {
-                object_declarations
-                    .entry(declared.selection)
-                    .or_default()
-                    .entry(declared.node.clone())
-                    .and_modify(|entry| *entry = DeclaringNode::Ambiguous)
-                    .or_insert_with(|| DeclaringNode::One(key.clone()));
-            }
-        }
-        let mut operation_types = BTreeMap::new();
+            .flat_map(|model| model.object_types.values())
+            .map(|declared| declared.operations.len())
+            .sum();
+        let mut operation_rows: Vec<(OperationKey, OperationTypes)> = budget.vec(operations, F)?;
         for (selection, model) in models.iter().enumerate() {
-            for (object, declared) in &model.object_types {
+            budget.set_index(selection);
+            for (object, declared) in model.object_types.iter() {
                 for operation in &declared.operations {
-                    operation_types.insert(
-                        (
-                            selection,
-                            object.clone(),
-                            Box::from(member_name(&operation.identity)),
-                        ),
+                    let name = member_name(&operation.identity);
+                    budget.request(object.len() + name.len(), F)?;
+                    let key = (selection, object.clone(), Box::from(name));
+                    budget.request(
+                        operation
+                            .parameters
+                            .len()
+                            .saturating_mul(std::mem::size_of::<Option<CheckedMemberType>>()),
+                        F,
+                    )?;
+                    let mut parameters = Vec::with_capacity(operation.parameters.len());
+                    for slot in &operation.parameters {
+                        let member = model.slot_type_charged(slot, false, budget, F)?;
+                        if let Some(member) = &member {
+                            budget.request(checked_member_type_bytes(member), F)?;
+                        }
+                        parameters.push(member.as_ref().map(CheckedMemberType::from));
+                    }
+                    let seq = operation_rows.len();
+                    operation_rows.push((
+                        key,
                         OperationTypes {
+                            seq,
                             has_result: operation.result.is_some(),
-                            parameters: operation
-                                .parameters
-                                .iter()
-                                .map(|slot| {
-                                    model.slot_type(slot).as_ref().map(CheckedMemberType::from)
-                                })
-                                .collect(),
+                            parameters,
                         },
-                    );
+                    ));
                 }
             }
         }
-        let mut relationships = BTreeMap::new();
+        // A repeated operation keeps its last declaration.
+        operation_rows.sort_unstable_by(|a, b| a.0.cmp(&b.0).then(a.1.seq.cmp(&b.1.seq)));
+        let mut kept = 0;
+        for at in 0..operation_rows.len() {
+            let repeated = operation_rows
+                .get(at)
+                .zip(operation_rows.get(at + 1))
+                .is_some_and(|(this, next)| this.0 == next.0);
+            if !repeated {
+                operation_rows.swap(kept, at);
+                kept += 1;
+            }
+        }
+        operation_rows.truncate(kept);
+        let operation_types = SortedMap::from_sorted(operation_rows);
+        let total: usize = models.iter().map(|model| model.relationships.len()).sum();
+        let mut relationship_rows = budget.vec(total, F)?;
         for (selection, model) in models.iter().enumerate() {
-            for (node, declaration) in &model.relationships {
-                relationships.insert(
+            budget.set_index(selection);
+            for (node, declaration) in model.relationships.iter() {
+                budget.request(node.len() + relationship_decl_bytes(declaration), F)?;
+                relationship_rows.push((
                     (selection, node.clone()),
                     RetainedRelationship {
                         declaration: declaration.clone(),
                     },
-                );
+                ));
             }
         }
-        Self {
+        Ok(Self {
             index,
             original_declarations,
             by_identity,
             object_declarations,
             models,
             operation_types,
-            relationships,
-        }
+            relationships: SortedMap::from_sorted(relationship_rows),
+        })
     }
 
-    pub(super) fn record_binder_types(&self, key: &CheckedNodeId) -> Option<RecordBinderTypes> {
-        let declared = self.index.0.get(key)?;
+    pub(super) fn record_binder_types(
+        &self,
+        key: &CheckedNodeId,
+        meter: &mut WorkMeter,
+    ) -> Result<Option<RecordBinderTypes>, ValidationFailure> {
+        let Some(declared) = self.index.0.get(key) else {
+            return Ok(None);
+        };
         if declared.form != DeclarationForm::RecordValueType {
-            return None;
+            return Ok(None);
         }
-        self.models
-            .get(declared.selection)?
-            .record_binder_types(&declared.node)
+        let Some(model) = self.models.get(declared.selection) else {
+            return Ok(None);
+        };
+        let mut budget = Budget::new(meter, model.root, model.bytes);
+        model.record_binder_types(&declared.node, &mut budget)
     }
 
     pub(super) fn is_record_type(&self, key: &CheckedNodeId) -> bool {
@@ -1589,20 +2074,18 @@ impl CheckedPackageV2 {
                 let entry = &slot.entry;
                 let declaring_node_id = match self
                     .models
-                    .object_declarations
-                    .get(&selection)
-                    .and_then(|owners| owners.get(entry.declaring_owner.as_ref()))
+                    .object_declaration(selection, entry.declaring_owner.as_ref())
                 {
                     Some(DeclaringNode::One(id)) => id.clone(),
                     Some(DeclaringNode::Ambiguous) => {
                         return Err(CheckedModelFieldsError::AmbiguousDeclaringNode {
                             field_identity: entry.identity.as_ref().into(),
-                        })
+                        });
                     }
                     None => {
                         return Err(CheckedModelFieldsError::MissingDeclaringNode {
                             field_identity: entry.identity.as_ref().into(),
-                        })
+                        });
                     }
                 };
                 Ok(CheckedModelField {

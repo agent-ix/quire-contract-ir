@@ -2,18 +2,19 @@
 //! Structural admission and bounded reads of producer-selected equality decisions.
 
 use super::checked_term_data::{CheckedEqualityOperator, CheckedTermDataV2};
+use super::dispatch_projection::{self, data_site};
 use super::exact_projection::SelectedSourceUnitRow;
 use super::extension::integer_range_bounds;
 use super::operations::is_type_shaped;
+use super::stage_storage::{self, Path};
 use super::{
     ApplicationOperator, BoundedDomainForm, CheckedNodeKind, CheckedNodeOwner, CheckedPackageV2,
-    CheckedResolvedEqualityUnitForm, CheckedTerm, ExpressionForm, ModelForm, NativeJoinBudget,
-    NativeJoinChargeKind, RawCheckedPackageWireV2, ScalarTypeForm, ValueForm, WorkMeter,
+    CheckedPackageWireV2, CheckedResolvedEqualityUnitForm, CheckedTerm, ExpressionForm, ModelForm,
+    NativeJoinBudget, NativeJoinChargeKind, ScalarTypeForm, ValueForm, WorkMeter,
 };
 use crate::checked_package::common::ValidationFailure;
 use crate::checked_package::shared::{
-    CheckedNodeId, CheckedOccurrence, CheckedOccurrenceRole, CheckedPackageRefusalCause,
-    CheckedPackageRefusalCode, CheckedSourceMapEntry, JsonPointer,
+    CheckedNodeId, CheckedOccurrence, CheckedOccurrenceRole, CheckedSourceMapEntry,
 };
 use quire_exact::{
     Integer, IntegerInterval, LimitKind, Location, Meter, NodeKey, Rational, ScalarLimits,
@@ -28,47 +29,45 @@ use quire_semantic_value::reader_admission::{
     mint_admitted_equality_decision, EqualityMaterializationCode, EqualityMaterializationError,
     EqualityMaterializationLocus, ReaderSeal,
 };
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 
-fn argument_type(
-    argument: &CheckedTerm,
-    wire: &RawCheckedPackageWireV2,
+fn argument_type<'a, Body>(
+    argument: &'a CheckedTerm,
+    wire: &'a CheckedPackageWireV2<Body>,
     kinds: &[CheckedNodeKind],
-    index: &BTreeMap<&CheckedNodeId, usize>,
-) -> Option<CheckedNodeId> {
+    index: &[(&CheckedNodeId, usize)],
+) -> Option<&'a CheckedNodeId> {
     match argument {
-        CheckedTerm::Literal { type_id, .. } => Some(type_id.clone()),
-        CheckedTerm::Application { result_type, .. } => Some(result_type.clone()),
+        CheckedTerm::Literal { type_id, .. } => Some(type_id),
+        CheckedTerm::Application { result_type, .. } => Some(result_type),
         CheckedTerm::Reference { target } => {
-            let position = *index.get(target)?;
+            let position = dispatch_projection::position_of(index, target)?;
             if is_type_shaped(*kinds.get(position)?) {
-                Some(target.clone())
+                Some(target)
             } else {
-                Some(
-                    wire.semantic_graph
-                        .nodes
-                        .get(position)?
-                        .semantic_type
-                        .clone(),
-                )
+                Some(&wire.semantic_graph.nodes.get(position)?.semantic_type)
             }
         }
         _ => None,
     }
 }
 
-fn argument_types(
-    argument: &CheckedTerm,
-    wire: &RawCheckedPackageWireV2,
+/// The compared type of an operand, and the type a conversion operand is
+/// converted from, borrowed from the term and the graph.
+type ArgumentTypes<'a> = (&'a CheckedNodeId, Option<&'a CheckedNodeId>);
+
+fn argument_types<'a, Body>(
+    argument: &'a CheckedTerm,
+    wire: &'a CheckedPackageWireV2<Body>,
     kinds: &[CheckedNodeKind],
-    terms: &[CheckedTerm],
-    index: &BTreeMap<&CheckedNodeId, usize>,
-) -> Option<(CheckedNodeId, Option<CheckedNodeId>)> {
+    terms: &'a [CheckedTerm],
+    index: &[(&CheckedNodeId, usize)],
+) -> Option<ArgumentTypes<'a>> {
     let compared = argument_type(argument, wire, kinds, index)?;
     let CheckedTerm::Reference { target } = argument else {
         return Some((compared, None));
     };
-    let position = *index.get(target)?;
+    let position = dispatch_projection::position_of(index, target)?;
     let Some(CheckedTerm::Application {
         operation,
         arguments,
@@ -87,14 +86,6 @@ fn argument_types(
         return None;
     };
     Some((argument_type(source, wire, kinds, index)?, Some(compared)))
-}
-
-fn invalid(path: JsonPointer) -> ValidationFailure {
-    ValidationFailure::refused_because(
-        CheckedPackageRefusalCode::InvalidPackage,
-        path,
-        CheckedPackageRefusalCause::InvalidValue,
-    )
 }
 
 pub(super) fn text_bounds(term: &CheckedTerm) -> Option<(&str, &str, &str)> {
@@ -134,9 +125,9 @@ pub(super) fn equality_operator(identity: &str) -> Option<CheckedEqualityOperato
 }
 
 /// Join each raw decision to the admitted application's own node and occurrence.
-pub(super) fn validate(
+pub(super) fn validate<Body>(
     data: &CheckedTermDataV2,
-    wire: &RawCheckedPackageWireV2,
+    wire: &CheckedPackageWireV2<Body>,
     kinds: &[CheckedNodeKind],
     terms: &[CheckedTerm],
     meter: &mut WorkMeter,
@@ -145,57 +136,69 @@ pub(super) fn validate(
         return Ok(());
     }
     let nodes = &wire.semantic_graph.nodes;
-    let mut index = BTreeMap::new();
+    let data_at = Path::root().key("checked_term_data");
+    // The graph's node ids and the source map's occurrences, ascending, each
+    // charged one unit of work per member as it is entered.
+    let mut index: Vec<(&CheckedNodeId, usize)> =
+        stage_storage::vec(meter, &data_site(0, data_at), nodes.len())?;
     for (position, node) in nodes.iter().enumerate() {
-        meter.charge(1, || {
-            JsonPointer::root()
-                .key("semantic_graph")
-                .key("nodes")
-                .index(position)
-        })?;
-        index.insert(&node.node_id, position);
+        let at = Path::root()
+            .key("semantic_graph")
+            .key("nodes")
+            .index(position);
+        stage_storage::work(meter, &data_site(position, at), 1)?;
+        index.push((&node.node_id, position));
     }
-    let mut source_occurrences = BTreeSet::new();
+    index.sort_unstable();
+    let mut source_occurrences: Vec<dispatch_projection::Occurrence<'_>> =
+        stage_storage::vec(meter, &data_site(0, data_at), wire.source_map.len())?;
     for (position, entry) in wire.source_map.iter().enumerate() {
-        meter.charge(1, || JsonPointer::root().key("source_map").index(position))?;
-        source_occurrences.insert((&entry.node_id, &entry.role, entry.ordinal));
+        let at = Path::root().key("source_map").index(position);
+        stage_storage::work(meter, &data_site(position, at), 1)?;
+        source_occurrences.push((&entry.node_id, &entry.role, entry.ordinal));
     }
-    let mut seen = BTreeSet::new();
+    source_occurrences.sort_unstable();
+    let decisions = data_at.key("equality_decisions");
+    let repeated = stage_storage::first_repeat(
+        meter,
+        &data_site(0, decisions),
+        data.equality_decisions
+            .iter()
+            .map(|decision| (&decision.application, &decision.occurrence)),
+    )?;
     for (row_index, decision) in data.equality_decisions.iter().enumerate() {
-        let row = JsonPointer::root()
-            .key("checked_term_data")
-            .key("equality_decisions")
-            .index(row_index);
-        meter.charge(1, || row.clone())?;
-        if !seen.insert((&decision.application, &decision.occurrence)) {
-            return Err(ValidationFailure::refused_because(
-                CheckedPackageRefusalCode::InvalidPackage,
-                row,
-                CheckedPackageRefusalCause::ConflictingDefinition,
-            ));
+        let row = decisions.index(row_index);
+        stage_storage::work(meter, &data_site(row_index, row), 1)?;
+        if repeated == Some(row_index) {
+            return Err(dispatch_projection::conflicting(meter, row_index, row));
         }
-        let Some(&position) = index.get(&decision.application) else {
-            return Err(invalid(row.key("application")));
+        let invalid = |meter: &mut WorkMeter, at: Path<'static>| {
+            dispatch_projection::invalid(meter, row_index, at)
+        };
+        let Some(position) = dispatch_projection::position_of(&index, &decision.application) else {
+            return Err(invalid(meter, row.key("application")));
         };
         if decision.application.package != wire.name
             || kinds.get(position) != Some(&CheckedNodeKind::Expression(ExpressionForm::Binary))
         {
-            return Err(invalid(row.key("application")));
+            return Err(invalid(meter, row.key("application")));
         }
         let Some(node) = nodes.get(position) else {
-            return Err(invalid(row.key("application")));
+            return Err(invalid(meter, row.key("application")));
         };
         if !node.occurrences.contains(&decision.occurrence)
-            || !source_occurrences.contains(&(
-                &decision.application,
-                &decision.occurrence.role,
-                decision.occurrence.ordinal,
-            ))
+            || source_occurrences
+                .binary_search(&(
+                    &decision.application,
+                    &decision.occurrence.role,
+                    decision.occurrence.ordinal,
+                ))
+                .is_err()
         {
-            return Err(invalid(row.key("occurrence")));
+            return Err(invalid(meter, row.key("occurrence")));
         }
         if !decision.term_path.is_empty() {
-            return Err(invalid(row.key("term_path").index(0)));
+            return Err(invalid(meter, row.key("term_path").index(0)));
         }
         let Some(CheckedTerm::Application {
             operator: ApplicationOperator::Binary,
@@ -204,34 +207,34 @@ pub(super) fn validate(
             ..
         }) = terms.get(position)
         else {
-            return Err(invalid(row.key("application")));
+            return Err(invalid(meter, row.key("application")));
         };
         let Some(actual_operator) = operation.identity().and_then(equality_operator) else {
-            return Err(invalid(row.key("application")));
+            return Err(invalid(meter, row.key("application")));
         };
         if actual_operator != decision.operator {
-            return Err(invalid(row.key("operator")));
+            return Err(invalid(meter, row.key("operator")));
         }
         if arguments.len() != 2 {
-            return Err(invalid(row.key("application")));
+            return Err(invalid(meter, row.key("application")));
         }
         for (ordinal, operand) in [&decision.left, &decision.right].into_iter().enumerate() {
-            let at = row.clone().key(if ordinal == 0 { "left" } else { "right" });
-            meter.charge(1, || at.clone())?;
+            let at = row.key(if ordinal == 0 { "left" } else { "right" });
+            stage_storage::work(meter, &data_site(row_index, at), 1)?;
             if usize::from(operand.operand) != ordinal {
-                return Err(invalid(at.key("operand")));
+                return Err(invalid(meter, at.key("operand")));
             }
             let Some((source_type, conversion_target)) = arguments
                 .get(ordinal)
                 .and_then(|argument| argument_types(argument, wire, kinds, terms, &index))
             else {
-                return Err(invalid(at.key("source_type")));
+                return Err(invalid(meter, at.key("source_type")));
             };
-            if source_type != operand.source_type {
-                return Err(invalid(at.key("source_type")));
+            if *source_type != operand.source_type {
+                return Err(invalid(meter, at.key("source_type")));
             }
-            if conversion_target != operand.conversion_target {
-                return Err(invalid(at.key("conversion_target")));
+            if conversion_target != operand.conversion_target.as_ref() {
+                return Err(invalid(meter, at.key("conversion_target")));
             }
         }
     }
@@ -1339,7 +1342,7 @@ fn validate_dimension_terms(
                     Some(CheckedNodeOwner::Model { .. })
                 ) =>
             {
-                continue
+                continue;
             }
             _ => {
                 return Err(read_error(
@@ -1348,7 +1351,7 @@ fn validate_dimension_terms(
                     application,
                     &declaration.structural_node,
                     0,
-                ))
+                ));
             }
         };
         let Some(terms) = body.dimension_details() else {
@@ -2107,7 +2110,7 @@ impl CheckedPackageV2 {
                 0,
             ));
         }
-        let Some(&position) = self.node_index.get(application) else {
+        let Some(position) = self.node_position(application) else {
             return Err(read_error(
                 work,
                 AdmittedEqualityReadErrorCode::UnknownApplication,
@@ -2129,7 +2132,7 @@ impl CheckedPackageV2 {
             operator: ApplicationOperator::Binary,
             operation,
             ..
-        }) = self.terms.get(position)
+        }) = self.term_at(position)
         else {
             return Err(read_error(
                 work,
@@ -2154,11 +2157,8 @@ impl CheckedPackageV2 {
             application,
             super::native_join_storage::node(application),
         )?;
-        let source_position = self.source_index.get(&(
-            application.clone(),
-            occurrence.role.clone(),
-            occurrence.ordinal,
-        ));
+        let source_position =
+            self.source_position(application, &occurrence.role, occurrence.ordinal);
         if !self.wire.semantic_graph.nodes[position]
             .occurrences
             .contains(occurrence)
@@ -2229,25 +2229,24 @@ impl CheckedPackageV2 {
                 &candidate.application,
                 super::native_join_storage::node(&candidate.application),
             )?;
-            let candidate_source = self.source_index.get(&(
-                candidate.application.clone(),
-                candidate.occurrence.role.clone(),
+            let candidate_source = self.source_position(
+                &candidate.application,
+                &candidate.occurrence.role,
                 candidate.occurrence.ordinal,
-            ));
+            );
             for _ in &candidate.source_map_entry.regions {
                 charge_work(work, application, &candidate.application)?;
             }
             let candidate_valid =
-                self.node_index
-                    .get(&candidate.application)
+                self.node_position(&candidate.application)
                     .is_some_and(|position| {
-                        self.kinds.get(*position)
+                        self.kinds.get(position)
                             == Some(&CheckedNodeKind::Expression(ExpressionForm::Binary))
-                            && matches!(self.terms.get(*position), Some(CheckedTerm::Application {
+                            && matches!(self.term_at(position), Some(CheckedTerm::Application {
                         operator: ApplicationOperator::Binary, operation, ..
                     }) if operation.identity().and_then(equality_operator).is_some())
                     })
-                    && candidate_source.and_then(|position| self.wire.source_map.get(*position))
+                    && candidate_source.and_then(|position| self.wire.source_map.get(position))
                         == Some(&candidate.source_map_entry)
                     && *candidate.location.node() == candidate.node_key
                     && candidate.location.occurrence().ordinal() == candidate.occurrence.ordinal

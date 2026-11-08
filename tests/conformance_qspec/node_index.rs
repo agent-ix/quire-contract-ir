@@ -19,30 +19,9 @@ use serde_json::{json, Value};
 use std::collections::BTreeSet;
 use std::sync::Arc;
 
-fn apply_patch(package: &mut Value, patch: &Value) {
-    let path = patch["path"].as_str().expect("published patch path");
-    let (parent, member) = path.rsplit_once('/').expect("published patch member");
-    let target = package.pointer_mut(parent).expect("published patch parent");
-    let operation = patch["op"].as_str().expect("published patch operation");
-    match (operation, target) {
-        ("replace", Value::Array(items)) => {
-            let index: usize = member.parse().expect("published array index");
-            *items.get_mut(index).expect("published replacement target") = patch["value"].clone();
-        }
-        ("add", Value::Array(items)) if member == "-" => items.push(patch["value"].clone()),
-        ("remove", Value::Array(items)) => {
-            let index: usize = member.parse().expect("published array index");
-            items.remove(index);
-        }
-        ("add", Value::Array(items)) => {
-            let index: usize = member.parse().expect("published array index");
-            assert!(index <= items.len(), "{path}: published insertion target");
-            items.insert(index, patch["value"].clone());
-        }
-        _ => panic!("unsupported published patch {operation} at {path}"),
-    }
-}
+use super::qspec_inputs::apply_node_index_patch as apply_patch;
 
+/// Trace: FR-038-AC-377, FR-038-AC-378, FR-038-AC-520, FR-038-AC-521
 #[trace(
     "TC-048",
     "FR-038-AC-377",
@@ -79,22 +58,10 @@ fn published_operand_vectors_refuse_in_the_fr322_check_order() {
             // The operand checks (and, for NI-22, the duplicate check) pass:
             // a later semantic refusal is allowed, an operand or duplicate-id
             // refusal is not.
-            if let CheckedPackageV2ReadResult::Refused(refusal) = &actual {
-                assert_ne!(
-                    code_word(refusal.code),
-                    "malformed_wire",
-                    "{id}: operand check"
-                );
-                assert!(
-                    refusal
-                        .loci
-                        .iter()
-                        .all(|locus| locus.path.as_ref().is_none_or(
-                            |path| path.to_string() != "/semantic_graph/nodes/4/node_id"
-                        )),
-                    "{id}: duplicate-id check: {refusal:?}"
-                );
-            }
+            assert!(
+                super::qspec_inputs::operand_checks_pass(&actual),
+                "{id}: operand and duplicate-id stage checks: {actual:?}"
+            );
             continue;
         }
         let CheckedPackageV2ReadResult::Refused(refusal) = actual else {
@@ -145,6 +112,7 @@ fn node_id_of(value: &Value) -> CheckedNodeId {
     serde_json::from_value(value.clone()).expect("published node id")
 }
 
+/// Trace: FR-038-AC-520, FR-038-AC-523
 #[trace("TC-048", "FR-038-AC-520", "FR-038-AC-523")]
 #[test]
 fn operand_slots_rebuild_structural_keys_through_the_rows() {
@@ -205,6 +173,7 @@ fn operand_slots_rebuild_structural_keys_through_the_rows() {
     assert_eq!(resolved, wire);
 }
 
+/// Trace: FR-038-AC-523
 #[trace("TC-048", "FR-038-AC-523")]
 #[test]
 fn replace_node_id_replaces_slot_form_ids_as_written() {
@@ -232,6 +201,7 @@ fn replace_node_id_replaces_slot_form_ids_as_written() {
     );
 }
 
+/// Trace: FR-038-AC-522
 #[trace("TC-048", "FR-038-AC-522")]
 #[test]
 fn unrelated_nodes_leave_other_nodes_bytes_and_keys_unchanged() {

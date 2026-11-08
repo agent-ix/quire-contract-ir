@@ -191,7 +191,7 @@ fn timed_clause_admission_retains_one_anchor_occurrence_and_operation_urgency() 
                 node.semantic_form.as_ref() == form
                     && matches!(
                         member(&node.body, "kind"),
-                        CheckedTerm::Literal { value, .. } if value == kind
+                        CheckedTerm::Literal { value, .. } if value.as_str() == Some(kind)
                     )
             }),
             "admitted clause fixture lacks {form}/{kind}"
@@ -280,7 +280,7 @@ fn timed_clause_admission_retains_one_anchor_occurrence_and_operation_urgency() 
     assert_eq!(members.len(), 3, "operation urgency is model plus name");
     assert!(matches!(
         member(urgency_body, "kind"),
-        CheckedTerm::Literal { value, .. } if value == "operation"
+        CheckedTerm::Literal { value, .. } if value.as_str() == Some("operation")
     ));
     assert!(matches!(
         member(urgency_body, "model"),
@@ -288,7 +288,7 @@ fn timed_clause_admission_retains_one_anchor_occurrence_and_operation_urgency() 
     ));
     assert!(matches!(
         member(urgency_body, "operation_name"),
-        CheckedTerm::Literal { value, .. } if value == "size"
+        CheckedTerm::Literal { value, .. } if value.as_str() == Some("size")
     ));
 }
 

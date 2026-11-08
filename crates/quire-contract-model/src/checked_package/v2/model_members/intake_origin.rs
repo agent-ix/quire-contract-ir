@@ -1,9 +1,8 @@
 //! Private, owned FCD origin retention for selected-document intake refusals.
 //! The borrowed view is also the relationship admission grammar.
 
-use super::{units, valid_semantic_identity, valid_semver, valid_source_path, Budget};
+use super::{units, valid_semantic_identity, valid_semver, valid_source_path, Budget, List, View};
 use crate::checked_package::v2::ValidationFailure;
-use serde_json::Value;
 
 #[derive(Debug, Eq, PartialEq)]
 pub(in crate::checked_package::v2) enum IntakeDeclarationOrigin {
@@ -34,12 +33,12 @@ pub(super) enum OriginView<'v> {
     Generated {
         generator_identity: &'v str,
         generator_version: &'v str,
-        inputs: &'v [Value],
+        inputs: List<'v>,
     },
 }
 
 impl<'v> OriginView<'v> {
-    pub(super) fn decode(value: &'v Value) -> Option<Self> {
+    pub(super) fn decode(value: View<'v>) -> Option<Self> {
         let origin = value.as_object()?;
         match (origin.get("source"), origin.get("generated"), origin.len()) {
             (Some(source), None, 1) => {
@@ -47,7 +46,7 @@ impl<'v> OriginView<'v> {
                 if !(4..=6).contains(&members.len())
                     || !members.keys().all(|key| {
                         matches!(
-                            key.as_str(),
+                            key,
                             "sourceIdentity"
                                 | "path"
                                 | "startLine"
@@ -83,7 +82,7 @@ impl<'v> OriginView<'v> {
                 if members.len() != 3
                     || !members.keys().all(|key| {
                         matches!(
-                            key.as_str(),
+                            key,
                             "generatorIdentity" | "generatorVersion" | "inputIdentities"
                         )
                     })
@@ -115,8 +114,13 @@ impl<'v> OriginView<'v> {
         }
     }
 
-    fn into_owned(self) -> Option<IntakeDeclarationOrigin> {
-        Some(match self {
+    /// The owned origin, each text and the input list requested first.
+    fn into_owned(
+        self,
+        budget: &mut Budget<'_, '_>,
+    ) -> Result<Option<IntakeDeclarationOrigin>, ValidationFailure> {
+        const F: &str = "declarations";
+        Ok(Some(match self {
             Self::Source {
                 source_identity,
                 path,
@@ -125,8 +129,8 @@ impl<'v> OriginView<'v> {
                 end_line,
                 end_column,
             } => IntakeDeclarationOrigin::Source {
-                source_identity: source_identity.into(),
-                path: path.into(),
+                source_identity: budget.text(source_identity, F)?,
+                path: budget.text(path, F)?,
                 start_line,
                 start_column,
                 end_line,
@@ -136,25 +140,33 @@ impl<'v> OriginView<'v> {
                 generator_identity,
                 generator_version,
                 inputs,
-            } => IntakeDeclarationOrigin::Generated {
-                generator_identity: generator_identity.into(),
-                generator_version: generator_version.into(),
-                // Every input was validated by decode and the borrowed slice
+            } => {
+                let generator_identity = budget.text(generator_identity, F)?;
+                let generator_version = budget.text(generator_version, F)?;
+                let mut input_identities = budget.vec(inputs.len(), F)?;
+                // Every input was validated by decode and the borrowed list
                 // cannot change before this copy. The fallible collection is
                 // deliberately fail-closed if that shared decoder invariant
                 // changes: no element is skipped, defaulted or repaired.
-                input_identities: inputs
-                    .iter()
-                    .map(|input| input.as_str().map(Box::from))
-                    .collect::<Option<Vec<_>>>()?,
-            },
-        })
+                for input in inputs {
+                    let Some(text) = input.as_str() else {
+                        return Ok(None);
+                    };
+                    input_identities.push(budget.text(text, F)?);
+                }
+                IntakeDeclarationOrigin::Generated {
+                    generator_identity,
+                    generator_version,
+                    input_identities,
+                }
+            }
+        }))
     }
 }
 
 /// The shallow origin grammar has at most one branch; only its input list is
 /// variable-length. Charge its members and text bytes before validation/copy.
-fn charge_origin(value: &Value, budget: &mut Budget<'_, '_>) -> Result<(), ValidationFailure> {
+fn charge_origin(value: View<'_>, budget: &mut Budget<'_, '_>) -> Result<(), ValidationFailure> {
     budget.charge(1)?;
     let Some(origin) = value.as_object() else {
         return Ok(());
@@ -166,17 +178,15 @@ fn charge_origin(value: &Value, budget: &mut Budget<'_, '_>) -> Result<(), Valid
         };
         for value in members.values() {
             budget.charge(1)?;
-            match value {
-                Value::String(text) => budget.charge(units(text.len()))?,
-                Value::Array(inputs) => {
-                    for input in inputs {
-                        budget.charge(1)?;
-                        if let Some(text) = input.as_str() {
-                            budget.charge(units(text.len()))?;
-                        }
+            if let Some(text) = value.as_str() {
+                budget.charge(units(text.len()))?;
+            } else if let Some(inputs) = value.as_array() {
+                for input in inputs {
+                    budget.charge(1)?;
+                    if let Some(text) = input.as_str() {
+                        budget.charge(units(text.len()))?;
                     }
                 }
-                _ => {}
             }
         }
     }
@@ -184,12 +194,15 @@ fn charge_origin(value: &Value, budget: &mut Budget<'_, '_>) -> Result<(), Valid
 }
 
 pub(super) fn retained_origin(
-    value: Option<&Value>,
+    value: Option<View<'_>>,
     budget: &mut Budget<'_, '_>,
 ) -> Result<Option<IntakeDeclarationOrigin>, ValidationFailure> {
     let Some(value) = value else {
         return Ok(None);
     };
     charge_origin(value, budget)?;
-    Ok(OriginView::decode(value).and_then(OriginView::into_owned))
+    match OriginView::decode(value) {
+        Some(view) => view.into_owned(budget),
+        None => Ok(None),
+    }
 }

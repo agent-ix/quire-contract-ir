@@ -335,3 +335,9 @@ pub use output_mapping::MappingAllocationPoint;
 
 /// Borrowed admitted unit and enum projections with producer identity rows.
 pub use checked_package::nominal_reads;
+
+#[cfg(feature = "test-support")]
+pub use checked_package::{
+    with_native_allocation_class, with_native_budget_observer, NativeBudgetEvent,
+    NativeBudgetResource,
+};

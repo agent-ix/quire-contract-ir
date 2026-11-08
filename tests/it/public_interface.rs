@@ -1623,7 +1623,7 @@ fn tc_058_fixture_operation_does_not_bypass_strict_package_admission() {
         .expect("function call application");
     package["semantic_graph"]["nodes"][position]["body"]["operation"] = operation;
     settle(&mut package);
-    let result = CheckedPackageV2::read(
+    let result = crate::read_and_account(
         &canonical(&package),
         CheckedPackageReadLimits::bounded(),
         &evidence_for(&package),
@@ -1673,7 +1673,7 @@ fn tc_058_reader_admitted_operation_has_no_fixture_provenance() {
     };
 
     let package = v2_all_families();
-    let CheckedPackageV2ReadResult::Admitted(admitted) = CheckedPackageV2::read(
+    let CheckedPackageV2ReadResult::Admitted(admitted) = crate::read_and_account(
         &canonical(&package),
         CheckedPackageReadLimits::bounded(),
         &evidence_for(&package),

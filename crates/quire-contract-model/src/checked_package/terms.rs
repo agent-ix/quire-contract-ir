@@ -9,12 +9,14 @@
 //! entered node ([`Cursor`], [`At`]), and the plain pre-order visit
 //! ([`visit_terms`]).
 
-use super::common::{Step, TermField, Trail, WireTerm};
-use super::v2::{BodyTerm, CheckedTerm, CheckedTermView};
-use quire_walk::{walk, Children, Walk};
+use super::common::{Step, TermField, TermTag, Trail, ValidationFailure, WireTerm};
+use super::shared::CheckedNodeId;
+use super::v2::read_charge::{Denied, ReadStorage, Site};
+use super::v2::{ApplicationOperator, BodyTerm, NodeIdRead, TermNode};
+#[cfg(test)]
+use super::v2::{CheckedTerm, CheckedTermView};
+use serde::Deserialize;
 use serde_json::Value;
-use std::marker::PhantomData;
-use std::ops::ControlFlow;
 
 /// One term below another and where it sits: the member `key` of the parent
 /// (`arguments`, `members` or `value`) and, for an array member, the `index`
@@ -39,24 +41,15 @@ pub(super) fn subterms(term: &Value) -> impl Iterator<Item = Subterm<'_>> {
 pub(super) fn subterms_of(wire: WireTerm<'_>) -> impl Iterator<Item = Subterm<'_>> {
     let (key, listed, valued) = match wire.kind() {
         Some(BodyTerm::Application) => {
-            let arguments = match CheckedTerm::view_from_wire(wire) {
-                Some(CheckedTermView::Application { arguments, .. }) => arguments,
-                _ => wire.array(TermField::Arguments).unwrap_or(&[]),
-            };
+            let arguments = wire.array(TermField::Arguments).unwrap_or(&[]);
             ("arguments", arguments, None)
         }
         Some(BodyTerm::Aggregate) => {
-            let members = match CheckedTerm::view_from_wire(wire) {
-                Some(CheckedTermView::Aggregate { members }) => members,
-                _ => wire.array(TermField::Members).unwrap_or(&[]),
-            };
+            let members = wire.array(TermField::Members).unwrap_or(&[]);
             ("members", members, None)
         }
         Some(BodyTerm::Binding) => {
-            let value = match CheckedTerm::view_from_wire(wire) {
-                Some(CheckedTermView::Binding { value, .. }) => Some(value),
-                _ => wire.field(TermField::Value),
-            };
+            let value = wire.field(TermField::Value);
             ("value", &[][..], value)
         }
         Some(
@@ -85,12 +78,255 @@ pub(super) fn subterms_of(wire: WireTerm<'_>) -> impl Iterator<Item = Subterm<'_
         }))
 }
 
+/// What the flat-grammar walks read of a term: implemented by a
+/// `serde_json::Value` and by a [`TermNode`] of the retained document, so one
+/// walk serves a validator that still holds a `Value` and one that reads the
+/// node views.
+pub(super) trait TermSource<'a>: Copy {
+    /// The same kind of source over a shorter borrow of the same value, for a
+    /// check that stands at a position built on the caller's stack.
+    type Shorter<'b>: TermSource<'b>
+    where
+        'a: 'b;
+
+    /// This source over a shorter borrow.
+    fn shorter<'b>(self) -> Self::Shorter<'b>
+    where
+        'a: 'b;
+
+    /// The `term` tag when it names a body term.
+    fn kind(self) -> Option<BodyTerm>;
+    /// An application's decoded `operator` class.
+    fn operator(self) -> Option<ApplicationOperator>;
+    /// Whether the `members` array is present and empty.
+    fn has_empty_members(self) -> bool;
+    /// The terms directly below this one (see [`subterms`]).
+    fn subterms(self) -> impl Iterator<Item = (Self, &'static str, Option<usize>)>;
+    /// Every value directly below this one: an object's members by name and an
+    /// array's elements by index.
+    fn children(self) -> impl Iterator<Item = (Self, Option<&'a str>, Option<usize>)>;
+    /// The member `name` of an object.
+    fn member(self, name: &str) -> Option<Self>;
+    /// The elements of an array.
+    fn items(self) -> Option<impl Iterator<Item = Self>>;
+    /// The text of a string.
+    fn text(self) -> Option<&'a str>;
+    /// Whether this is an object.
+    fn is_object(self) -> bool;
+    /// The `term` discriminator, decoded.
+    fn tag(self) -> TermTag;
+    /// Whether this is an object with exactly the members `expected`.
+    fn exact_members(self, expected: &[&str]) -> bool;
+    /// Whether this is a literal payload the V2 grammar admits: a boolean, a
+    /// string, `null`, or an integer token within the 64-bit range.
+    fn literal_value_ok(self) -> bool;
+    /// Reads this value as a node ID. A `Value` reads through the uncharged
+    /// bridge, ignoring `sink`; a [`TermNode`] charges `sink` and reads its
+    /// operand slots through `row`.
+    fn node_id(
+        self,
+        sink: &mut dyn ReadStorage,
+        site: Site,
+        row: &[u64],
+    ) -> Result<NodeIdRead, Denied>;
+    /// Borrow a legacy materialized value when this source is one.
+    fn value(self) -> Option<&'a Value>;
+}
+
+impl<'a> TermSource<'a> for &'a Value {
+    type Shorter<'b>
+        = &'b Value
+    where
+        'a: 'b;
+
+    fn shorter<'b>(self) -> &'b Value
+    where
+        'a: 'b,
+    {
+        self
+    }
+
+    fn kind(self) -> Option<BodyTerm> {
+        WireTerm::decode(self).kind()
+    }
+
+    fn operator(self) -> Option<ApplicationOperator> {
+        WireTerm::decode(self).operator()
+    }
+
+    fn has_empty_members(self) -> bool {
+        WireTerm::decode(self)
+            .array(TermField::Members)
+            .is_some_and(<[Value]>::is_empty)
+    }
+
+    fn subterms(self) -> impl Iterator<Item = (Self, &'static str, Option<usize>)> {
+        subterms(self).map(|subterm| (subterm.value, subterm.key, subterm.index))
+    }
+
+    fn children(self) -> impl Iterator<Item = (Self, Option<&'a str>, Option<usize>)> {
+        let (members, items) = match self {
+            Value::Object(members) => (Some(members.iter()), None),
+            Value::Array(items) => (None, Some(items.iter())),
+            Value::Null | Value::Bool(_) | Value::Number(_) | Value::String(_) => (None, None),
+        };
+        members
+            .into_iter()
+            .flatten()
+            .map(|(key, member)| (member, Some(key.as_str()), None))
+            .chain(
+                items
+                    .into_iter()
+                    .flatten()
+                    .enumerate()
+                    .map(|(index, item)| (item, None, Some(index))),
+            )
+    }
+
+    fn member(self, name: &str) -> Option<Self> {
+        self.get(name)
+    }
+
+    fn items(self) -> Option<impl Iterator<Item = Self>> {
+        self.as_array().map(|items| items.iter())
+    }
+
+    fn text(self) -> Option<&'a str> {
+        self.as_str()
+    }
+
+    fn is_object(self) -> bool {
+        self.is_object()
+    }
+
+    fn tag(self) -> TermTag {
+        WireTerm::decode(self).tag()
+    }
+
+    fn exact_members(self, expected: &[&str]) -> bool {
+        self.as_object()
+            .is_some_and(|object| super::common::exact_members(object, expected))
+    }
+
+    fn literal_value_ok(self) -> bool {
+        match self {
+            Value::Bool(_) | Value::String(_) | Value::Null => true,
+            Value::Number(number) => number.is_i64() || number.is_u64(),
+            Value::Array(_) | Value::Object(_) => false,
+        }
+    }
+
+    fn node_id(
+        self,
+        _sink: &mut dyn ReadStorage,
+        _site: Site,
+        _row: &[u64],
+    ) -> Result<NodeIdRead, Denied> {
+        Ok(match CheckedNodeId::deserialize(self) {
+            Ok(id) if id.is_well_formed() => NodeIdRead::Id(id),
+            Ok(id) => NodeIdRead::Invalid(id),
+            Err(_) => NodeIdRead::Malformed,
+        })
+    }
+
+    fn value(self) -> Option<&'a Value> {
+        Some(self)
+    }
+}
+
+impl<'a> TermSource<'a> for TermNode<'a> {
+    type Shorter<'b>
+        = TermNode<'b>
+    where
+        'a: 'b;
+
+    fn shorter<'b>(self) -> TermNode<'b>
+    where
+        'a: 'b,
+    {
+        self
+    }
+
+    fn kind(self) -> Option<BodyTerm> {
+        TermNode::kind(self)
+    }
+
+    fn operator(self) -> Option<ApplicationOperator> {
+        TermNode::operator(self)
+    }
+
+    fn has_empty_members(self) -> bool {
+        self.array(TermField::Members)
+            .is_some_and(|items| items.len() == 0)
+    }
+
+    fn subterms(self) -> impl Iterator<Item = (Self, &'static str, Option<usize>)> {
+        TermNode::subterms(self).map(|subterm| (subterm.value, subterm.key, subterm.index))
+    }
+
+    fn children(self) -> impl Iterator<Item = (Self, Option<&'a str>, Option<usize>)> {
+        let (members, items) = (self.members(), self.items());
+        members
+            .into_iter()
+            .flatten()
+            .map(|(key, member)| (member, Some(key), None))
+            .chain(
+                items
+                    .into_iter()
+                    .flatten()
+                    .enumerate()
+                    .map(|(index, item)| (item, None, Some(index))),
+            )
+    }
+
+    fn member(self, name: &str) -> Option<Self> {
+        self.get(name)
+    }
+
+    fn items(self) -> Option<impl Iterator<Item = Self>> {
+        TermNode::items(self)
+    }
+
+    fn text(self) -> Option<&'a str> {
+        self.as_str()
+    }
+
+    fn is_object(self) -> bool {
+        TermNode::is_object(self)
+    }
+
+    fn tag(self) -> TermTag {
+        TermNode::tag(self)
+    }
+
+    fn exact_members(self, expected: &[&str]) -> bool {
+        TermNode::exact_members(self, expected)
+    }
+
+    fn literal_value_ok(self) -> bool {
+        TermNode::literal_value_ok(self)
+    }
+
+    fn node_id(
+        self,
+        sink: &mut dyn ReadStorage,
+        site: Site,
+        row: &[u64],
+    ) -> Result<NodeIdRead, Denied> {
+        self.node_id_in(sink, site, row)
+    }
+
+    fn value(self) -> Option<&'a Value> {
+        None
+    }
+}
+
 /// A node a walk will enter: the value, the steps that lead to it from its
 /// parent, and the walk's own `extra` for it. The steps are resolved by
 /// [`Cursor::enter`] once the walk reaches the node, so no node owns a path.
 #[derive(Debug)]
-pub(super) struct At<'a, X> {
-    pub(super) value: &'a Value,
+pub(super) struct At<'a, X, V = &'a Value> {
+    pub(super) value: V,
     /// How many steps the cursor holds at the node's parent.
     keep: usize,
     key: Option<&'a str>,
@@ -109,14 +345,30 @@ pub(super) struct Cursor<'a> {
 
 impl<'a> Cursor<'a> {
     /// A cursor at `base`, the position of the walk's root.
+    #[cfg(test)]
     pub(super) fn at(base: &Trail<'a>) -> Self {
         Self {
             steps: base.steps(),
         }
     }
 
+    /// A cursor at `base` whose every allocation, now and when a deeper node
+    /// is entered, is first charged through `charge` as a count of bytes.
+    pub(super) fn charged(
+        base: &Trail<'a>,
+        charge: &dyn Fn(usize) -> Result<(), ValidationFailure>,
+    ) -> Result<Self, ValidationFailure> {
+        charge(
+            base.step_count()
+                .saturating_mul(std::mem::size_of::<Step<'a>>()),
+        )?;
+        Ok(Self {
+            steps: base.steps(),
+        })
+    }
+
     /// The walk's root node, `value` at the cursor's base, with `extra`.
-    pub(super) fn root<X>(&self, value: &'a Value, extra: X) -> At<'a, X> {
+    pub(super) fn root<X, V>(&self, value: V, extra: X) -> At<'a, X, V> {
         At {
             value,
             keep: self.steps.len(),
@@ -128,13 +380,13 @@ impl<'a> Cursor<'a> {
 
     /// The node `value` one level below the entered node, at member `key`
     /// and/or array `index`, with `extra`.
-    pub(super) fn child<X>(
+    pub(super) fn child<X, V>(
         &self,
-        value: &'a Value,
+        value: V,
         key: Option<&'a str>,
         index: Option<usize>,
         extra: X,
-    ) -> At<'a, X> {
+    ) -> At<'a, X, V> {
         At {
             value,
             keep: self.steps.len(),
@@ -145,15 +397,47 @@ impl<'a> Cursor<'a> {
     }
 
     /// The node `subterm` of the entered node, with `extra`.
+    #[cfg(test)]
     pub(super) fn subterm<X>(&self, subterm: Subterm<'a>, extra: X) -> At<'a, X> {
         self.child(subterm.value, Some(subterm.key), subterm.index, extra)
     }
 
+    /// The node `subterm` of a document-backed term, with `extra`.
+    pub(super) fn term_subterm<X>(
+        &self,
+        value: crate::checked_package::v2::TermNode<'a>,
+        key: &'static str,
+        index: Option<usize>,
+        extra: X,
+    ) -> At<'a, X, crate::checked_package::v2::TermNode<'a>> {
+        self.child(value, Some(key), index, extra)
+    }
+
     /// Moves the cursor to `node`, the next node the walk enters.
-    pub(super) fn enter<X>(&mut self, node: &At<'a, X>) {
+    pub(super) fn enter<X, V>(&mut self, node: &At<'a, X, V>) {
         self.steps.truncate(node.keep);
         self.steps.extend(node.key.map(Step::Key));
         self.steps.extend(node.index.map(Step::Index));
+    }
+
+    /// [`Self::enter`], first charging and reserving the steps the node adds
+    /// beyond the cursor's capacity (doubling from four, reserved exactly).
+    pub(super) fn enter_charged<X, V>(
+        &mut self,
+        node: &At<'a, X, V>,
+        charge: &dyn Fn(usize) -> Result<(), ValidationFailure>,
+    ) -> Result<(), ValidationFailure> {
+        self.steps.truncate(node.keep);
+        let needed =
+            node.keep + usize::from(node.key.is_some()) + usize::from(node.index.is_some());
+        let capacity = self.steps.capacity();
+        if needed > capacity {
+            let target = needed.max(capacity.saturating_mul(2)).max(4);
+            charge(target.saturating_mul(std::mem::size_of::<Step<'a>>()))?;
+            self.steps.reserve_exact(target - self.steps.len());
+        }
+        self.enter(node);
+        Ok(())
     }
 
     /// The entered node's position.
@@ -162,12 +446,17 @@ impl<'a> Cursor<'a> {
     }
 }
 
+#[cfg(test)] // the strict read walks `TermNode` subterms; kept as the Value oracle
 /// Visits every term of `root` in document pre-order, outermost first, until
-/// `visit` returns [`ControlFlow::Break`].
+/// `visit` returns [`std::ops::ControlFlow::Break`].
 pub(super) fn visit_terms<'a, B>(
     root: &'a Value,
-    visit: impl FnMut(&'a Value) -> ControlFlow<B>,
-) -> ControlFlow<B> {
+    visit: impl FnMut(&'a Value) -> std::ops::ControlFlow<B>,
+) -> std::ops::ControlFlow<B> {
+    use quire_walk::{walk, Children, Walk};
+    use std::marker::PhantomData;
+    use std::ops::ControlFlow;
+
     struct Visit<'a, B, F>(F, PhantomData<fn(&'a Value) -> B>);
 
     impl<'a, B, F: FnMut(&'a Value) -> ControlFlow<B>> Walk for Visit<'a, B, F> {

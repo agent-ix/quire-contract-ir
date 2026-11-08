@@ -30,26 +30,25 @@
 //! would.
 
 use super::frame::{join, read_frame_body, DeletesScopedEntry, ModifiesEntry, StepGraph};
+use super::graph_storage::{first_repeat, GraphIndex};
 use super::model_members::{
     MemberKind, MemberType, ModelOwners, ModelRefusal, OperationDecl, Owner, Resolved,
 };
 use super::structural::{
-    is_state_clause_application, is_state_transition_application, reference_type_target,
-    typed_anchor_body, typed_clause_body, typed_parameter_binding, typed_reference,
-    typed_transition_body, AnchorBody, TransitionBody,
+    reference_type_target_ref, typed_anchor_body, typed_clause_body, typed_parameter_binding,
+    typed_reference, typed_transition_body, AnchorBody, TransitionBody,
 };
 use super::{
     ApplicationOperator, CheckedNodeKind, CheckedTerm, CompositeTypeForm, ExecutionPoint,
     ExpressionForm, ModelForm, RawSemanticNodeV2 as CheckedSemanticNodeV2, ScalarTypeForm,
-    StateClauseKind, StateForm, ValueForm, WorkMeter,
+    StateClauseKind, StateForm, TermNode, ValueForm, WorkMeter,
 };
 use crate::checked_package::common::{node_pointer, Step, Trail, ValidationFailure};
 use crate::checked_package::shared::{
     CheckedNodeId, CheckedPackageRefusalCause, CheckedPackageRefusalCode, JsonPointer,
 };
-use crate::checked_package::terms::{subterms, At, Cursor};
-use quire_walk::{walk, Children, Walk};
-use std::collections::{BTreeMap, BTreeSet};
+use crate::checked_package::terms::{At, Cursor};
+use quire_walk::{Children, Walk};
 use std::ops::ControlFlow;
 
 /// The state step. See the module documentation for the order.
@@ -57,7 +56,7 @@ pub(super) fn validate_state(
     nodes: &[CheckedSemanticNodeV2],
     kinds: &[CheckedNodeKind],
     terms: &[Option<CheckedTerm>],
-    index: &BTreeMap<&CheckedNodeId, usize>,
+    index: &GraphIndex<'_>,
     structural_keys: &[std::sync::Arc<CheckedNodeId>],
     owners: &ModelOwners<'_>,
     meter: &mut WorkMeter,
@@ -68,9 +67,14 @@ pub(super) fn validate_state(
         index,
         owners,
     };
-    validate_placement(&graph)?;
-    let mut anchors = Vec::new();
+    validate_placement(&graph, meter)?;
+    let anchor_count = graph
+        .each(CheckedNodeKind::State(StateForm::OperationAnchor))
+        .count();
+    meter.at_node(0, "state");
+    let mut anchors = meter.vec(anchor_count)?;
     for (position, node) in graph.each(CheckedNodeKind::State(StateForm::OperationAnchor)) {
+        meter.at_node(position, "state");
         let body = terms
             .get(position)
             .and_then(Option::as_ref)
@@ -79,29 +83,57 @@ pub(super) fn validate_state(
         check_anchor(node, position, &body, &graph, meter)?;
         anchors.push((position, node, body));
     }
-    let mut pairs = BTreeSet::new();
-    for (position, node, body) in &anchors {
-        if !pairs.insert((&body.context, body.operation, body.execution_point.as_ref())) {
-            return Err(ValidationFailure::refused_at(
-                CheckedPackageRefusalCode::AmbiguousDeclaration,
-                node_pointer(*position),
-                Some(CheckedPackageRefusalCause::AmbiguousName),
-                node.node_id.clone(),
-            ));
-        }
+    meter.at_node(0, "state");
+    if let Some(repeat) = first_repeat(
+        anchors
+            .iter()
+            .map(|(_, _, body)| (body.context, body.operation, body.execution_point)),
+        meter,
+    )? {
+        let (position, node, _) = &anchors[repeat];
+        return Err(ValidationFailure::refused_at(
+            CheckedPackageRefusalCode::AmbiguousDeclaration,
+            node_pointer(*position),
+            Some(CheckedPackageRefusalCause::AmbiguousName),
+            node.node_id.clone(),
+        ));
     }
     for (position, node) in graph.each(CheckedNodeKind::State(StateForm::StateClause)) {
+        meter.at_node(position, "state");
         check_clause(node, position, terms, &graph, structural_keys, meter)?;
     }
-    let mut pairs = BTreeSet::new();
+    // A transition whose anchor and subject repeat an earlier one's refuses
+    // after its own checks and before the next transition's: the repeat is
+    // found over the keys of the transitions that read, then met in order.
+    let transition_count = graph
+        .each(CheckedNodeKind::State(StateForm::Transition))
+        .count();
+    meter.at_node(0, "state");
+    let mut keys = meter.vec(transition_count)?;
+    for (position, _) in graph.each(CheckedNodeKind::State(StateForm::Transition)) {
+        let Some(body) = terms
+            .get(position)
+            .and_then(Option::as_ref)
+            .and_then(typed_transition_body)
+        else {
+            break;
+        };
+        keys.push((body.anchor, body.subject, position));
+    }
+    let repeated = first_repeat(
+        keys.iter().map(|&(anchor, subject, _)| (anchor, subject)),
+        meter,
+    )?
+    .map(|repeat| keys[repeat].2);
     for (position, node) in graph.each(CheckedNodeKind::State(StateForm::Transition)) {
+        meter.at_node(position, "state");
         let body = terms
             .get(position)
             .and_then(Option::as_ref)
             .and_then(typed_transition_body)
             .ok_or_else(|| shape_refusal(node, position))?;
         check_transition(node, position, &body, terms, &graph, meter)?;
-        if !pairs.insert((body.anchor, body.subject)) {
+        if repeated == Some(position) {
             return Err(ValidationFailure::refused_at(
                 CheckedPackageRefusalCode::AmbiguousDeclaration,
                 node_pointer(position),
@@ -144,21 +176,28 @@ fn model_refusal(
 
 /// Every `quire.op.state.clause` application stands as the body root of a
 /// `state`/`state_clause` node.
-fn validate_placement(graph: &StepGraph<'_, '_>) -> Result<(), ValidationFailure> {
+fn validate_placement(
+    graph: &StepGraph<'_, '_>,
+    meter: &mut WorkMeter,
+) -> Result<(), ValidationFailure> {
     for transition in [false, true] {
         for &position in graph.index.values() {
             let (Some(node), Some(&kind)) = (graph.nodes.get(position), graph.kinds.get(position))
             else {
                 continue;
             };
+            meter.at_node(position, super::graph_storage::node_form(&node.node_tag));
             let steps = [
                 Step::Key("semantic_graph"),
                 Step::Key("nodes"),
                 Step::Index(position),
                 Step::Key("body"),
             ];
-            let cursor = Cursor::at(&Trail::Base(&steps));
-            let root = cursor.root(&node.body, true);
+            let (body, _) = meter.body(position).expect("graph bodies are attached");
+            let meter = std::cell::RefCell::new(&mut *meter);
+            let charge = |bytes| meter.borrow_mut().reserve_as(bytes as u128, None);
+            let cursor = Cursor::charged(&Trail::Base(&steps), &charge)?;
+            let root = cursor.root(body, true);
             let mut placement = StateApplicationPlacement {
                 node,
                 position,
@@ -170,8 +209,28 @@ fn validate_placement(graph: &StepGraph<'_, '_>) -> Result<(), ValidationFailure
                     }),
                 transition,
                 cursor,
+                charge: &charge,
             };
-            if let ControlFlow::Break(failure) = walk(&mut placement, root) {
+            let mut reservation = PlacementReservation {
+                meter: &meter,
+                failure: None,
+            };
+            let flow = quire_walk::walk_reserved(&mut placement, root, &mut reservation).map_err(
+                |refusal| {
+                    reservation.failure.unwrap_or_else(|| {
+                        let requested = match refusal {
+                            quire_walk::Refusal::Denied { requested }
+                            | quire_walk::Refusal::Allocation { requested } => requested,
+                        };
+                        ValidationFailure::Budget(super::budgeted_read::BudgetStop {
+                            resource: super::budgeted_read::PackageReadResource::ReadStorage,
+                            amount: requested as u128,
+                            path: None,
+                        })
+                    })
+                },
+            )?;
+            if let ControlFlow::Break(failure) = flow {
                 return Err(failure);
             }
         }
@@ -183,30 +242,60 @@ fn validate_placement(graph: &StepGraph<'_, '_>) -> Result<(), ValidationFailure
 /// whether it is the body root. A state clause application nested in a body is
 /// refused `malformed_wire` ahead of this step (`flat_wire`); the check here is
 /// the body root's.
-struct StateApplicationPlacement<'a> {
+struct StateApplicationPlacement<'a, 'c> {
     node: &'a CheckedSemanticNodeV2,
     position: usize,
     root_admitted: bool,
     transition: bool,
     cursor: Cursor<'a>,
+    charge: &'c dyn Fn(usize) -> Result<(), ValidationFailure>,
 }
 
-impl<'a> Walk for StateApplicationPlacement<'a> {
-    type Node = At<'a, bool>;
+/// Shares the node's meter with its cursor while reserving walker growth.
+struct PlacementReservation<'m, 'b> {
+    meter: &'m std::cell::RefCell<&'m mut WorkMeter<'b>>,
+    failure: Option<ValidationFailure>,
+}
+
+impl quire_walk::Reservation for PlacementReservation<'_, '_> {
+    fn reserve(&mut self, bytes: usize) -> Result<(), quire_walk::Denied> {
+        super::observe_allocation_class("walker_growth", || {
+            self.meter
+                .borrow_mut()
+                .reserve_as(bytes as u128, Some("walk"))
+                .map_err(|failure| {
+                    self.failure = Some(failure);
+                    quire_walk::Denied
+                })
+        })
+    }
+}
+
+impl<'a> Walk for StateApplicationPlacement<'a, '_> {
+    type Node = At<'a, bool, TermNode<'a>>;
     type Frame = ();
     type Stop = ValidationFailure;
 
     fn enter(
         &mut self,
-        node: At<'a, bool>,
-        children: &mut Children<'_, At<'a, bool>>,
+        node: At<'a, bool, TermNode<'a>>,
+        children: &mut Children<'_, At<'a, bool, TermNode<'a>>>,
     ) -> ControlFlow<ValidationFailure> {
-        self.cursor.enter(&node);
-        let application = if self.transition {
-            is_state_transition_application(node.value)
-        } else {
-            is_state_clause_application(node.value)
-        };
+        if let Err(failure) = self.cursor.enter_charged(&node, self.charge) {
+            return ControlFlow::Break(failure);
+        }
+        let application = node.value.view().is_some_and(|view| {
+            let super::TermView::Application { operation, .. } = view else {
+                return false;
+            };
+            let identity = operation.get("identity").and_then(TermNode::as_str);
+            identity
+                == Some(if self.transition {
+                    "quire.op.state.transition"
+                } else {
+                    "quire.op.state.clause"
+                })
+        });
         if application && !(node.extra && self.root_admitted) {
             let path = if node.extra {
                 node_pointer(self.position)
@@ -215,7 +304,10 @@ impl<'a> Walk for StateApplicationPlacement<'a> {
             };
             return ControlFlow::Break(ineligible(self.node, path));
         }
-        children.extend(subterms(node.value).map(|subterm| self.cursor.subterm(subterm, false)));
+        children.extend(node.value.subterms().map(|subterm| {
+            self.cursor
+                .term_subterm(subterm.value, subterm.key, subterm.index, false)
+        }));
         ControlFlow::Continue(())
     }
 
@@ -242,11 +334,11 @@ pub(super) type OperationResolution<'m> =
 /// The operation a model-owned context declares under `name`: `Ok(None)`
 /// when the context is not a model declaration node, else the owner and
 /// the operation, or the refusal FR-342's operation check determines.
-pub(super) fn resolve_operation<'m>(
-    context: &CheckedSemanticNodeV2,
+pub(super) fn resolve_operation<'m, Body: super::model_members::EmptyAggregateBody>(
+    context: &super::CheckedSemanticNodeV2<Body>,
     context_kind: CheckedNodeKind,
     name: &str,
-    graph: &StepGraph<'_, 'm>,
+    graph: &StepGraph<'_, 'm, Body>,
     meter: &mut WorkMeter,
 ) -> Result<OperationResolution<'m>, ValidationFailure> {
     if !graph
@@ -317,7 +409,7 @@ fn check_anchor(
             &body.frame,
         )
     })?;
-    if anchor.semantic_type != body.context || frame.semantic_type != body.context {
+    if anchor.semantic_type != *body.context || frame.semantic_type != *body.context {
         return Err(model_refusal(
             ModelRefusal::malformed(),
             node_pointer(position),
@@ -337,7 +429,10 @@ fn check_anchor(
                 Step::Index(frame_position),
                 Step::Key("body"),
             ];
-            let (frame_body, work) = read_frame_body(&frame.body, &Trail::Base(&steps))?;
+            let (frame_node, row) = meter
+                .body(frame_position)
+                .ok_or_else(|| shape_refusal(frame, position))?;
+            let (frame_body, work) = read_frame_body(frame_node, row, meter, &Trail::Base(&steps))?;
             meter.charge(work, || node_pointer(frame_position).key("body"))?;
             for entry in &frame_body.deletes_scoped {
                 let name = match entry {
@@ -349,7 +444,16 @@ fn check_anchor(
                     meter.charge(1, || node_pointer(frame_position).key("body"))?;
                     if slot.name.as_deref() == Some(name.as_ref())
                         && matches!(
-                            owner.package.slot_type(slot),
+                            owner.package.slot_type_charged(
+                                slot,
+                                false,
+                                &mut super::model_members::Budget::new(
+                                    meter,
+                                    owner.package.root,
+                                    owner.package.bytes
+                                ),
+                                "member_type"
+                            )?,
                             Some(MemberType::Reference(_))
                         )
                     {
@@ -424,8 +528,8 @@ fn check_clause(
             &body.anchor,
         )
     })?;
-    let mut parameters = Vec::with_capacity(body.parameters.len());
-    for (index, target) in body.parameters.iter().enumerate() {
+    let mut parameters = meter.vec(body.parameter_count())?;
+    for (index, target) in body.parameters().enumerate() {
         let (parameter, _) = join(
             clause,
             target,
@@ -466,15 +570,20 @@ fn check_clause(
     };
     let context_id = anchor_body
         .as_ref()
-        .map_or(&body.anchor, |anchor| &anchor.context);
+        .map_or(body.anchor, |anchor| anchor.context);
     let self_is_reference = parameters.first().is_some_and(|parameter| {
         graph
-            .node(&parameter.semantic_type)
-            .filter(|(_, kind)| {
-                *kind == CheckedNodeKind::CompositeType(CompositeTypeForm::Reference)
+            .index
+            .get(&parameter.semantic_type)
+            .filter(|&&at| {
+                graph.kinds.get(at)
+                    == Some(&CheckedNodeKind::CompositeType(
+                        CompositeTypeForm::Reference,
+                    ))
             })
-            .and_then(|(node, _)| reference_type_target(node))
-            .as_ref()
+            .and_then(|&at| terms.get(at))
+            .and_then(Option::as_ref)
+            .and_then(reference_type_target_ref)
             == Some(context_id)
     });
     if !self_is_reference {
@@ -507,23 +616,42 @@ fn check_clause(
         return Err(signature_refusal());
     }
     for (parameter, slot) in bound.iter().zip(expected) {
-        let Some(slot_type) = owner.package.slot_type(slot) else {
+        let Some(slot_type) = owner.package.slot_type_charged(
+            slot,
+            false,
+            &mut super::model_members::Budget::new(meter, owner.package.root, owner.package.bytes),
+            "member_type",
+        )?
+        else {
             return Err(signature_refusal());
         };
-        let expected = slot_type.node_id(&clause.node_id.package).ok_or_else(|| {
-            ValidationFailure::refused_at(
-                CheckedPackageRefusalCode::InvalidSemanticGraph,
-                arguments_at.clone().index(0),
-                None,
-                clause.node_id.clone(),
-            )
-        })?;
+        let expected = slot_type
+            .node_id_in(
+                &clause.node_id.package,
+                &mut super::model_members::Budget::new(
+                    meter,
+                    owner.package.root,
+                    owner.package.bytes,
+                ),
+            )?
+            .ok_or_else(|| {
+                ValidationFailure::refused_at(
+                    CheckedPackageRefusalCode::InvalidSemanticGraph,
+                    arguments_at.clone().index(0),
+                    None,
+                    clause.node_id.clone(),
+                )
+            })?;
         let actual = graph
             .index
             .get(&parameter.semantic_type)
             .and_then(|&position| structural_keys.get(position))
             .map(std::sync::Arc::as_ref);
-        if actual != Some(&expected) {
+        let same = match actual {
+            Some(actual) => meter.compare_ids(actual, &expected)? == std::cmp::Ordering::Equal,
+            None => false,
+        };
+        if !same {
             return Err(signature_refusal());
         }
     }
@@ -648,25 +776,15 @@ fn check_transition(
     else {
         return Err(malformed_subject());
     };
-    if project.get("identity").and_then(serde_json::Value::as_str)
-        != Some("quire.op.record.project")
-        || project
-            .pointer("/member/kind")
-            .and_then(serde_json::Value::as_str)
-            != Some("field")
+    if project.identity() != Some("quire.op.record.project")
+        || project.member_text("kind") != Some("field")
     {
         return Err(malformed_subject());
     }
-    let Some(field_name) = project
-        .pointer("/member/name")
-        .and_then(serde_json::Value::as_str)
-    else {
+    let Some(field_name) = project.member_text("name") else {
         return Err(malformed_subject());
     };
-    let Some(declaring) = project
-        .pointer("/member/declaration")
-        .and_then(CheckedNodeId::from_value)
-    else {
+    let Some(declaring) = project.member_key("declaration") else {
         return Err(malformed_subject());
     };
     let [receiver] = arguments.as_slice() else {
@@ -691,11 +809,8 @@ fn check_transition(
     else {
         return Err(malformed_subject());
     };
-    if deref_operation
-        .get("identity")
-        .and_then(serde_json::Value::as_str)
-        != Some("quire.op.model.deref")
-        || deref.semantic_type != anchor_body.context
+    if deref_operation.identity() != Some("quire.op.model.deref")
+        || deref.semantic_type != *anchor_body.context
     {
         return Err(malformed_subject());
     }
@@ -717,17 +832,22 @@ fn check_transition(
         .is_some_and(|(name, level)| is_self_parameter(name, level));
     if !is_self
         || graph
-            .node(&self_node.semantic_type)
-            .filter(|(_, kind)| {
-                *kind == CheckedNodeKind::CompositeType(CompositeTypeForm::Reference)
+            .index
+            .get(&self_node.semantic_type)
+            .filter(|&&at| {
+                graph.kinds.get(at)
+                    == Some(&CheckedNodeKind::CompositeType(
+                        CompositeTypeForm::Reference,
+                    ))
             })
-            .and_then(|(node, _)| reference_type_target(node))
-            .as_ref()
-            != Some(&anchor_body.context)
+            .and_then(|&at| terms.get(at))
+            .and_then(Option::as_ref)
+            .and_then(reference_type_target_ref)
+            != Some(anchor_body.context)
     {
         return Err(malformed_subject());
     }
-    let Some((context, context_kind)) = graph.node(&anchor_body.context) else {
+    let Some((context, context_kind)) = graph.node(anchor_body.context) else {
         return Err(malformed_subject());
     };
     let (owner, operation) =
@@ -746,13 +866,24 @@ fn check_transition(
                     .and_then(|(node, _)| graph.owners.recover(node).ok())
                     .is_some_and(|declaring_owner| {
                         declaring_owner.package.identity == field_owner.package.identity
-                            && field.identity.as_ref()
-                                == format!("{}/{}", declaring_owner.node, field_name)
+                            && field
+                                .identity
+                                .strip_prefix(declaring_owner.node)
+                                .and_then(|rest| rest.strip_prefix('/'))
+                                == Some(field_name)
                     });
                 if !declared {
                     return Err(malformed_subject());
                 }
-                field_owner.package.field_type(field)
+                field_owner.package.field_type_charged(
+                    field,
+                    &mut super::model_members::Budget::new(
+                        meter,
+                        field_owner.package.root,
+                        field_owner.package.bytes,
+                    ),
+                    "member_type",
+                )?
             }
             _ => return Err(malformed_subject()),
         };
@@ -773,9 +904,10 @@ fn check_transition(
         Step::Index(frame_position),
         Step::Key("body"),
     ];
-    let (frame_body, work) = read_frame_body(&frame.body, &Trail::Base(&steps))?;
+    let (frame_node, row) = meter.body(frame_position).ok_or_else(malformed_subject)?;
+    let (frame_body, work) = read_frame_body(frame_node, row, meter, &Trail::Base(&steps))?;
     meter.charge(work, || node_pointer(frame_position).key("body"))?;
-    if !frame_body.modifies.iter().any(|entry| matches!(entry, ModifiesEntry::Field { declaration, name, .. } if declaration == &declaring && name.as_ref() == field_name)) {
+    if !frame_body.modifies.iter().any(|entry| matches!(entry, ModifiesEntry::Field { declaration, name, .. } if declaration == declaring && name.as_ref() == field_name)) {
         return Err(malformed_subject());
     }
     if subject_result != &subject.semantic_type
@@ -785,8 +917,8 @@ fn check_transition(
         return Err(ineligible(transition, node_pointer(position)));
     }
 
-    let mut actual_inputs = Vec::with_capacity(body.inputs.len());
-    for (slot, target) in body.inputs.iter().enumerate() {
+    let mut actual_inputs = meter.vec(body.input_count())?;
+    for (slot, target) in body.inputs().enumerate() {
         let (parameter, _) = join(
             transition,
             target,
@@ -839,7 +971,16 @@ fn check_transition(
             })
             .map(|(name, _)| name);
         if name != slot.name.as_deref()
-            || owner.package.slot_type(slot) != Some(MemberType::Boolean)
+            || owner.package.slot_type_charged(
+                slot,
+                false,
+                &mut super::model_members::Budget::new(
+                    meter,
+                    owner.package.root,
+                    owner.package.bytes,
+                ),
+                "member_type",
+            )? != Some(MemberType::Boolean)
             || graph.node(&parameter.semantic_type).map(|(_, kind)| kind)
                 != Some(CheckedNodeKind::ScalarType(ScalarTypeForm::Boolean))
         {
@@ -905,4 +1046,85 @@ fn check_transition(
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod placement_budget_tests {
+    use super::super::{CheckedJson, NativeJoinBudget};
+    use super::*;
+    use ix_trace_rs::trace;
+    use serde_json::json;
+
+    #[trace("TC-472", "FR-038-AC-511", "FR-038-AC-504")]
+    #[test]
+    fn placement_cursor_growth_is_paid_before_allocation() {
+        let wire = json!({"term":"aggregate","members":[
+            {"term":"aggregate","members":[{"term":"literal","value":null}]}
+        ]});
+        let body = CheckedJson::from_value(&wire).expect("document");
+        let node = CheckedSemanticNodeV2 {
+            node_id: super::super::test_support::node_id('a'),
+            schema_version: "quire.checked-semantic-graph/v2".into(),
+            node_tag: "value".into(),
+            semantic_form: "literal".into(),
+            semantic_type: super::super::test_support::node_id('b'),
+            dependencies: Vec::new(),
+            occurrences: Vec::new(),
+            recursion_group: None,
+            declaration: None,
+            owner: None,
+            owner_model: None,
+            body: body.clone(),
+        };
+        let run = |limit| {
+            let mut budget = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
+            let mut outcome = None;
+            let allocated = allocation_counter::measure(|| {
+                let mut meter = WorkMeter::over(&mut budget);
+                meter.at_node(3, "value");
+                let meter = std::cell::RefCell::new(&mut meter);
+                let charge = |bytes| meter.borrow_mut().reserve_as(bytes as u128, None);
+                outcome = Some((|| {
+                    let steps = [
+                        Step::Key("semantic_graph"),
+                        Step::Key("nodes"),
+                        Step::Index(3),
+                        Step::Key("body"),
+                    ];
+                    let cursor = Cursor::charged(&Trail::Base(&steps), &charge)?;
+                    let root = cursor.root(TermNode::of(&body), true);
+                    let mut placement = StateApplicationPlacement {
+                        node: &node,
+                        position: 3,
+                        root_admitted: false,
+                        transition: false,
+                        cursor,
+                        charge: &charge,
+                    };
+                    let mut reservation = PlacementReservation {
+                        meter: &meter,
+                        failure: None,
+                    };
+                    match quire_walk::walk_reserved(&mut placement, root, &mut reservation) {
+                        Ok(ControlFlow::Continue(())) => Ok(()),
+                        Ok(ControlFlow::Break(failure)) => Err(failure),
+                        Err(_) => Err(reservation.failure.expect("budget denial")),
+                    }
+                })());
+            });
+            (
+                outcome.expect("ran"),
+                allocated.bytes_total,
+                budget.read_storage_consumed(),
+            )
+        };
+        let (outcome, allocated, charged) = run(u64::MAX);
+        outcome.expect("placement admitted");
+        assert_eq!(allocated, charged);
+        assert!(run(charged).0.is_ok());
+        assert!(matches!(
+            run(charged - 1).0,
+            Err(ValidationFailure::Budget(_))
+        ));
+    }
 }

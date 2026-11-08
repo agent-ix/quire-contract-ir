@@ -10,10 +10,21 @@ use quire_canonical::{
     Document, Encode, Error as CanonicalError, Limits, Node, NodeId, NodeRef, ReadError, Sink,
     Writer,
 };
+use serde::ser::{SerializeMap, SerializeSeq};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
+#[cfg(test)]
 use serde_json::Value;
 use std::fmt;
 use std::sync::Arc;
+
+/// The name under which the read's document deserializer hands out a handle
+/// instead of a copied value.
+pub(super) const CHECKED_JSON_TOKEN: &str = "$quire::CheckedJson";
+
+thread_local! {
+    static OFFERED: std::cell::RefCell<Option<CheckedJson>> =
+        const { std::cell::RefCell::new(None) };
+}
 
 /// Why a `CheckedJson` could not be built outside the read.
 #[derive(Debug)]
@@ -22,6 +33,8 @@ pub enum CheckedJsonError {
     Read(ReadError),
     /// The canonical encoder refused the value.
     Encode(CanonicalError),
+    /// The value could not be serialized as JSON.
+    Serialize(serde_json::Error),
     /// The bytes are valid JSON but not their own canonical encoding.
     NotCanonical,
 }
@@ -31,6 +44,7 @@ impl fmt::Display for CheckedJsonError {
         match self {
             Self::Read(error) => write!(formatter, "{error}"),
             Self::Encode(error) => write!(formatter, "{error}"),
+            Self::Serialize(error) => write!(formatter, "{error}"),
             Self::NotCanonical => formatter.write_str("the bytes are not canonical JSON"),
         }
     }
@@ -49,17 +63,33 @@ pub struct CheckedJson {
 }
 
 impl CheckedJson {
-    /// The handle for `node` of `document`. A later stage of the read builds
-    /// each handle from the package document it retains; until then the read
-    /// builds a fresh document per value through [`Self::from_value`].
+    /// The document this handle names a value of.
+    pub(in crate::checked_package) fn document(&self) -> &Arc<Document> {
+        &self.document
+    }
+
+    /// The handle for `node` of `document`. Used by the read, which builds
+    /// each handle from the package document it retains.
     pub(in crate::checked_package) fn new(document: Arc<Document>, node: NodeId) -> Self {
         Self { document, node }
     }
 
+    /// A handle for a scalar literal payload, read as written: a number the
+    /// canonical encoder cannot write (an integer past 2^53) is held and is
+    /// the encoder's refusal when the package is written, as it always was.
+    pub(in crate::checked_package) fn scalar(value: &impl Serialize) -> Self {
+        Self::from_serializable(value).expect("a scalar literal serializes as JSON")
+    }
+
+    /// Leaves `handle` for the `Deserialize` call the document deserializer
+    /// is answering on this thread.
+    pub(super) fn offer(handle: Self) {
+        OFFERED.with(|slot| *slot.borrow_mut() = Some(handle));
+    }
+
     /// Reads one JSON value with the shared reader and refuses bytes that are
-    /// not its canonical encoding. This constructor charges no budget. The
-    /// read path currently reaches it through [`Self::from_value`] for each
-    /// diagnostic detail, with an uncharged document per value.
+    /// not its canonical encoding. Neither this constructor nor
+    /// [`Self::from_value`] is on the read path or charges a budget.
     ///
     /// # Errors
     ///
@@ -86,6 +116,16 @@ impl CheckedJson {
     ///
     /// [`CheckedJsonError::Encode`] when `value` has no canonical encoding,
     /// and [`CheckedJsonError::Read`] when the reader refuses its encoding.
+    pub fn from_serializable(value: &impl Serialize) -> Result<Self, CheckedJsonError> {
+        let bytes = serde_json::to_vec(value).map_err(CheckedJsonError::Serialize)?;
+        let document = quire_canonical::read(&bytes, u64::MAX).map_err(CheckedJsonError::Read)?;
+        let canonical = quire_canonical::to_vec(&document, Limits::new(u64::MAX))
+            .map_err(CheckedJsonError::Encode)?;
+        Self::from_canonical_bytes(&canonical, u64::MAX)
+    }
+
+    /// Test fixture constructor for an already materialized JSON value.
+    #[cfg(test)]
     pub fn from_value(value: &Value) -> Result<Self, CheckedJsonError> {
         let bytes = quire_canonical::to_vec(value, Limits::new(u64::MAX))
             .map_err(CheckedJsonError::Encode)?;
@@ -102,8 +142,78 @@ impl CheckedJson {
             .unwrap_or_else(|| self.document.root())
     }
 
+    /// The string the value is, borrowed from the document.
+    #[must_use]
+    pub fn as_str(&self) -> Option<&str> {
+        match self.node().node() {
+            Node::String(text) => Some(text),
+            _ => None,
+        }
+    }
+
+    /// The boolean the value is.
+    #[must_use]
+    pub fn as_bool(&self) -> Option<bool> {
+        match self.node().node() {
+            Node::Bool(flag) => Some(flag),
+            _ => None,
+        }
+    }
+
+    /// The unsigned integer the value spells, as `serde_json` reads one.
+    #[must_use]
+    pub fn as_u64(&self) -> Option<u64> {
+        match self.node().node() {
+            Node::Number(number) => number.text().parse().ok(),
+            _ => None,
+        }
+    }
+
+    /// The signed integer the value spells, as `serde_json` reads one.
+    #[must_use]
+    pub fn as_i64(&self) -> Option<i64> {
+        match self.node().node() {
+            Node::Number(number) => number.text().parse().ok(),
+            _ => None,
+        }
+    }
+
+    /// The source text of the number the value is.
+    #[must_use]
+    pub fn number_text(&self) -> Option<&str> {
+        match self.node().node() {
+            Node::Number(number) => Some(number.text()),
+            _ => None,
+        }
+    }
+
+    /// Whether the value is `null`.
+    #[must_use]
+    pub fn is_null(&self) -> bool {
+        matches!(self.node().node(), Node::Null)
+    }
+
+    /// Whether the value is a string.
+    #[must_use]
+    pub fn is_string(&self) -> bool {
+        matches!(self.node().node(), Node::String(_))
+    }
+
+    /// Whether the value is an array.
+    #[must_use]
+    pub fn is_array(&self) -> bool {
+        matches!(self.node().node(), Node::Array(_))
+    }
+
+    /// Whether the value is an object.
+    #[must_use]
+    pub fn is_object(&self) -> bool {
+        matches!(self.node().node(), Node::Object(_))
+    }
+
     /// Copies the value into a `serde_json::Value`. Not on the read path.
     #[must_use]
+    #[cfg(test)]
     pub fn to_value(&self) -> Value {
         value_of(self.node())
     }
@@ -119,8 +229,95 @@ impl Encode for CheckedJson {
         &self,
         writer: &mut Writer<'_, S>,
     ) -> Result<(), CanonicalError> {
-        self.node().encode_into(writer)
+        encode_node(self.node(), writer)
     }
+}
+
+const SERDE_JSON_NUMBER_TOKEN: &str = "$serde_json::private::Number";
+
+/// Writes one document value from an explicit heap stack, kept on the
+/// writer's reservation. An integer past 2^53 is the encoder's refusal, as it
+/// is for a `serde_json` number: the document holds the number's text, so a
+/// double would otherwise silently round it.
+// The one string comparison is a closed-vocabulary guard on a serde_json
+// private member name, not an open key.
+#[ix_trace_rs::string_edge]
+pub(super) fn encode_node<S: Sink + ?Sized>(
+    root: NodeRef<'_>,
+    writer: &mut Writer<'_, S>,
+) -> Result<(), CanonicalError> {
+    const MAXIMUM_INTEGER: u128 = 1 << 53;
+    enum Task<'d> {
+        Value(NodeRef<'d>),
+        Name(&'d str),
+        EndArray,
+        EndObject,
+    }
+    let mut tasks = Vec::new();
+    writer.reserve_list(&mut tasks, 1)?;
+    tasks.push(Task::Value(root));
+    while let Some(task) = tasks.pop() {
+        match task {
+            Task::Value(value) => match value.node() {
+                Node::Null => writer.null()?,
+                Node::Bool(flag) => writer.bool(flag)?,
+                Node::Number(number) => match number.text().parse::<i128>() {
+                    Ok(integer) if integer.unsigned_abs() > MAXIMUM_INTEGER => {
+                        return Err(CanonicalError::IntegerMagnitudeAboveMaximum(integer));
+                    }
+                    Ok(integer) => writer.integer(integer)?,
+                    Err(_) => {
+                        let float = number.value();
+                        if float.fract() == 0.0 && float.abs() > MAXIMUM_INTEGER as f64 {
+                            return Err(CanonicalError::Internal {
+                                invariant: "an integer past 2^53 is not canonical",
+                            });
+                        }
+                        writer.number(float)?;
+                    }
+                },
+                Node::String(text) => writer.string(text)?,
+                Node::Array(items) => {
+                    writer.begin_array()?;
+                    let start = tasks.len();
+                    writer.reserve_list(&mut tasks, items.len().saturating_add(1))?;
+                    tasks.push(Task::EndArray);
+                    tasks.extend(items.map(Task::Value));
+                    tasks.get_mut(start + 1..).unwrap_or_default().reverse();
+                }
+                Node::Object(members) => {
+                    // serde_json reads an object whose first member is this
+                    // private name as a number, so two byte strings would
+                    // decode to one package: the spelling is not canonical.
+                    let mut members = members.peekable();
+                    if members
+                        .peek()
+                        .is_some_and(|(name, _)| *name == SERDE_JSON_NUMBER_TOKEN)
+                    {
+                        return Err(CanonicalError::Internal {
+                            invariant: "serde_json's number token is not canonical",
+                        });
+                    }
+                    writer.begin_object()?;
+                    let start = tasks.len();
+                    writer.reserve_list(
+                        &mut tasks,
+                        members.len().saturating_mul(2).saturating_add(1),
+                    )?;
+                    tasks.push(Task::EndObject);
+                    for (name, member) in members {
+                        tasks.push(Task::Name(name));
+                        tasks.push(Task::Value(member));
+                    }
+                    tasks.get_mut(start + 1..).unwrap_or_default().reverse();
+                }
+            },
+            Task::Name(name) => writer.name(name)?,
+            Task::EndArray => writer.end_array()?,
+            Task::EndObject => writer.end_object()?,
+        }
+    }
+    Ok(())
 }
 
 impl PartialEq for CheckedJson {
@@ -145,20 +342,182 @@ impl fmt::Debug for CheckedJson {
 
 impl Serialize for CheckedJson {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        self.to_value().serialize(serializer)
+        serialize_node(self.node(), serializer)
+    }
+}
+
+pub(super) fn serialize_node<S: Serializer>(
+    node: NodeRef<'_>,
+    serializer: S,
+) -> Result<S::Ok, S::Error> {
+    match node.node() {
+        Node::Null => serializer.serialize_unit(),
+        Node::Bool(value) => serializer.serialize_bool(value),
+        Node::Number(number) => {
+            let text = number.text();
+            if let Ok(value) = text.parse::<i64>() {
+                serializer.serialize_i64(value)
+            } else if let Ok(value) = text.parse::<u64>() {
+                serializer.serialize_u64(value)
+            } else {
+                serializer.serialize_f64(number.value())
+            }
+        }
+        Node::String(text) => serializer.serialize_str(text),
+        Node::Array(items) => {
+            let mut sequence = serializer.serialize_seq(None)?;
+            for item in items {
+                sequence.serialize_element(&NodeValue(item))?;
+            }
+            sequence.end()
+        }
+        Node::Object(members) => {
+            let mut map = serializer.serialize_map(None)?;
+            for (name, value) in members {
+                map.serialize_entry(name, &NodeValue(value))?;
+            }
+            map.end()
+        }
+    }
+}
+
+struct NodeValue<'a>(NodeRef<'a>);
+
+impl Serialize for NodeValue<'_> {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serialize_node(self.0, serializer)
     }
 }
 
 impl<'de> Deserialize<'de> for CheckedJson {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let value = Value::deserialize(deserializer)?;
-        Self::from_value(&value).map_err(serde::de::Error::custom)
+        struct Held;
+        impl<'de> serde::de::Visitor<'de> for Held {
+            type Value = CheckedJson;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+                formatter.write_str("a JSON value")
+            }
+
+            // The document deserializer answers with the handle it offered.
+            fn visit_unit<E: serde::de::Error>(self) -> Result<CheckedJson, E> {
+                OFFERED
+                    .with(|slot| slot.borrow_mut().take())
+                    .ok_or_else(|| E::custom("no JSON handle was offered"))
+            }
+
+            // Any other deserializer yields a value to encode.
+            fn visit_newtype_struct<D2: Deserializer<'de>>(
+                self,
+                inner: D2,
+            ) -> Result<CheckedJson, D2::Error> {
+                let value = OwnedJson::deserialize(inner)?;
+                CheckedJson::from_serializable(&value).map_err(serde::de::Error::custom)
+            }
+        }
+        deserializer.deserialize_newtype_struct(CHECKED_JSON_TOKEN, Held)
+    }
+}
+
+enum OwnedJson {
+    Null,
+    Bool(bool),
+    Integer(i64),
+    Unsigned(u64),
+    Float(f64),
+    String(String),
+    Array(Vec<OwnedJson>),
+    Object(Vec<(String, OwnedJson)>),
+}
+
+impl Serialize for OwnedJson {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        match self {
+            Self::Null => serializer.serialize_unit(),
+            Self::Bool(value) => serializer.serialize_bool(*value),
+            Self::Integer(value) => serializer.serialize_i64(*value),
+            Self::Unsigned(value) => serializer.serialize_u64(*value),
+            Self::Float(value) => serializer.serialize_f64(*value),
+            Self::String(value) => serializer.serialize_str(value),
+            Self::Array(values) => values.serialize(serializer),
+            Self::Object(values) => {
+                let mut map = serializer.serialize_map(Some(values.len()))?;
+                for (key, value) in values {
+                    map.serialize_entry(key, value)?;
+                }
+                map.end()
+            }
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for OwnedJson {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct JsonVisitor;
+        impl<'de> serde::de::Visitor<'de> for JsonVisitor {
+            type Value = OwnedJson;
+            fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+                formatter.write_str("a JSON value")
+            }
+            fn visit_unit<E: serde::de::Error>(self) -> Result<Self::Value, E> {
+                Ok(OwnedJson::Null)
+            }
+            fn visit_none<E: serde::de::Error>(self) -> Result<Self::Value, E> {
+                Ok(OwnedJson::Null)
+            }
+            fn visit_some<D2: Deserializer<'de>>(
+                self,
+                deserializer: D2,
+            ) -> Result<Self::Value, D2::Error> {
+                OwnedJson::deserialize(deserializer)
+            }
+            fn visit_bool<E: serde::de::Error>(self, value: bool) -> Result<Self::Value, E> {
+                Ok(OwnedJson::Bool(value))
+            }
+            fn visit_i64<E: serde::de::Error>(self, value: i64) -> Result<Self::Value, E> {
+                Ok(OwnedJson::Integer(value))
+            }
+            fn visit_u64<E: serde::de::Error>(self, value: u64) -> Result<Self::Value, E> {
+                Ok(OwnedJson::Unsigned(value))
+            }
+            fn visit_f64<E: serde::de::Error>(self, value: f64) -> Result<Self::Value, E> {
+                Ok(OwnedJson::Float(value))
+            }
+            fn visit_str<E: serde::de::Error>(self, value: &str) -> Result<Self::Value, E> {
+                Ok(OwnedJson::String(value.to_owned()))
+            }
+            fn visit_string<E: serde::de::Error>(self, value: String) -> Result<Self::Value, E> {
+                Ok(OwnedJson::String(value))
+            }
+            fn visit_seq<A: serde::de::SeqAccess<'de>>(
+                self,
+                mut seq: A,
+            ) -> Result<Self::Value, A::Error> {
+                let mut values = Vec::new();
+                while let Some(value) = seq.next_element()? {
+                    values.push(value);
+                }
+                Ok(OwnedJson::Array(values))
+            }
+            fn visit_map<A: serde::de::MapAccess<'de>>(
+                self,
+                mut map: A,
+            ) -> Result<Self::Value, A::Error> {
+                let mut values = Vec::new();
+                while let Some(value) = map.next_entry()? {
+                    values.push(value);
+                }
+                Ok(OwnedJson::Object(values))
+            }
+        }
+        deserializer.deserialize_any(JsonVisitor)
     }
 }
 
 /// The `Value` of one document node, built from an explicit heap stack so a
 /// value of any depth converts on any thread stack.
-fn value_of(root: NodeRef<'_>) -> Value {
+#[cfg(test)]
+pub(in crate::checked_package) fn value_of(root: NodeRef<'_>) -> Value {
     use quire_canonical::{Items, Members};
     enum Open<'d> {
         Array(Vec<Value>, Items<'d>),
@@ -222,6 +581,7 @@ fn value_of(root: NodeRef<'_>) -> Value {
 
 /// The integer a number's text spells when it fits an `i64` or `u64`, and the
 /// double it denotes otherwise.
+#[cfg(test)]
 fn number_value(number: quire_canonical::Number<'_>) -> Value {
     let text = number.text();
     if let Ok(integer) = text.parse::<i64>() {
@@ -236,12 +596,14 @@ fn number_value(number: quire_canonical::Number<'_>) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ix_trace_rs::trace;
     use serde_json::json;
 
+    #[trace("TC-472", "FR-038-AC-514")]
     #[test]
     fn handles_round_trip_compare_by_canonical_encoding_and_refuse_noncanonical_bytes() {
         let value = json!({"b": [1, 2.5, "x", null, true], "a": {"k": -7}});
-        let left = CheckedJson::from_value(&value).expect("encodes");
+        let left = CheckedJson::from_serializable(&value).expect("encodes");
         assert_eq!(left.to_value(), value);
         assert_eq!(
             format!("{left:?}"),
@@ -254,7 +616,10 @@ mod tests {
         .expect("canonical");
         assert_eq!(left, right);
         assert_eq!(left.clone(), left);
-        assert_ne!(left, CheckedJson::from_value(&json!([1])).expect("encodes"));
+        assert_ne!(
+            left,
+            CheckedJson::from_serializable(&json!([1])).expect("encodes")
+        );
         assert!(matches!(
             CheckedJson::from_canonical_bytes(br#"{"b":1,"a":2}"#, u64::MAX),
             Err(CheckedJsonError::NotCanonical)
@@ -265,6 +630,7 @@ mod tests {
         assert!(matches!(left.node().node(), Node::Object(_)));
     }
 
+    #[trace("TC-472", "FR-038-AC-514")]
     #[test]
     fn a_deep_value_compares_and_drops_without_native_recursion() {
         let depth = 100_000;
@@ -281,5 +647,51 @@ mod tests {
             })
             .expect("spawn");
         handle.join().expect("no stack overflow");
+    }
+}
+
+#[cfg(test)]
+mod empty_aggregate_projection_tests {
+    use super::super::model_members::EmptyAggregateBody;
+    use super::*;
+    use ix_trace_rs::trace;
+    use serde_json::json;
+
+    #[trace("TC-472", "FR-038-AC-514")]
+    #[test]
+    fn closed_empty_aggregate_projection_borrows_the_shared_document_without_allocating() {
+        for (value, expected) in [
+            (json!({"term":"aggregate","members":[]}), true),
+            (json!({"term":"aggregate","members":[null]}), false),
+            (
+                json!({"term":"aggregate","members":[],"extra":false}),
+                false,
+            ),
+            (json!({"term":"aggregate"}), false),
+            (json!({"members":[]}), false),
+            (json!({"term":"binding","members":[]}), false),
+            (json!({"term":1,"members":[]}), false),
+            (json!({"term":"aggregate","members":null}), false),
+            (json!(null), false),
+            (json!([]), false),
+        ] {
+            let container =
+                CheckedJson::from_value(&json!({"body":value})).expect("fixture document");
+            let body_node = super::super::TermNode::of(&container)
+                .get("body")
+                .expect("body")
+                .node_ref()
+                .id();
+            let body = CheckedJson::new(Arc::clone(container.document()), body_node);
+            let mut observed = None;
+            let measured = allocation_counter::measure(|| {
+                let clone = body.clone();
+                observed = Some(clone.is_empty_aggregate());
+            });
+            assert_eq!(observed, Some(expected), "{value}");
+            assert!(Arc::ptr_eq(body.document(), container.document()));
+            assert_eq!(measured.bytes_total, 0);
+            assert_eq!(measured.count_total, 0);
+        }
     }
 }

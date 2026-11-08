@@ -25,7 +25,7 @@ use serde_json::{json, Value};
 type Mutation = Box<dyn Fn(&mut Value)>;
 
 fn read(value: &Value, evidence: &CheckedPackageEvidence) -> CheckedPackageV2ReadResult {
-    CheckedPackageV2::read(
+    crate::read_and_account(
         &canonical(value),
         CheckedPackageReadLimits::bounded(),
         evidence,
@@ -44,7 +44,7 @@ fn refused(value: &Value, evidence: &CheckedPackageEvidence) -> CheckedPackageRe
 }
 
 fn refused_bytes(bytes: &[u8], evidence: &CheckedPackageEvidence) -> CheckedPackageRefusal {
-    match CheckedPackageV2::read(bytes, CheckedPackageReadLimits::bounded(), evidence) {
+    match crate::read_and_account(bytes, CheckedPackageReadLimits::bounded(), evidence) {
         CheckedPackageV2ReadResult::Refused(refusal) => refusal,
         other => panic!("expected V2 refusal, got {other:?}"),
     }
@@ -837,7 +837,7 @@ fn tc_048_v2_reader_reports_exact_and_one_over_limits() {
         let middle = below + (minimum_work - below) / 2;
         let mut probe = CheckedPackageReadLimits::bounded();
         probe.work = middle;
-        match CheckedPackageV2::read(&bytes, probe, &evidence) {
+        match crate::read_and_account(&bytes, probe, &evidence) {
             CheckedPackageV2ReadResult::Admitted(_) => minimum_work = middle,
             CheckedPackageV2ReadResult::Incomplete(limit) => {
                 assert_eq!(limit.limit_kind, CheckedPackageLimit::Work);
@@ -854,7 +854,7 @@ fn tc_048_v2_reader_reports_exact_and_one_over_limits() {
         diagnostics: 1,
         work: minimum_work,
     };
-    match CheckedPackageV2::read(&bytes, exact, &evidence) {
+    match crate::read_and_account(&bytes, exact, &evidence) {
         CheckedPackageV2ReadResult::Admitted(package) => {
             assert_eq!(package.diagnostics().entries.len(), 1);
         }
@@ -920,7 +920,7 @@ fn tc_048_v2_reader_reports_exact_and_one_over_limits() {
     for (kind, narrow, path) in narrowings {
         let mut limits = exact;
         let limit = narrow(&mut limits);
-        match CheckedPackageV2::read(&bytes, limits, &evidence) {
+        match crate::read_and_account(&bytes, limits, &evidence) {
             CheckedPackageV2ReadResult::Incomplete(actual) => {
                 assert_eq!(actual, incomplete(kind, limit, limit + 1, path), "{kind:?}");
                 // The pointer resolves in the package the reader was given.
@@ -938,12 +938,12 @@ fn tc_048_v2_reader_reports_exact_and_one_over_limits() {
     let mut limits = CheckedPackageReadLimits::bounded();
     limits.work = all_families_read_work;
     assert!(matches!(
-        CheckedPackageV2::read(&all_bytes, limits, &evidence_for(&all)),
+        crate::read_and_account(&all_bytes, limits, &evidence_for(&all)),
         CheckedPackageV2ReadResult::Admitted(_)
     ));
     limits.work = all_families_read_work - 1;
     assert_eq!(
-        CheckedPackageV2::read(&all_bytes, limits, &evidence_for(&all)),
+        crate::read_and_account(&all_bytes, limits, &evidence_for(&all)),
         CheckedPackageV2ReadResult::Incomplete(incomplete(
             CheckedPackageLimit::Work,
             all_families_read_work - 1,
@@ -1222,7 +1222,7 @@ fn selected_documents_remain_complete_structural_values_after_admission() {
     let admit = |document: &Value, limits| {
         let evidence = evidence_with_document(&wire, "test/orders", document);
         let CheckedPackageV2ReadResult::Admitted(package) =
-            CheckedPackageV2::read(&canonical(&wire), limits, &evidence)
+            crate::read_and_account(&canonical(&wire), limits, &evidence)
         else {
             panic!("the selected document must independently admit");
         };
@@ -1807,7 +1807,7 @@ fn tc_048_shipped_default_read_limits_are_exact_and_finite() {
     let evidence = evidence_for(&value);
     let bytes = canonical(&value);
     assert!(matches!(
-        CheckedPackageV2::read(&bytes, bounded, &evidence),
+        crate::read_and_account(&bytes, bounded, &evidence),
         CheckedPackageV2ReadResult::Admitted(_)
     ));
     type NarrowLimit = fn(&mut CheckedPackageReadLimits, u64);
@@ -1846,7 +1846,7 @@ fn tc_048_shipped_default_read_limits_are_exact_and_finite() {
     let read_with = |set: NarrowLimit, value: u64| -> CheckedPackageV2ReadResult {
         let mut limits = bounded;
         set(&mut limits, value);
-        CheckedPackageV2::read(&bytes, limits, &evidence)
+        crate::read_and_account(&bytes, limits, &evidence)
     };
     for (kind, set, default) in narrowed {
         // 0 must refuse (the meter is genuinely charged) and `default` must
@@ -2208,7 +2208,7 @@ fn tc_048_a_nominal_name_mismatch_survives_a_shared_unit_dimension_name() {
 }
 
 /// Gives one node a source declaration and its authored structural path.
-fn declare(package: &mut Value, position: usize, name: &[&str], ordinal: u64) {
+pub(super) fn declare(package: &mut Value, position: usize, name: &[&str], ordinal: u64) {
     let source = package["lock"]["sources"][0].clone();
     let old = package["semantic_graph"]["nodes"][position]["node_id"].clone();
     let fresh = checked_package::structural_id(

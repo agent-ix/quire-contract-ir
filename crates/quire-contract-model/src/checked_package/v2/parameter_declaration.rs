@@ -52,13 +52,11 @@ impl CheckedPackageV2 {
         if kind_of(node) != Some(CheckedNodeKind::Value(ValueForm::Parameter)) {
             return Err(Error::NotParameter);
         }
-        let position = *self
-            .node_index
-            .get(&found.node_id)
+        let position = self
+            .node_position(&found.node_id)
             .ok_or(Error::UnknownNode)?;
         let (name, level) = self
-            .terms
-            .get(position)
+            .term_at(position)
             .and_then(|term| typed_parameter_binding(term, &kind_of))
             .ok_or(Error::MalformedBody)?;
         Ok(CheckedParameterDeclaration {
@@ -138,12 +136,6 @@ mod tests {
                 CheckedNodeKind::decode(tag, &node.semantic_form).expect("fixture form")
             })
             .collect();
-        let terms = wire
-            .semantic_graph
-            .nodes
-            .iter()
-            .map(|node| node.body.clone())
-            .collect();
         CheckedPackageV2 {
             schedulability_claim_index: Vec::new(),
             monitor_plan_index: Vec::new(),
@@ -154,15 +146,15 @@ mod tests {
             source_index: std::sync::Arc::new(super::super::retained_source_index(&wire)),
             lowering_facts: Vec::new(),
             wire: std::sync::Arc::new(wire),
-            terms: std::sync::Arc::new(terms),
             kinds: std::sync::Arc::new(kinds),
             bytes: 1 << 20,
             models: std::sync::Arc::new(RetainedModels::default()),
             selected_documents: std::sync::Arc::new(Vec::new()),
             direct_dependencies: Vec::new(),
             closure_index: Default::default(),
-            catalog: crate::checked_package::v2::operation_catalog::operation_catalog(),
+            catalog: crate::checked_package::v2::operation_catalog::owned_operation_catalog(),
             admission_binding: Default::default(),
+            body_documents: Vec::new(),
         }
         .retain_original_admission()
     }
@@ -194,7 +186,10 @@ mod tests {
     #[test]
     fn admitted_parameter_lookup_reads_the_retained_typed_body() {
         let mut package = fixture_package();
-        std::sync::Arc::make_mut(&mut package.terms)[2] = CheckedTerm::Reference {
+        std::sync::Arc::make_mut(&mut package.wire)
+            .semantic_graph
+            .nodes[2]
+            .body = CheckedTerm::Reference {
             target: node_id('4'),
         };
         assert_eq!(
@@ -290,14 +285,18 @@ mod tests {
         ];
         for (label, mutate) in mutations {
             let mut package = fixture_package();
-            let mut body = serde_json::to_value(&package.terms[2]).expect("fixture body");
+            let mut body = serde_json::to_value(&package.wire.semantic_graph.nodes[2].body)
+                .expect("fixture body");
             mutate(&mut body);
-            std::sync::Arc::make_mut(&mut package.terms)[2] = CheckedTerm::decode_admitted(&body)
+            std::sync::Arc::make_mut(&mut package.wire)
+                .semantic_graph
+                .nodes[2]
+                .body = CheckedTerm::decode_admitted(&body)
                 .expect("mutated fixture retains a grammar-admitted term");
             std::sync::Arc::make_mut(&mut package.wire)
                 .semantic_graph
                 .nodes[2]
-                .body = package.terms[2].clone();
+                .body = package.wire.semantic_graph.nodes[2].body.clone();
             assert_eq!(
                 package.parameter_declaration(&node_id('3')),
                 Err(CheckedParameterDeclarationError::MalformedBody),

@@ -43,30 +43,22 @@
 use super::model_fields::{
     DeclarationIndex, DeclaredNode, FieldTables, RecordBinderTypes, Selected,
 };
-use super::selected_document::json_number;
 use super::{
-    CheckedNodeOwner, CheckedNodeTag, CheckedSemanticNodeV2, CheckedTerm, NativeJoinBudget,
-    NativeJoinChargeKind, ValidationFailure, WorkMeter,
+    BudgetStop, CheckedNodeOwner, CheckedNodeTag, CheckedSemanticNodeV2, CheckedTerm,
+    NativeJoinBudget, NativeJoinChargeKind, NativeJoinLocus, NativeJoinLocusSource,
+    PackageReadResource, PackageReadStage, ValidationFailure, WorkMeter,
 };
-use crate::checked_package::common::{pointer_from_steps, Step};
 use crate::checked_package::evidence::CheckedPackageEvidence;
 use crate::checked_package::shared::{
-    CheckedNodeId, CheckedNodePathSegment, CheckedPackageLimit, CheckedPackageRefusalCause,
-    CheckedPackageRefusalCode, JsonPointer,
+    CheckedNodeId, CheckedNodePathSegment, CheckedPackageRefusalCause, CheckedPackageRefusalCode,
+    JsonPointer,
 };
 use ix_trace_rs::string_edge;
 use serde::Deserialize;
-use serde_json::{json, Value};
 
 /// The fixed declaration body shape in raw intake and admitted typed nodes.
 pub(super) trait EmptyAggregateBody {
     fn is_empty_aggregate(&self) -> bool;
-}
-
-impl EmptyAggregateBody for Value {
-    fn is_empty_aggregate(&self) -> bool {
-        *self == json!({"term": "aggregate", "members": []})
-    }
 }
 
 impl EmptyAggregateBody for CheckedTerm {
@@ -74,15 +66,47 @@ impl EmptyAggregateBody for CheckedTerm {
         matches!(self, Self::Aggregate { members } if members.is_empty())
     }
 }
-use std::collections::{BTreeMap, BTreeSet};
+
+impl EmptyAggregateBody for super::CheckedJson {
+    fn is_empty_aggregate(&self) -> bool {
+        matches!(
+            super::TermNode::of(self).view(),
+            Some(super::TermView::Aggregate { members }) if members.len() == 0
+        )
+    }
+}
+
+/// The form of the graph-stage requests of the model checks: the tag of the
+/// selected package's `model_root` node.
+const MODEL: &str = "model";
 use std::sync::Arc;
 
-pub(super) type UnitRefs = Arc<BTreeMap<Box<str>, CheckedNodeId>>;
+pub(super) type UnitRefs = Arc<SortedMap<Box<str>, CheckedNodeId>>;
 pub(super) const DURATION_RESOLVED_PREFIX: &str = "ix://quire/resolved-duration/";
 
+mod charged;
+mod derive;
+mod document;
 mod intake_origin;
 mod option_types;
+mod view;
+pub(super) use charged::{
+    arc_bytes, arc_str_bytes, checked_member_type_bytes, field_decl_bytes, node_id_bytes,
+    relationship_decl_bytes, SortedMap, SortedSet,
+};
 use intake_origin::{retained_origin, IntakeDeclarationOrigin, OriginView};
+use view::{List, View};
+
+/// Puts `name` into the sorted `seen`; `false` when it was already there.
+fn first_visit<'a>(seen: &mut Vec<&'a str>, name: &'a str) -> bool {
+    match seen.binary_search(&name) {
+        Ok(_) => false,
+        Err(at) => {
+            seen.insert(at, name);
+            true
+        }
+    }
+}
 
 const NATIVE_PREFIX: &str = "ix://quire/native/";
 
@@ -213,6 +237,14 @@ pub(super) struct TypedSlot {
     pub(super) multiplicity: Multiplicity,
 }
 
+/// The shape of an admitted type name.
+enum Admitted<'a> {
+    Native,
+    Unit(&'a str),
+    Declared(&'a str),
+    Map(&'a str, &'a str),
+}
+
 /// A type reference classified while the selected model document is admitted.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(super) enum SelectedTypeRef {
@@ -280,6 +312,66 @@ impl SelectedTypeRef {
             Some(Self::Declared(name.into()))
         }
     }
+}
+
+impl SelectedTypeRef {
+    /// [`Self::from_admitted_name`] with the owned text requested first.
+    fn charged(name: &str, budget: &mut Budget<'_, '_>) -> Result<Option<Self>, ValidationFailure> {
+        let owned = match Self::admit(name) {
+            None => return Ok(None),
+            Some(Admitted::Native) => 0,
+            Some(Admitted::Unit(_) | Admitted::Declared(_)) => name.len(),
+            Some(Admitted::Map(key, value)) => key.len() + value.len(),
+        };
+        budget.request(owned, "declarations")?;
+        Ok(Self::from_admitted_name(name))
+    }
+
+    /// The shape of an admitted type name, without owning any of it.
+    fn admit(name: &str) -> Option<Admitted<'_>> {
+        if let Some(inner) = name.strip_prefix("Map<").and_then(|s| s.strip_suffix('>')) {
+            let (key, value) = inner.split_once(", ")?;
+            if key.is_empty() || value.is_empty() || value.contains(',') {
+                return None;
+            }
+            return Some(Admitted::Map(key, value));
+        }
+        if let Some(unit) = name.strip_prefix("ix://quire/unit/") {
+            return (!unit.is_empty()).then_some(Admitted::Unit(name));
+        }
+        if let Some(native) = name.strip_prefix(NATIVE_PREFIX) {
+            return NativeTypeRef::from_name(native).map(|_| Admitted::Native);
+        }
+        if name.is_empty() {
+            None
+        } else {
+            Some(Admitted::Declared(name))
+        }
+    }
+
+    /// Whether an admitted type name is a unit reference, which owns nothing.
+    fn is_unit_name(name: &str) -> bool {
+        name.strip_prefix("Map<")
+            .and_then(|s| s.strip_suffix('>'))
+            .is_none()
+            && name
+                .strip_prefix("ix://quire/unit/")
+                .is_some_and(|unit| !unit.is_empty())
+    }
+}
+
+/// Whether `text` is the canonical decimal spelling of `number`.
+fn decimal_text_is(number: i64, text: &str) -> bool {
+    use std::fmt::Write as _;
+    struct Compare<'t>(&'t str);
+    impl std::fmt::Write for Compare<'_> {
+        fn write_str(&mut self, part: &str) -> std::fmt::Result {
+            self.0 = self.0.strip_prefix(part).ok_or(std::fmt::Error)?;
+            Ok(())
+        }
+    }
+    let mut remaining = Compare(text);
+    write!(remaining, "{number}").is_ok() && remaining.0.is_empty()
 }
 
 impl NativeTypeRef {
@@ -528,48 +620,48 @@ pub(super) struct DomainModel {
     /// The reader's byte limit for declarations selected from this model.
     pub(super) bytes: u64,
     /// Object types and systems interfaces, by IR node identity.
-    pub(super) object_types: BTreeMap<Box<str>, FieldBearingTypeDecl>,
+    pub(super) object_types: SortedMap<Box<str>, FieldBearingTypeDecl>,
     /// State machine declarations share field and operation parsing with object types.
-    pub(super) state_machines: BTreeSet<Box<str>>,
+    pub(super) state_machines: SortedSet<Box<str>>,
     /// Process declarations share field and operation parsing with object types.
-    pub(super) processes: BTreeSet<Box<str>>,
+    pub(super) processes: SortedSet<Box<str>>,
     /// Persistence-interface declarations have a selected owner key.
-    pub(super) persistence_interfaces: BTreeSet<Box<str>>,
+    pub(super) persistence_interfaces: SortedSet<Box<str>>,
     /// Canonical admitted persistence operation declarations, separate from object types.
-    pub(super) persistence_operations: BTreeMap<Box<str>, FieldBearingTypeDecl>,
+    pub(super) persistence_operations: SortedMap<Box<str>, FieldBearingTypeDecl>,
     /// Record value types, with their own and inherited fields.
-    pub(super) record_types: BTreeMap<Box<str>, FieldBearingTypeDecl>,
+    pub(super) record_types: SortedMap<Box<str>, FieldBearingTypeDecl>,
     /// Event type declarations, by their exact selected identities.
-    pub(super) event_types: BTreeSet<Box<str>>,
+    pub(super) event_types: SortedSet<Box<str>>,
     /// Ordered positions of each selected tuple value type.
-    pub(super) tuple_types: BTreeMap<Box<str>, Vec<SelectedTypeRef>>,
+    pub(super) tuple_types: SortedMap<Box<str>, Vec<SelectedTypeRef>>,
     /// Value types by IR node identity; `None` for an unmapped value type.
-    pub(super) value_types: BTreeMap<Box<str>, Option<ValueBounds>>,
+    pub(super) value_types: SortedMap<Box<str>, Option<ValueBounds>>,
     /// Core Semantic IR aliases, resolved before model member type mapping.
-    aliases: BTreeMap<Box<str>, Box<str>>,
+    aliases: SortedMap<Box<str>, Box<str>>,
     /// Exact semantic cases, original identities, and authored positions.
-    pub(super) variant_types: BTreeMap<Box<str>, BTreeMap<Box<str>, SelectedVariantCase>>,
+    pub(super) variant_types: SortedMap<Box<str>, SortedMap<Box<str>, SelectedVariantCase>>,
     /// Selected FCD dimension declarations by their exact identity.
-    pub(super) dimensions: BTreeMap<Box<str>, SelectedDimension>,
+    pub(super) dimensions: SortedMap<Box<str>, SelectedDimension>,
     /// Selected FCD unit declarations by their exact identity.
-    pub(super) units: BTreeMap<Box<str>, SelectedUnit>,
+    pub(super) units: SortedMap<Box<str>, SelectedUnit>,
     /// Selected sequence, map, option and reference value definitions.
-    pub(super) collection_types: BTreeMap<Box<str>, SelectedTypeDefinition>,
+    pub(super) collection_types: SortedMap<Box<str>, SelectedTypeDefinition>,
     /// Checked-package unit `typeRef` to the exact admitted unit node ID.
     pub(super) unit_refs: UnitRefs,
     /// Whether this selection declares its own `s`; such a declaration
     /// prevents a Duration member from falling back to the source unit.
     own_seconds_declared: bool,
     /// Relationship declarations, by IR node identity.
-    pub(super) relationships: BTreeMap<Box<str>, RelationshipDecl>,
+    pub(super) relationships: SortedMap<Box<str>, RelationshipDecl>,
     /// Declared populations, by IR node identity in the selected document.
-    pub(super) populations: BTreeSet<Box<str>>,
+    pub(super) populations: SortedSet<Box<str>>,
     /// Object type identities covered by each selected population.
-    pub(super) population_members: BTreeMap<Box<str>, BTreeSet<Box<str>>>,
+    pub(super) population_members: SortedMap<Box<str>, SortedSet<Box<str>>>,
     /// Systems connection declarations that also back relation nodes.
-    pub(super) relation_nodes: BTreeSet<Box<str>>,
+    pub(super) relation_nodes: SortedSet<Box<str>>,
     /// Types of every other FR-208 meaning, by IR node identity.
-    other_types: BTreeMap<Box<str>, meaning::Kind>,
+    other_types: SortedMap<Box<str>, meaning::Kind>,
     /// The field tables of [`Self::object_types`], empty until the lock stage
     /// builds them (`build_field_tables`).
     pub(super) fields: FieldTables,
@@ -661,6 +753,25 @@ pub(super) fn declaration_id(identity: &str, form: DeclarationForm, node: &str) 
     }
 }
 
+pub(super) fn declaration_id_in(
+    identity: &str,
+    form: DeclarationForm,
+    node: &str,
+    budget: &mut Budget<'_, '_>,
+) -> Result<CheckedNodeId, ValidationFailure> {
+    let mut path = budget.vec(3, "member_type")?;
+    for text in [form.tag(), form.form(), node] {
+        path.push(CheckedNodePathSegment::Name(
+            budget.text(text, "member_type")?,
+        ));
+    }
+    Ok(CheckedNodeId {
+        package: budget.text(identity, "member_type")?,
+        path,
+        ordinal: 0,
+    })
+}
+
 /// The last `/` segment of an IR node identity: a member's name.
 pub(super) fn member_name(identity: &str) -> &str {
     identity.rsplit('/').next().unwrap_or(identity)
@@ -738,8 +849,216 @@ pub(super) enum MemberType {
 }
 
 impl MemberType {
+    /// Builds the selected member type's structural identity, reserving every
+    /// owned path, text, wrapper and shared-node block before construction.
+    pub(super) fn node_id_in(
+        &self,
+        package: &str,
+        budget: &mut Budget<'_, '_>,
+    ) -> Result<Option<CheckedNodeId>, ValidationFailure> {
+        use CheckedNodePathSegment as S;
+        fn name(value: &str, b: &mut Budget<'_, '_>) -> Result<S, ValidationFailure> {
+            Ok(S::Name(b.text(value, "member_type")?))
+        }
+        fn node(id: CheckedNodeId, b: &mut Budget<'_, '_>) -> Result<S, ValidationFailure> {
+            b.request(
+                super::budgeted_read::arc_bytes::<CheckedNodeId>(),
+                "member_type",
+            )?;
+            Ok(S::Node(std::sync::Arc::new(id)))
+        }
+        fn number(value: i128, b: &mut Budget<'_, '_>) -> Result<S, ValidationFailure> {
+            let mut digits = [0_u8; 40];
+            let mut at = digits.len();
+            let mut magnitude = value.unsigned_abs();
+            loop {
+                at -= 1;
+                digits[at] = b'0' + (magnitude % 10) as u8;
+                magnitude /= 10;
+                if magnitude == 0 {
+                    break;
+                }
+            }
+            if value < 0 {
+                at -= 1;
+                digits[at] = b'-';
+            }
+            name(
+                std::str::from_utf8(&digits[at..]).expect("decimal ASCII"),
+                b,
+            )
+        }
+        fn derived<const N: usize>(
+            package: &str,
+            tag: &str,
+            form: &str,
+            extra: [S; N],
+            b: &mut Budget<'_, '_>,
+        ) -> Result<CheckedNodeId, ValidationFailure> {
+            let mut path = b.vec(N + 2, "member_type")?;
+            path.push(name(tag, b)?);
+            path.push(name(form, b)?);
+            path.extend(extra);
+            Ok(CheckedNodeId {
+                package: b.text(package, "member_type")?,
+                path,
+                ordinal: 0,
+            })
+        }
+        fn bounded<const N: usize>(
+            package: &str,
+            form: &str,
+            lower: i128,
+            upper: i128,
+            tail: [S; N],
+            b: &mut Budget<'_, '_>,
+        ) -> Result<CheckedNodeId, ValidationFailure> {
+            let integer = derived(package, "scalar_type", "integer", [], b)?;
+            let mut path = b.vec(7 + N, "member_type")?;
+            path.push(name("bounded_domain", b)?);
+            path.push(name(form, b)?);
+            path.push(name("min", b)?);
+            path.push(node(integer, b)?);
+            path.push(number(lower, b)?);
+            path.push(name("max", b)?);
+            path.push(number(upper, b)?);
+            path.extend(tail);
+            Ok(CheckedNodeId {
+                package: b.text(package, "member_type")?,
+                path,
+                ordinal: 0,
+            })
+        }
+        fn rational(
+            package: &str,
+            bounds: RationalBounds,
+            b: &mut Budget<'_, '_>,
+        ) -> Result<CheckedNodeId, ValidationFailure> {
+            let integer = derived(package, "scalar_type", "integer", [], b)?;
+            let extra = [
+                name("numerator_min", b)?,
+                node(integer, b)?,
+                number(bounds.numerator_min, b)?,
+                name("numerator_max", b)?,
+                number(bounds.numerator_max, b)?,
+                name("denominator_min", b)?,
+                number(bounds.denominator_min, b)?,
+                name("denominator_max", b)?,
+                number(bounds.denominator_max, b)?,
+            ];
+            derived(package, "bounded_domain", "rational_range", extra, b)
+        }
+        let mut wrappers = Vec::new();
+        let mut current = self;
+        loop {
+            match current {
+                Self::Option(inner) => {
+                    budget.push(&mut wrappers, current, "member_type")?;
+                    current = inner;
+                }
+                Self::Collection { element, .. } => {
+                    budget.push(&mut wrappers, current, "member_type")?;
+                    current = element;
+                }
+                _ => break,
+            }
+        }
+        let mut id = match current {
+            Self::Clock => return Ok(None),
+            Self::Record(id) | Self::Tuple(id) | Self::Variant(id) | Self::Quantity(id) => {
+                budget.clone_id(id, "member_type")?
+            }
+            Self::Reference(id) => {
+                let target = budget.clone_id(id, "member_type")?;
+                let target = node(target, budget)?;
+                derived(package, "composite_type", "reference", [target], budget)?
+            }
+            Self::IntRange(bounds) => bounded(
+                package,
+                "integer_range",
+                bounds.lower,
+                bounds.upper,
+                [],
+                budget,
+            )?,
+            Self::RationalRange(bounds) => rational(package, *bounds, budget)?,
+            Self::CarriedRational(bounds, unit) => {
+                let carrier = rational(package, *bounds, budget)?;
+                let unit = budget.clone_id(unit, "member_type")?;
+                let text = derived(package, "scalar_type", "text", [], budget)?;
+                let extra = [
+                    node(unit, budget)?,
+                    node(carrier, budget)?,
+                    name("rounding", budget)?,
+                    node(text, budget)?,
+                    name("exact", budget)?,
+                ];
+                derived(package, "scalar_type", "carried_quantity", extra, budget)?
+            }
+            Self::TextBounds(bounds) => {
+                let text = derived(package, "scalar_type", "text", [], budget)?;
+                let tail = [
+                    name("text_profile", budget)?,
+                    node(text, budget)?,
+                    name(&bounds.profile, budget)?,
+                ];
+                bounded(
+                    package,
+                    "text_bounds",
+                    bounds.lower.into(),
+                    bounds.upper.into(),
+                    tail,
+                    budget,
+                )?
+            }
+            primitive => {
+                let form = match primitive {
+                    Self::Boolean => "boolean",
+                    Self::Integer => "integer",
+                    Self::Float32 => "float32",
+                    Self::Float64 => "float64",
+                    Self::String => "string",
+                    Self::Uuid => "uuid",
+                    Self::Timestamp => "timestamp",
+                    Self::Bytes => "bytes",
+                    Self::JsonObject => "json_object",
+                    _ => return Ok(None),
+                };
+                derived(package, "scalar_type", form, [], budget)?
+            }
+        };
+        while let Some(wrapper) = wrappers.pop() {
+            id = match wrapper {
+                Self::Option(_) => {
+                    let inner = node(id, budget)?;
+                    derived(package, "composite_type", "option", [inner], budget)?
+                }
+                Self::Collection { kind, bounds, .. } => {
+                    let inner = node(id, budget)?;
+                    let collection =
+                        derived(package, "composite_type", kind.form(), [inner], budget)?;
+                    if let Some((lower, upper)) = bounds {
+                        let tail = [node(collection, budget)?];
+                        bounded(
+                            package,
+                            "collection_bounds",
+                            (*lower).into(),
+                            (*upper).into(),
+                            tail,
+                            budget,
+                        )?
+                    } else {
+                        collection
+                    }
+                }
+                _ => unreachable!("only unary member wrappers are stacked"),
+            };
+        }
+        Ok(Some(id))
+    }
     /// The exact structural ID a selected member type names. A later graph
     /// join requires this ID to exist before admitting the member use.
+    #[cfg(test)]
     pub(super) fn node_id(&self, package: &str) -> Option<CheckedNodeId> {
         enum Task<'a> {
             Read(&'a MemberType),
@@ -881,6 +1200,7 @@ impl MemberType {
     }
 }
 
+#[cfg(test)]
 fn derived_id(
     package: &str,
     tag: &str,
@@ -899,6 +1219,7 @@ fn derived_id(
     }
 }
 
+#[cfg(test)]
 fn bounded_id(
     package: &str,
     form: &str,
@@ -932,6 +1253,7 @@ fn bounded_id(
     derived_id(package, "bounded_domain", form, operands)
 }
 
+#[cfg(test)]
 enum BoundTail<'a> {
     Text(&'a str),
     Collection(&'a CheckedNodeId),
@@ -990,6 +1312,53 @@ pub(super) struct Budget<'w, 'b> {
     /// The reader's byte limit: the ceiling of every encode the row's
     /// document and declarations reach.
     bytes: u64,
+    /// The stage and index heap requests and work are located at.
+    stage: PackageReadStage,
+    index: usize,
+    /// The value a refused request reports as the one whose request failed.
+    place: Place,
+}
+
+/// Where a refused request of a [`Budget`] points.
+#[derive(Clone, Copy)]
+enum Place {
+    /// The selected package's `model_root` owner.
+    Owner,
+    /// The entry of the lock array `member` at the budget's index.
+    Lock(&'static str),
+    /// The body of the graph node at the budget's index.
+    Node,
+    /// The owner of the graph node at the budget's index.
+    NodeOwner,
+}
+
+impl Place {
+    /// The same diagnostic position as borrowed typed steps. A denied
+    /// request must pay for the pointer before these steps are materialized.
+    fn path(self, root: usize, index: usize) -> super::stage_storage::Path<'static> {
+        use super::stage_storage::Path;
+        let node = |position| {
+            Path::root()
+                .key("semantic_graph")
+                .key("nodes")
+                .index(position)
+        };
+        match self {
+            Self::Owner => node(root).key("owner"),
+            Self::Lock(member) => Path::root().key("lock").key(member).index(index),
+            Self::Node => node(index).key("body"),
+            Self::NodeOwner => node(index).key("owner"),
+        }
+    }
+
+    fn pointer(self, root: usize, index: usize) -> JsonPointer {
+        match self {
+            Self::Owner => crate::checked_package::common::node_pointer(root).key("owner"),
+            Self::Lock(member) => JsonPointer::root().key("lock").key(member).index(index),
+            Self::Node => crate::checked_package::common::node_pointer(index).key("body"),
+            Self::NodeOwner => crate::checked_package::common::node_pointer(index).key("owner"),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -1036,23 +1405,284 @@ fn runtime_declaration_storage(identity: &str, form: DeclarationForm, node: &str
 }
 
 impl<'w, 'b> Budget<'w, 'b> {
+    /// A budget for the selected package whose `model_root` is the graph node
+    /// `root`: the graph stage at that node, until [`Budget::at`] says otherwise.
     pub(super) fn new(meter: &'w mut WorkMeter<'b>, root: usize, bytes: u64) -> Self {
-        Self { meter, root, bytes }
+        Self {
+            meter,
+            root,
+            bytes,
+            stage: PackageReadStage::Graph,
+            index: root,
+            place: Place::Owner,
+        }
+    }
+
+    /// A budget for the lock stage, whose refusals point at the entry of the
+    /// lock array `member` that [`Budget::at`] names.
+    pub(super) fn lock(meter: &'w mut WorkMeter<'b>, member: &'static str) -> Self {
+        Self {
+            meter,
+            root: 0,
+            bytes: 0,
+            stage: PackageReadStage::Lock,
+            index: 0,
+            place: Place::Lock(member),
+        }
+    }
+
+    /// A budget for the lock stage's tables over the graph: charges are
+    /// located at `PackageRead(Lock, node)` and refusals point at the body
+    /// (`owner` for `owner == true`) of the graph node at `node`.
+    pub(super) fn lock_node(meter: &'w mut WorkMeter<'b>, node: usize, owner: bool) -> Self {
+        Self {
+            meter,
+            root: 0,
+            bytes: 0,
+            stage: PackageReadStage::Lock,
+            index: node,
+            place: if owner { Place::NodeOwner } else { Place::Node },
+        }
+    }
+
+    /// A budget for the graph node at `node`, whose refusals point at the
+    /// node's body.
+    pub(super) fn node(meter: &'w mut WorkMeter<'b>, node: usize) -> Self {
+        Self {
+            meter,
+            root: 0,
+            bytes: 0,
+            stage: PackageReadStage::Graph,
+            index: node,
+            place: Place::Node,
+        }
+    }
+
+    /// Locates this budget's charges at `stage` and `index`.
+    pub(super) fn at(mut self, stage: PackageReadStage, index: usize) -> Self {
+        self.stage = stage;
+        self.index = index;
+        self
     }
 
     pub(super) fn work(&self) -> u64 {
         self.meter.consumed()
     }
 
-    /// The pointer of the root owner this budget is charged at.
-    pub(super) fn row(&self) -> JsonPointer {
-        crate::checked_package::common::node_pointer(self.root).key("owner")
+    /// Locates this budget's following charges at `index`.
+    pub(super) fn set_index(&mut self, index: usize) {
+        self.index = index;
     }
 
-    pub(super) fn charge(&mut self, work: u64) -> Result<(), ValidationFailure> {
-        let row = self.row();
-        self.meter.charge(work, || row)
+    /// The pointer of the root owner this budget is charged at.
+    pub(super) fn row(&self) -> JsonPointer {
+        self.place.pointer(self.root, self.index)
     }
+
+    fn locus(&self, form: &'static str) -> NativeJoinLocus {
+        NativeJoinLocus {
+            source: NativeJoinLocusSource::PackageRead(self.stage, self.index),
+            form,
+        }
+    }
+
+    /// Charges `work` at the `"declarations"` form.
+    pub(super) fn charge(&mut self, work: u64) -> Result<(), ValidationFailure> {
+        self.charge_form(work, "declarations")
+    }
+
+    /// Charges `work` at this budget's locus under `form`.
+    pub(super) fn charge_form(
+        &mut self,
+        work: u64,
+        form: &'static str,
+    ) -> Result<(), ValidationFailure> {
+        let locus = self.locus(form);
+        if let Some(budget) = self.meter.budget_mut() {
+            budget.set_active_locus(Some(locus));
+        }
+        super::stage_storage::work(
+            self.meter,
+            &super::stage_storage::Site::new(
+                self.stage,
+                self.index,
+                form,
+                self.place.path(self.root, self.index),
+            ),
+            work,
+        )
+    }
+
+    /// Charges `work` at this budget's locus under `form`, a failed charge
+    /// reporting `at`.
+    pub(super) fn charge_at(
+        &mut self,
+        work: u64,
+        form: &'static str,
+        at: impl FnOnce() -> JsonPointer,
+    ) -> Result<(), ValidationFailure> {
+        let locus = self.locus(form);
+        if let Some(budget) = self.meter.budget_mut() {
+            budget.set_active_locus(Some(locus));
+        }
+        self.meter.charge(work, at)
+    }
+
+    /// Charges work at a borrowed position, paying a denial's pointer before
+    /// constructing it. The work request and this budget's original locus stay unchanged.
+    pub(super) fn charge_at_position<'p>(
+        &mut self,
+        work: u64,
+        form: &'static str,
+        at: impl Into<super::stage_storage::Position<'p>>,
+    ) -> Result<(), ValidationFailure> {
+        let locus = self.locus(form);
+        if let Some(budget) = self.meter.budget_mut() {
+            budget.set_active_locus(Some(locus));
+        }
+        super::stage_storage::work(
+            self.meter,
+            &super::stage_storage::Site::new(self.stage, self.index, form, at),
+            work,
+        )
+    }
+
+    /// Admits a request for `bytes` of heap at this budget's locus under
+    /// `form`, before the request is made. A budget with a work limit of its
+    /// own (lowering, unit tests) holds no read storage and admits it.
+    pub(super) fn request(
+        &mut self,
+        bytes: usize,
+        form: &'static str,
+    ) -> Result<(), ValidationFailure> {
+        if bytes == 0 {
+            return Ok(());
+        }
+        let locus = self.locus(form);
+        if let Some(budget) = self.meter.budget_mut() {
+            budget.set_active_locus(Some(locus));
+        }
+        super::stage_storage::reserve(
+            self.meter,
+            &super::stage_storage::Site::new(
+                self.stage,
+                self.index,
+                form,
+                self.place.path(self.root, self.index),
+            ),
+            bytes,
+        )
+    }
+
+    /// The caller's budget with its locus set to the reader's reservation of
+    /// this stage, when there is one.
+    pub(super) fn reader_budget(&mut self, form: &'static str) -> Option<&mut NativeJoinBudget> {
+        let locus = self.locus(form);
+        let budget = self.meter.budget_mut()?;
+        budget.set_active_locus(Some(locus));
+        Some(budget)
+    }
+
+    /// The stop of a denial the shared reader's reservation just met: no
+    /// pointer, as the request belongs to the reader's own heap.
+    pub(super) fn reader_denial(&mut self) -> ValidationFailure {
+        match self.meter.budget_mut() {
+            Some(budget) => read_storage_denial(budget, None),
+            None => ValidationFailure::Budget(BudgetStop {
+                resource: PackageReadResource::ReadStorage,
+                amount: 0,
+                path: None,
+            }),
+        }
+    }
+
+    /// An empty list with room for `capacity` items, requested first.
+    pub(super) fn vec<T>(
+        &mut self,
+        capacity: usize,
+        form: &'static str,
+    ) -> Result<Vec<T>, ValidationFailure> {
+        self.request(capacity.saturating_mul(std::mem::size_of::<T>()), form)?;
+        Ok(Vec::with_capacity(capacity))
+    }
+
+    /// Appends `item`, growing the list to twice its capacity (at least four
+    /// items) when it is full, with the whole new capacity requested first.
+    pub(super) fn push<T>(
+        &mut self,
+        list: &mut Vec<T>,
+        item: T,
+        form: &'static str,
+    ) -> Result<(), ValidationFailure> {
+        if list.len() == list.capacity() {
+            let target = list.capacity().saturating_mul(2).max(4);
+            self.request(target.saturating_mul(std::mem::size_of::<T>()), form)?;
+            list.reserve_exact(target - list.len());
+        }
+        list.push(item);
+        Ok(())
+    }
+
+    pub(super) fn concat(
+        &mut self,
+        parts: &[&str],
+        form: &'static str,
+    ) -> Result<String, ValidationFailure> {
+        let length = parts.iter().map(|part| part.len()).sum();
+        self.request(length, form)?;
+        let mut text = String::with_capacity(length);
+        for part in parts {
+            text.push_str(part);
+        }
+        Ok(text)
+    }
+    pub(super) fn clone_id(
+        &mut self,
+        id: &CheckedNodeId,
+        form: &'static str,
+    ) -> Result<CheckedNodeId, ValidationFailure> {
+        let bytes = id
+            .package
+            .len()
+            .saturating_add(
+                id.path
+                    .len()
+                    .saturating_mul(std::mem::size_of::<CheckedNodePathSegment>()),
+            )
+            .saturating_add(
+                id.path
+                    .iter()
+                    .map(|part| match part {
+                        CheckedNodePathSegment::Name(text) => text.len(),
+                        _ => 0,
+                    })
+                    .sum::<usize>(),
+            );
+        self.request(bytes, form)?;
+        Ok(id.clone())
+    }
+
+    /// An owned copy of `text`, requested first.
+    pub(super) fn text(
+        &mut self,
+        text: &str,
+        form: &'static str,
+    ) -> Result<Box<str>, ValidationFailure> {
+        self.request(text.len(), form)?;
+        Ok(Box::from(text))
+    }
+}
+
+/// The stop a denied read-storage charge ends the read with.
+fn read_storage_denial(budget: &NativeJoinBudget, path: Option<JsonPointer>) -> ValidationFailure {
+    let (resource, amount) = budget
+        .first_unpaid_resource()
+        .unwrap_or((PackageReadResource::ReadStorage, 0));
+    ValidationFailure::Budget(BudgetStop {
+        resource,
+        amount,
+        path,
+    })
 }
 
 pub(super) fn units(len: usize) -> u64 {
@@ -1116,16 +1746,33 @@ impl DomainModel {
         self.other_types.get(node) == Some(&meaning::Kind::SystemsPort)
     }
 
-    fn selected_type_ref(&self, name: &str) -> Option<SelectedTypeRef> {
-        let mut current: Box<str> = name.into();
-        let mut seen = BTreeSet::new();
-        while let Some(target) = self.aliases.get(current.as_ref()) {
-            if !seen.insert(current.clone()) {
+    /// The name an alias chain starting at `name` ends at; `None` when the
+    /// chain loops. Allocates nothing: a chain without a loop is at most as
+    /// long as the alias table.
+    fn resolve_alias<'a>(&'a self, name: &'a str) -> Option<&'a str> {
+        let mut current = name;
+        let mut followed = 0_usize;
+        while let Some(target) = self.aliases.get(current) {
+            followed += 1;
+            if followed > self.aliases.len() {
                 return None;
             }
-            current = target.clone();
+            current = target;
         }
-        SelectedTypeRef::from_admitted_name(&current)
+        Some(current)
+    }
+
+    /// `name` resolved through the aliases and admitted as a type reference,
+    /// its owned text requested first.
+    fn selected_type_ref(
+        &self,
+        name: &str,
+        budget: &mut Budget<'_, '_>,
+    ) -> Result<Option<SelectedTypeRef>, ValidationFailure> {
+        let Some(resolved) = self.resolve_alias(name) else {
+            return Ok(None);
+        };
+        SelectedTypeRef::charged(resolved, budget)
     }
     /// The selected object or interface form of a relationship end.
     pub(super) fn end_declaration_form(&self, type_ref: &str) -> Option<DeclarationForm> {
@@ -1152,19 +1799,25 @@ impl DomainModel {
         &self,
         node: &str,
         budget: &mut Budget<'_, '_>,
-    ) -> Result<BTreeSet<&str>, ValidationFailure> {
+    ) -> Result<SortedSet<&str>, ValidationFailure> {
         #[cfg(test)]
         probe::walked();
-        let mut reached = BTreeSet::new();
-        let mut pending: Vec<&str> = self
-            .field_owner(node)
-            .map(|declared| declared.supertypes.iter().map(AsRef::as_ref).collect())
-            .unwrap_or_default();
+        let mut reached = SortedSet::new();
+        let mut pending: Vec<&str> = match self.field_owner(node) {
+            Some(declared) => {
+                let mut pending = budget.vec(declared.supertypes.len(), MODEL)?;
+                pending.extend(declared.supertypes.iter().map(AsRef::as_ref));
+                pending
+            }
+            None => Vec::new(),
+        };
         while let Some(supertype) = pending.pop() {
             budget.charge(1)?;
-            if reached.insert(supertype) {
+            if reached.insert(budget, supertype, MODEL)? {
                 if let Some(declared) = self.field_owner(supertype) {
-                    pending.extend(declared.supertypes.iter().map(AsRef::as_ref));
+                    for next in &declared.supertypes {
+                        budget.push(&mut pending, next.as_ref(), MODEL)?;
+                    }
                 }
             }
         }
@@ -1225,23 +1878,40 @@ impl DomainModel {
             Ok(Resolved::Field(_)) | Err(ModelFailure::Refused(_)) => return Ok(false),
             Err(ModelFailure::Limit(failure)) => return Err(failure),
         };
-        let mut operations = BTreeMap::new();
+        // Every operation by identity; a repeated identity names its last.
+        let total: usize = self
+            .object_types
+            .values()
+            .map(|declared| declared.operations.len())
+            .sum();
+        let mut operations: Vec<(&str, usize, &str, &OperationDecl)> = budget.vec(total, MODEL)?;
         for (owner, declared) in &self.object_types {
             budget.charge(1)?;
             for operation in &declared.operations {
                 budget.charge(1)?;
-                operations.insert(operation.identity.as_ref(), (owner.as_ref(), operation));
+                operations.push((
+                    operation.identity.as_ref(),
+                    operations.len(),
+                    owner.as_ref(),
+                    operation,
+                ));
             }
         }
+        operations.sort_unstable_by(|a, b| a.0.cmp(b.0).then(a.1.cmp(&b.1)));
+        let find = |identity: &str| {
+            let after = operations.partition_point(|row| row.0 <= identity);
+            let row = operations.get(after.checked_sub(1)?)?;
+            (row.0 == identity).then_some((row.2, row.3))
+        };
         let mut current = effective.identity.as_ref();
-        let mut seen = BTreeSet::new();
+        let mut seen: SortedSet<&str> = SortedSet::new();
         let mut reaches_anchor = false;
         loop {
             budget.charge(1)?;
-            if !seen.insert(current) {
+            if !seen.insert(budget, current, MODEL)? {
                 return Ok(false);
             }
-            let Some(&(owner, operation)) = operations.get(current) else {
+            let Some((owner, operation)) = find(current) else {
                 return Ok(false);
             };
             reaches_anchor |= operation.identity == anchor.identity;
@@ -1249,7 +1919,7 @@ impl DomainModel {
                 return Ok(reaches_anchor);
             };
             budget.charge(1)?;
-            let Some(&(target_owner, _)) = operations.get(target) else {
+            let Some((target_owner, _)) = find(target) else {
                 return Ok(false);
             };
             if owner == target_owner || !self.conforms_to(owner, target_owner, budget)? {
@@ -1298,10 +1968,10 @@ impl DomainModel {
                 .iter()
                 .filter_map(|ancestor| Some((*ancestor, self.field_owner(ancestor)?))),
         );
-        let mut members: BTreeMap<&str, Resolved<'_>> = BTreeMap::new();
-        let mut hidden: BTreeSet<&str> = BTreeSet::new();
-        // redefined target -> (redefining member, redefining owner)
-        let mut redefiners: BTreeMap<&str, Vec<(&str, &str)>> = BTreeMap::new();
+        let mut members: SortedMap<&str, Resolved<'_>> = SortedMap::new();
+        let mut hidden: SortedSet<&str> = SortedSet::new();
+        // (redefined target, order met, redefining member, redefining owner)
+        let mut redefiners: Vec<(&str, usize, &str, &str)> = Vec::new();
         for (owner, declared) in owners {
             budget.charge(units(
                 declared
@@ -1326,40 +1996,50 @@ impl DomainModel {
             for (member, redefines, member_kind) in fields.chain(operations) {
                 let identity = member.identity();
                 if let Some(target) = redefines {
-                    hidden.insert(target);
-                    redefiners
-                        .entry(target)
-                        .or_default()
-                        .push((identity, owner));
+                    hidden.insert(budget, target, MODEL)?;
+                    let met = redefiners.len();
+                    budget.push(&mut redefiners, (target, met, identity, owner), MODEL)?;
                 }
                 if member_kind == kind {
-                    members.insert(identity, member);
+                    members.insert(budget, identity, member, MODEL)?;
                 }
             }
         }
         // The most-derived-redefiner rule: a redefiner of a target that a
         // redefiner in a more derived owner also redefines is hidden.
-        let mut ancestry: BTreeMap<&str, BTreeSet<&str>> = BTreeMap::new();
-        for group in redefiners.values() {
-            for (identity, owner) in group {
-                for (_, other_owner) in group {
+        redefiners.sort_unstable();
+        let mut ancestry: SortedMap<&str, SortedSet<&str>> = SortedMap::new();
+        let mut start = 0;
+        while let Some(&(target, ..)) = redefiners.get(start) {
+            let end = start
+                + redefiners
+                    .get(start..)
+                    .unwrap_or_default()
+                    .iter()
+                    .take_while(|row| row.0 == target)
+                    .count();
+            let group = redefiners.get(start..end).unwrap_or_default();
+            for (_, _, identity, owner) in group {
+                for (_, _, _, other_owner) in group {
                     budget.charge(1)?;
                     if !ancestry.contains_key(other_owner) {
-                        ancestry.insert(other_owner, self.ancestors(other_owner, budget)?);
+                        let of_other = self.ancestors(other_owner, budget)?;
+                        ancestry.insert(budget, other_owner, of_other, MODEL)?;
                     }
                     if ancestry
                         .get(other_owner)
                         .is_some_and(|of_other| of_other.contains(owner))
                     {
-                        hidden.insert(identity);
+                        hidden.insert(budget, identity, MODEL)?;
                     }
                 }
             }
+            start = end;
         }
         let mut matches = members
-            .into_iter()
-            .filter(|(identity, _)| !hidden.contains(identity) && member_name(identity) == name)
-            .map(|(_, member)| member);
+            .iter()
+            .filter(|(identity, _)| !hidden.contains(**identity) && member_name(identity) == name)
+            .map(|(_, member)| *member);
         match (matches.next(), matches.next()) {
             (Some(member), None) => Ok(member),
             (Some(_), Some(_)) => Err(ModelRefusal::ambiguous().into()),
@@ -1389,7 +2069,7 @@ impl DomainModel {
     ) -> Result<Option<MemberType>, RuntimeTypeBudgetDenied> {
         runtime_storage(&mut budget, 2)?;
         let mut current = type_ref;
-        let mut seen = BTreeSet::new();
+        let mut seen: Vec<&str> = Vec::new();
         let mut layers = Vec::new();
         while let SelectedTypeRef::Declared(name) = current {
             runtime_work(&mut budget, 1)?;
@@ -1397,7 +2077,7 @@ impl DomainModel {
                 break;
             };
             runtime_storage(&mut budget, runtime_text_storage(name).saturating_add(1))?;
-            if !seen.insert(name.clone()) {
+            if !first_visit(&mut seen, name) {
                 return Ok(None);
             }
             match definition {
@@ -1443,13 +2123,18 @@ impl DomainModel {
 
     /// A Duration member has no type when its chosen owner declares no `s`
     /// node. Distinguish that missing name from a present but invalid `s`.
-    pub(super) fn duration_unit_absent(&self, type_ref: &SelectedTypeRef) -> bool {
+    pub(super) fn duration_unit_absent(
+        &self,
+        type_ref: &SelectedTypeRef,
+        budget: &mut Budget<'_, '_>,
+    ) -> Result<bool, ValidationFailure> {
         let mut current = type_ref;
-        let mut seen = BTreeSet::new();
+        let mut seen: Vec<&str> = Vec::new();
         while let SelectedTypeRef::Declared(name) = current {
-            if !seen.insert(name) {
-                return false;
+            if seen.contains(&name.as_ref()) {
+                return Ok(false);
             }
+            budget.push(&mut seen, name.as_ref(), "member_type")?;
             match self.collection_types.get(name) {
                 Some(
                     SelectedTypeDefinition::Sequence(items) | SelectedTypeDefinition::Option(items),
@@ -1458,14 +2143,14 @@ impl DomainModel {
             }
         }
         if !matches!(current, SelectedTypeRef::Native(NativeTypeRef::Duration)) {
-            return false;
+            return Ok(false);
         }
         let unit_name = if self.own_seconds_declared {
-            format!("ix://quire/unit/{}/s", self.identity)
+            budget.concat(&["ix://quire/unit/", &self.identity, "/s"], "member_type")?
         } else {
-            "ix://quire/unit/s".to_owned()
+            budget.concat(&["ix://quire/unit/s"], "member_type")?
         };
-        !self.unit_refs.contains_key(unit_name.as_str())
+        Ok(!self.unit_refs.contains_key(unit_name.as_str()))
     }
 
     fn duration_unit_node(
@@ -1641,51 +2326,64 @@ impl DomainModel {
     }
 
     /// Render the selected field type used by a timed clock-place path.
-    pub(super) fn clock_type_name(&self, type_ref: &SelectedTypeRef) -> Option<String> {
+    pub(super) fn clock_type_name_in(
+        &self,
+        type_ref: &SelectedTypeRef,
+        budget: &mut Budget<'_, '_>,
+    ) -> Result<Option<String>, ValidationFailure> {
         let mut current = type_ref;
-        let mut seen = BTreeSet::new();
+        let mut seen: Vec<&str> = Vec::new();
         let mut layers = Vec::new();
         while let SelectedTypeRef::Declared(name) = current {
             let Some(definition) = self.collection_types.get(name) else {
                 break;
             };
-            if !seen.insert(name.clone()) {
-                return None;
+            if seen.contains(&name.as_ref()) {
+                return Ok(None);
             }
+            budget.push(&mut seen, name.as_ref(), "clock_type")?;
             match definition {
                 SelectedTypeDefinition::Sequence(items) => {
-                    layers.push(SelectedValueLayer::Sequence);
+                    budget.push(&mut layers, SelectedValueLayer::Sequence, "clock_type")?;
                     current = items;
                 }
                 SelectedTypeDefinition::Map(values) => {
-                    layers.push(SelectedValueLayer::Map);
+                    budget.push(&mut layers, SelectedValueLayer::Map, "clock_type")?;
                     current = values;
                 }
                 SelectedTypeDefinition::Option(_) | SelectedTypeDefinition::Reference(_) => {
-                    return None;
+                    return Ok(None);
                 }
             }
         }
-        let mut rendered = match current {
+        let Some(mut rendered) = (match current {
             SelectedTypeRef::Native(NativeTypeRef::Clock) => {
-                Some("ix://quire/native/Clock".to_owned())
+                Some(budget.concat(&["ix://quire/native/Clock"], "clock_type")?)
             }
             SelectedTypeRef::Native(NativeTypeRef::Text) => {
-                Some("ix://quire/native/Text".to_owned())
+                Some(budget.concat(&["ix://quire/native/Text"], "clock_type")?)
             }
             SelectedTypeRef::Native(_) => None,
-            SelectedTypeRef::Unit(name) => Some(name.to_string()),
-            SelectedTypeRef::Map(key, value) => Some(format!("Map<{key}, {value}>")),
-            SelectedTypeRef::Declared(name) => Some(name.to_string()),
-        }?;
+            SelectedTypeRef::Unit(name) => Some(budget.concat(&[name], "clock_type")?),
+            SelectedTypeRef::Map(key, value) => {
+                Some(budget.concat(&["Map<", key, ", ", value, ">"], "clock_type")?)
+            }
+            SelectedTypeRef::Declared(name) => Some(budget.concat(&[name], "clock_type")?),
+        }) else {
+            return Ok(None);
+        };
         for layer in layers.into_iter().rev() {
             rendered = match layer {
-                SelectedValueLayer::Sequence => format!("Sequence<{rendered}>"),
-                SelectedValueLayer::Map => format!("Map<Text, {rendered}>"),
-                SelectedValueLayer::Option => return None,
+                SelectedValueLayer::Sequence => {
+                    budget.concat(&["Sequence<", &rendered, ">"], "clock_type")?
+                }
+                SelectedValueLayer::Map => {
+                    budget.concat(&["Map<Text, ", &rendered, ">"], "clock_type")?
+                }
+                SelectedValueLayer::Option => return Ok(None),
             };
         }
-        Some(rendered)
+        Ok(Some(rendered))
     }
 
     /// FR-322 step 4 over one declared `typeRef` and multiplicity; `None`
@@ -1726,6 +2424,7 @@ impl DomainModel {
 
     /// A field's type. Timed clock collections retain optionality on each
     /// selected clock element; other optional fields wrap the whole slot.
+    #[cfg(test)]
     pub(super) fn field_type(&self, field: &FieldDecl) -> Option<MemberType> {
         let slot = self.slot_type(&field.slot)?;
         Some(match (field.optional, field.slot.type_ref.as_ref(), slot) {
@@ -1756,9 +2455,18 @@ impl DomainModel {
     }
 
     /// Checked binder types of one record in effective field order.
-    pub(super) fn record_binder_types(&self, record: &str) -> Option<RecordBinderTypes> {
-        self.record_types.get(record)?;
-        self.fields.of(record)?.binder_types(&self.checked_package)
+    pub(super) fn record_binder_types(
+        &self,
+        record: &str,
+        budget: &mut Budget<'_, '_>,
+    ) -> Result<Option<RecordBinderTypes>, ValidationFailure> {
+        if !self.record_types.contains_key(record) {
+            return Ok(None);
+        }
+        let Some(fields) = self.fields.of(record) else {
+            return Ok(None);
+        };
+        fields.binder_types(&self.checked_package, budget)
     }
 
     /// Checked receiver, parameter and optional result binder types of the
@@ -1799,23 +2507,35 @@ impl DomainModel {
         } else {
             DeclarationForm::ObjectType
         };
-        let object_id = declaration_id(&self.identity, form, object);
-        let Some(receiver) = self.type_node_id(&MemberType::Reference(object_id)) else {
+        let object_id = declaration_id_in(&self.identity, form, object, budget)?;
+        let Some(receiver) =
+            MemberType::Reference(object_id).node_id_in(&self.checked_package, budget)?
+        else {
             return Ok(None);
         };
-        let mut types = vec![receiver];
+        let mut types = budget.vec(
+            1 + operation.parameters.len() + usize::from(operation.result.is_some()),
+            "operation_binders",
+        )?;
+        types.push(receiver);
         for parameter in &operation.parameters {
-            let Some(parameter_type) = self
-                .slot_type(parameter)
-                .and_then(|ty| self.type_node_id(&ty))
+            let Some(parameter_type) =
+                self.slot_type_charged(parameter, false, budget, "member_type")?
+            else {
+                return Ok(None);
+            };
+            let Some(parameter_type) = parameter_type.node_id_in(&self.checked_package, budget)?
             else {
                 return Ok(None);
             };
             types.push(parameter_type);
         }
         if let Some(result) = &operation.result {
-            let Some(result_type) = self.slot_type(result).and_then(|ty| self.type_node_id(&ty))
+            let Some(result_type) = self.slot_type_charged(result, false, budget, "member_type")?
             else {
+                return Ok(None);
+            };
+            let Some(result_type) = result_type.node_id_in(&self.checked_package, budget)? else {
                 return Ok(None);
             };
             types.push(result_type);
@@ -1823,26 +2543,41 @@ impl DomainModel {
         Ok(Some(types))
     }
 
-    /// Candidate names, including ambiguous names, before effective-member resolution.
+    /// Candidate names, including ambiguous names, before effective-member
+    /// resolution, in ascending order without repeats.
     pub(super) fn operation_candidate_names(
         &self,
         object: &str,
         budget: &mut Budget<'_, '_>,
-    ) -> Result<BTreeSet<Box<str>>, ValidationFailure> {
-        let mut candidates = BTreeSet::new();
+    ) -> Result<Vec<Box<str>>, ValidationFailure> {
         let ancestors = self.ancestors(object, budget)?;
+        let declared_by = |node: &str| self.object_types.get(node);
+        let total: usize = std::iter::once(object)
+            .chain(ancestors.iter().copied())
+            .filter_map(declared_by)
+            .map(|declared| declared.operations.len())
+            .sum();
+        // The names are borrowed from the declarations until the owned list
+        // is made at the exact size the distinct ones need.
+        let mut names: Vec<&str> = budget.vec(total, MODEL)?;
         for node in std::iter::once(object).chain(ancestors.iter().copied()) {
-            if let Some(declared) = self.object_types.get(node) {
+            if let Some(declared) = declared_by(node) {
                 budget.charge(units(declared.operations.len()))?;
-                candidates.extend(
+                names.extend(
                     declared
                         .operations
                         .iter()
-                        .map(|operation| Box::from(member_name(&operation.identity))),
+                        .map(|operation| member_name(&operation.identity)),
                 );
             }
         }
-        Ok(candidates)
+        names.sort_unstable();
+        names.dedup();
+        let mut owned = budget.vec(names.len(), MODEL)?;
+        for name in names {
+            owned.push(budget.text(name, MODEL)?);
+        }
+        Ok(owned)
     }
 
     /// Names of the effective operations reachable from one model type.
@@ -1850,23 +2585,24 @@ impl DomainModel {
         &self,
         object: &str,
         budget: &mut Budget<'_, '_>,
-    ) -> Result<BTreeSet<Box<str>>, ValidationFailure> {
-        let candidates = self.operation_candidate_names(object, budget)?;
-        let mut names = BTreeSet::new();
-        for name in candidates {
-            match self.resolve(object, MemberKind::Operation, &name, budget) {
+    ) -> Result<Vec<Box<str>>, ValidationFailure> {
+        let mut names = self.operation_candidate_names(object, budget)?;
+        let mut kept = 0;
+        for at in 0..names.len() {
+            let Some(name) = names.get(at) else {
+                break;
+            };
+            match self.resolve(object, MemberKind::Operation, name, budget) {
                 Ok(Resolved::Operation(_)) => {
-                    names.insert(name);
+                    names.swap(kept, at);
+                    kept += 1;
                 }
                 Ok(Resolved::Field(_)) | Err(ModelFailure::Refused(_)) => {}
                 Err(ModelFailure::Limit(failure)) => return Err(failure),
             }
         }
+        names.truncate(kept);
         Ok(names)
-    }
-
-    fn type_node_id(&self, member_type: &MemberType) -> Option<CheckedNodeId> {
-        member_type.node_id(&self.checked_package)
     }
 }
 
@@ -1889,17 +2625,25 @@ pub(super) struct ModelOperationClass {
     pub(super) binder_types: Option<Vec<CheckedNodeId>>,
 }
 
-/// Selected package, declaration, and form to the authored structural node.
-type DeclarationOwners =
-    BTreeMap<Box<str>, BTreeMap<Box<str>, BTreeMap<DeclarationForm, CheckedNodeId>>>;
+/// The authored structural node of one selected declaration, and who owns it.
+#[derive(Debug)]
+struct DeclaredRow<'m> {
+    key: CheckedNodeId,
+    owner: Owner<'m>,
+    /// The graph position of the authored node.
+    position: usize,
+}
 
-/// Every selected declaration's model declaration node key.
+/// Every selected declaration's model declaration node key: the rows once,
+/// and two sorted tables of row numbers, one by key and one by the selected
+/// package, declaration and form.
 #[derive(Debug, Default)]
 pub(super) struct ModelOwners<'m> {
-    by_key: BTreeMap<CheckedNodeId, Owner<'m>>,
-    by_declaration: DeclarationOwners,
-    /// The identity of every selected domain package.
-    identities: BTreeSet<&'m str>,
+    rows: Vec<DeclaredRow<'m>>,
+    by_key: Vec<usize>,
+    by_declaration: Vec<usize>,
+    /// The identity of every selected domain package, sorted.
+    identities: Vec<&'m str>,
 }
 
 impl<'m> ModelOwners<'m> {
@@ -1919,11 +2663,22 @@ impl<'m> ModelOwners<'m> {
 
     /// Whether a domain package of `identity` is selected.
     pub(super) fn selects(&self, identity: &str) -> bool {
-        self.identities.contains(identity)
+        self.identities.binary_search(&identity).is_ok()
+    }
+
+    /// The row whose key is `key`.
+    fn row_by_key(&self, key: &CheckedNodeId) -> Option<&DeclaredRow<'m>> {
+        let after = self.by_key.partition_point(|&at| {
+            self.rows
+                .get(at)
+                .is_some_and(|row| row.key.cmp(key) != std::cmp::Ordering::Greater)
+        });
+        let row = self.rows.get(*self.by_key.get(after.checked_sub(1)?)?)?;
+        (row.key.cmp(key) == std::cmp::Ordering::Equal).then_some(row)
     }
 
     pub(super) fn owner_by_key(&self, key: &CheckedNodeId) -> Option<Owner<'m>> {
-        self.by_key.get(key).copied()
+        self.row_by_key(key).map(|row| row.owner)
     }
 
     /// The exact admitted node for a selected model declaration.
@@ -1933,7 +2688,23 @@ impl<'m> ModelOwners<'m> {
         node: &str,
         form: DeclarationForm,
     ) -> Option<&CheckedNodeId> {
-        self.by_declaration.get(identity)?.get(node)?.get(&form)
+        let order = |row: &DeclaredRow<'_>| {
+            (
+                row.owner.package.identity.as_ref(),
+                row.owner.node,
+                row.owner.form,
+            )
+                .cmp(&(identity, node, form))
+        };
+        let after = self.by_declaration.partition_point(|&at| {
+            self.rows
+                .get(at)
+                .is_some_and(|row| order(row) != std::cmp::Ordering::Greater)
+        });
+        let row = self
+            .rows
+            .get(*self.by_declaration.get(after.checked_sub(1)?)?)?;
+        (order(row) == std::cmp::Ordering::Equal).then_some(&row.key)
     }
 
     /// Effective operation names, declaration nodes and checked binder records
@@ -1944,7 +2715,8 @@ impl<'m> ModelOwners<'m> {
         meter: &mut super::WorkMeter,
     ) -> Result<Vec<ModelOperationClass>, ValidationFailure> {
         let mut classes = Vec::new();
-        for (id, owner) in &self.by_key {
+        for row in self.by_key.iter().filter_map(|&at| self.rows.get(at)) {
+            let (id, owner) = (&row.key, &row.owner);
             if owner.package.identity.as_ref() != identity
                 || !matches!(
                     owner.form,
@@ -1965,12 +2737,18 @@ impl<'m> ModelOwners<'m> {
                     owner
                         .package
                         .model_operation_binder_types(owner.node, &name, &mut budget)?;
-                classes.push(ModelOperationClass {
-                    object: member_name(owner.node).into(),
-                    operation: name,
-                    node: id.clone(),
-                    binder_types: binder,
-                });
+                let object = budget.text(member_name(owner.node), "operation_class")?;
+                let node = budget.clone_id(id, "operation_class")?;
+                budget.push(
+                    &mut classes,
+                    ModelOperationClass {
+                        object,
+                        operation: name,
+                        node,
+                        binder_types: binder,
+                    },
+                    "operation_class",
+                )?;
             }
         }
         Ok(classes)
@@ -1978,34 +2756,68 @@ impl<'m> ModelOwners<'m> {
     pub(super) fn refinement_object_fields(
         &self,
         key: &crate::checked_package::shared::CheckedNodeId,
-    ) -> Option<BTreeSet<Box<str>>> {
-        let owner = self.by_key.get(key)?;
+    ) -> Option<&[Box<str>]> {
+        let owner = &self.row_by_key(key)?.owner;
         if owner.form != DeclarationForm::ObjectType {
             return None;
         }
         owner.package.fields.exposed_names(owner.node)
     }
+    #[cfg(test)]
     /// Recomputes the key of every selected model declaration
-    /// of each admitted document; `charge` is called once per key.
+    /// of each admitted document; `charge` is called once per key. Nothing
+    /// is charged to a read-storage budget.
     pub(super) fn new<Body>(
         models: &'m [DomainModel],
         nodes: &[CheckedSemanticNodeV2<Body>],
         mut charge: impl FnMut(usize) -> Result<(), ValidationFailure>,
     ) -> Result<Self, ValidationFailure> {
-        let mut by_key = BTreeMap::new();
-        let mut by_declaration = DeclarationOwners::new();
-        let mut identities = BTreeSet::new();
-        let mut authored = BTreeMap::<(&str, &str), Vec<&CheckedSemanticNodeV2<Body>>>::new();
-        for candidate in nodes {
+        let mut meter = WorkMeter::new(u64::MAX);
+        let mut budget = Budget::node(&mut meter, 0);
+        Self::build(models, nodes, &mut budget, |_, root| charge(root))
+    }
+
+    /// [`Self::new`], with every allocation requested of `budget` at
+    /// `PackageRead(Graph, node)` before it is made: the tables at the
+    /// first node, each owned key at the node it names. `visit` is called
+    /// once per key with the selected package's root.
+    pub(super) fn build<Body>(
+        models: &'m [DomainModel],
+        nodes: &[CheckedSemanticNodeV2<Body>],
+        budget: &mut Budget<'_, '_>,
+        mut visit: impl FnMut(&mut Budget<'_, '_>, usize) -> Result<(), ValidationFailure>,
+    ) -> Result<Self, ValidationFailure> {
+        const F: &str = "model";
+        let owned = |candidate: &CheckedSemanticNodeV2<Body>| {
+            matches!(candidate.owner, Some(CheckedNodeOwner::Model { .. }))
+        };
+        budget.set_index(0);
+        // The authored nodes by (package, declaration) and graph position.
+        let mut authored: Vec<(&str, &str, usize)> =
+            budget.vec(nodes.iter().filter(|candidate| owned(candidate)).count(), F)?;
+        for (position, candidate) in nodes.iter().enumerate() {
             if let Some(CheckedNodeOwner::Model { identity, node }) = &candidate.owner {
-                authored
-                    .entry((identity.as_ref(), node.as_ref()))
-                    .or_default()
-                    .push(candidate);
+                authored.push((identity.as_ref(), node.as_ref(), position));
             }
         }
+        authored.sort_unstable();
+        let declared: usize = models
+            .iter()
+            .map(|package| {
+                package.object_types.len()
+                    + package.relationships.len()
+                    + package.relation_nodes.len()
+                    + package.record_types.len()
+                    + package.tuple_types.len()
+                    + package.variant_types.len()
+                    + package.populations.len()
+                    + package.persistence_interfaces.len()
+            })
+            .sum();
+        let mut identities: Vec<&str> = budget.vec(models.len(), F)?;
+        let mut rows: Vec<DeclaredRow<'m>> = budget.vec(declared, F)?;
         for (index, package) in models.iter().enumerate() {
-            identities.insert(package.identity.as_ref());
+            identities.push(package.identity.as_ref());
             let objects = package.object_types.iter().map(|(node, declared)| {
                 let form = if package.state_machines.contains(node.as_ref()) {
                     DeclarationForm::StateMachine
@@ -2051,34 +2863,76 @@ impl<'m> ModelOwners<'m> {
                 .chain(populations)
                 .chain(persistence_interfaces)
             {
-                charge(package.root)?;
-                if let Some(candidates) = authored.get(&(package.identity.as_ref(), node.as_ref()))
+                budget.set_index(package.root);
+                visit(budget, package.root)?;
+                let key = (package.identity.as_ref(), node.as_ref());
+                let first = authored.partition_point(|row| (row.0, row.1) < key);
+                for &(_, _, position) in authored
+                    .get(first..)
+                    .unwrap_or_default()
+                    .iter()
+                    .take_while(|row| (row.0, row.1) == key)
                 {
-                    for candidate in candidates {
-                        if candidate.node_tag.as_ref() == form.tag()
-                            && candidate.semantic_form.as_ref() == form.form()
-                        {
-                            by_declaration
-                                .entry(package.identity.clone())
-                                .or_default()
-                                .entry(node.clone())
-                                .or_default()
-                                .insert(form, candidate.node_id.clone());
-                            by_key.insert(
-                                candidate.node_id.clone(),
-                                Owner {
-                                    package,
-                                    form,
-                                    node,
-                                    selection: index,
-                                },
-                            );
-                        }
+                    let Some(candidate) = nodes.get(position) else {
+                        continue;
+                    };
+                    if candidate.node_tag.as_ref() == form.tag()
+                        && candidate.semantic_form.as_ref() == form.form()
+                    {
+                        budget.set_index(position);
+                        budget.request(node_id_bytes(&candidate.node_id), form.tag())?;
+                        rows.push(DeclaredRow {
+                            key: candidate.node_id.clone(),
+                            owner: Owner {
+                                package,
+                                form,
+                                node,
+                                selection: index,
+                            },
+                            position,
+                        });
                     }
                 }
             }
         }
+        budget.set_index(0);
+        identities.sort_unstable();
+        identities.dedup();
+        let mut by_key: Vec<usize> = budget.vec(rows.len(), F)?;
+        by_key.extend(0..rows.len());
+        by_key.sort_unstable_by(|&a, &b| match (rows.get(a), rows.get(b)) {
+            (Some(a_row), Some(b_row)) => a_row.key.cmp(&b_row.key).then(a.cmp(&b)),
+            _ => a.cmp(&b),
+        });
+        // A key held twice names its last row.
+        let mut kept = 0;
+        for at in 0..by_key.len() {
+            let repeated = by_key
+                .get(at + 1)
+                .zip(by_key.get(at))
+                .and_then(|(&next, &this)| Some(rows.get(next)?.key == rows.get(this)?.key))
+                .unwrap_or(false);
+            if !repeated {
+                by_key.swap(kept, at);
+                kept += 1;
+            }
+        }
+        by_key.truncate(kept);
+        let mut by_declaration: Vec<usize> = budget.vec(rows.len(), F)?;
+        by_declaration.extend(0..rows.len());
+        let declaration = |at: usize| {
+            rows.get(at).map(|row| {
+                (
+                    row.owner.package.identity.as_ref(),
+                    row.owner.node,
+                    row.owner.form,
+                )
+            })
+        };
+        by_declaration
+            .sort_unstable_by(|&a, &b| declaration(a).cmp(&declaration(b)).then(a.cmp(&b)));
         Ok(Self {
+            rows,
             by_key,
             by_declaration,
             identities,
@@ -2094,7 +2948,7 @@ impl<'m> ModelOwners<'m> {
         tag: CheckedNodeTag,
     ) -> bool {
         matches!(tag, CheckedNodeTag::Model | CheckedNodeTag::Relation)
-            && (node.declaration.is_none() || self.by_key.contains_key(&node.node_id))
+            && (node.declaration.is_none() || self.row_by_key(&node.node_id).is_some())
     }
 
     /// FR-322 step 2 over one wire node.
@@ -2103,9 +2957,7 @@ impl<'m> ModelOwners<'m> {
         node: &CheckedSemanticNodeV2<Body>,
     ) -> Result<Owner<'m>, ModelRefusal> {
         let owner = self
-            .by_key
-            .get(&node.node_id)
-            .copied()
+            .owner_by_key(&node.node_id)
             .ok_or_else(ModelRefusal::unselected)?;
         check_declaration_node(owner.form, node, node.body.is_empty_aggregate())?;
         Ok(owner)
@@ -2114,30 +2966,47 @@ impl<'m> ModelOwners<'m> {
     /// Implements: FR-347. the record value type whose model declaration node key is
     /// `key`, `None` when `key` names no selected record.
     pub(super) fn record_by_key(&self, key: &CheckedNodeId) -> Option<Owner<'m>> {
-        self.by_key
-            .get(key)
-            .copied()
+        self.owner_by_key(key)
             .filter(|owner| owner.form == DeclarationForm::RecordValueType)
     }
 
+    #[cfg(test)]
     /// An owned copy of the key index, which an admitted package retains
-    /// after the documents it borrows are gone.
+    /// after the documents it borrows are gone. Nothing is charged to a
+    /// read-storage budget.
     pub(super) fn index(&self) -> DeclarationIndex {
-        DeclarationIndex(
-            self.by_key
-                .iter()
-                .map(|(key, owner)| {
-                    (
-                        key.clone(),
-                        DeclaredNode {
-                            form: owner.form,
-                            selection: owner.selection,
-                            node: owner.node.into(),
-                        },
-                    )
-                })
-                .collect(),
-        )
+        let mut meter = WorkMeter::new(u64::MAX);
+        let mut budget = Budget::node(&mut meter, 0);
+        self.index_charged(&mut budget)
+            .unwrap_or_else(|_| unreachable!("an unmetered budget admits every request"))
+    }
+
+    /// [`Self::index`], each owned key and node text requested at
+    /// `PackageRead(Graph, node)` before it is made.
+    pub(super) fn index_charged(
+        &self,
+        budget: &mut Budget<'_, '_>,
+    ) -> Result<DeclarationIndex, ValidationFailure> {
+        const F: &str = "model";
+        budget.set_index(0);
+        let mut entries = budget.vec(self.by_key.len(), F)?;
+        for row in self.by_key.iter().filter_map(|&at| self.rows.get(at)) {
+            budget.set_index(row.position);
+            let form = row.owner.form.tag();
+            budget.request(
+                node_id_bytes(&row.key).saturating_add(row.owner.node.len()),
+                form,
+            )?;
+            entries.push((
+                row.key.clone(),
+                DeclaredNode {
+                    form: row.owner.form,
+                    selection: row.owner.selection,
+                    node: row.owner.node.into(),
+                },
+            ));
+        }
+        Ok(DeclarationIndex(SortedMap::from_sorted(entries)))
     }
 }
 
@@ -2234,7 +3103,7 @@ pub(super) struct SelectionRefusal {
     pub(super) declaration_identity: Option<Box<str>>,
     pub(super) declaration_origin: Option<IntakeDeclarationOrigin>,
     /// Member path within the selected type definition, retained privately.
-    pub(super) declaration_path: Option<Vec<Segment>>,
+    pub(super) declaration_path: Option<SegPath>,
     /// A selected-document pointer that the public refusal contract locates.
     pub(super) document_pointer: Option<JsonPointer>,
 }
@@ -2255,18 +3124,24 @@ impl SelectionRefusal {
         }
     }
 
-    fn located(
+    fn located<'n>(
         refusal: ModelRefusal,
-        node: &Value,
+        node: impl Into<Option<View<'n>>>,
         budget: &mut Budget<'_, '_>,
     ) -> Result<Self, ValidationFailure> {
-        let identity = node.get("identity").and_then(Value::as_str);
+        let node = node.into();
+        let identity = node
+            .and_then(|node| node.get("identity"))
+            .and_then(View::as_str);
         budget.charge(1_u64.saturating_add(identity.map_or(0, |value| units(value.len()))))?;
+        let declaration_identity = identity
+            .map(|identity| budget.text(identity, "declarations"))
+            .transpose()?;
         Ok(Self {
             refusal,
             member: None,
-            declaration_identity: identity.map(Box::from),
-            declaration_origin: retained_origin(node.get("origin"), budget)?,
+            declaration_identity,
+            declaration_origin: retained_origin(node.and_then(|node| node.get("origin")), budget)?,
             declaration_path: None,
             document_pointer: None,
         })
@@ -2274,15 +3149,15 @@ impl SelectionRefusal {
 
     fn group(
         refusal: ModelRefusal,
-        nodes: &[&Value],
+        nodes: &[(&str, usize, View<'_>)],
         budget: &mut Budget<'_, '_>,
     ) -> Result<Self, ValidationFailure> {
-        let Some(first) = nodes.first() else {
+        let Some((_, _, first)) = nodes.first() else {
             return Ok(Self::at(refusal.code, refusal.cause, None));
         };
-        let mut retained = Self::located(refusal, first, budget)?;
+        let mut retained = Self::located(refusal, *first, budget)?;
         let mut agrees = retained.declaration_origin.is_some();
-        for node in nodes.iter().skip(1) {
+        for (_, _, node) in nodes.iter().skip(1) {
             budget.charge(1)?;
             let origin = retained_origin(node.get("origin"), budget)?;
             agrees &= origin.is_some() && origin == retained.declaration_origin;
@@ -2297,7 +3172,7 @@ impl SelectionRefusal {
 /// FR-322 selected variant payload refusals name both the selection row and
 /// the exact payload member in the selected Semantic IR document.
 fn unsupported_variant_payload(
-    case: &Value,
+    case: View<'_>,
     type_index: usize,
     case_index: usize,
     budget: &mut Budget<'_, '_>,
@@ -2325,7 +3200,7 @@ fn unsupported_variant_payload(
 /// the full Semantic IR document as well as the package's model selection row.
 fn selected_tuple_refusal(
     refusal: ModelRefusal,
-    node: &Value,
+    node: View<'_>,
     type_index: usize,
     position_index: Option<usize>,
     budget: &mut Budget<'_, '_>,
@@ -2377,362 +3252,9 @@ impl From<ModelRefusal> for SelectionFailure {
     }
 }
 
-/// FR-322 step 1's admission checks over the document supplied under the
-/// selected identity: it parses, holds no number without an exact RFC 8785
-/// spelling, and carries the selected identity as its own `package.identity`.
-/// Parsing is charged to the reader's `work` limit before it starts, one unit
-/// per [`DOCUMENT_BYTES_PER_WORK`] bytes, so a document too large for the
-/// limit is `incomplete` at its root and is never parsed. Returns the parsed
-/// document.
-pub(super) fn admit_document(
-    identity: &str,
-    supplied: Option<&[u8]>,
-    identity_of: fn(&Value) -> Option<&str>,
-    budget: &mut Budget<'_, '_>,
-) -> Result<(Value, Arc<quire_canonical::Document>), SelectionFailure> {
-    use CheckedPackageRefusalCause as Cause;
-    use CheckedPackageRefusalCode as Code;
-    let Some(bytes) = supplied else {
-        return Err(SelectionRefusal::at(
-            Code::MissingImport,
-            Cause::MissingSelection,
-            Some("identity"),
-        )
-        .into());
-    };
-    budget.charge(units(bytes.len().div_ceil(DOCUMENT_BYTES_PER_WORK)))?;
-    // The document is read once, by `quire-canonical`, which keeps each
-    // number's text. Bytes past the reader's limit are the read's
-    // `incomplete` for `bytes`; a number past the double range has no exact
-    // RFC 8785 spelling, so the read names it by pointer and text and it is
-    // refused as any other inexact number is.
-    let reading = match quire_canonical::read(bytes, budget.bytes) {
-        Ok(reading) => reading,
-        Err(quire_canonical::ReadError::Limit(limit)) => {
-            return Err(bytes_exceeded(limit).into());
-        }
-        Err(quire_canonical::ReadError::NumberOutOfRange {
-            pointer, lexeme, ..
-        }) => {
-            // The reader's pointer is RFC 6901 by its contract, so it is
-            // taken as the escaped text it is.
-            let document_pointer = JsonPointer::from_escaped(pointer);
-            let cause = if Spelling::of(&lexeme).is_whole_past_2_pow_53() {
-                Cause::InexactInteger
-            } else {
-                Cause::InexactNumber
-            };
-            return Err(SelectionFailure::InexactNumber {
-                document_pointer,
-                cause,
-            });
-        }
-        Err(_) => {
-            return Err(SelectionRefusal::at(
-                Code::MalformedWire,
-                Cause::MalformedJson,
-                Some("identity"),
-            )
-            .into());
-        }
-    };
-    // Decided on the text of each number, before any rounding to a double.
-    if let Some((document_pointer, cause)) = first_inexact_number(&reading) {
-        return Err(SelectionFailure::InexactNumber {
-            document_pointer,
-            cause,
-        });
-    }
-    // The declarations are read from the one reading of the document, as a
-    // `Value` view of it: the document is not parsed a second time.
-    let document = document_value(&reading);
-    let refusal = match identity_of(&document) {
-        Some(found) if found == identity => {
-            return Ok((document, Arc::new(reading)));
-        }
-        Some(_) | None => SelectionFailure::from(SelectionRefusal::at(
-            Code::InvalidModelBinding,
-            Cause::WrongModelSelection,
-            Some("identity"),
-        )),
-    };
-    quire_canonical::drop_value(document);
-    Err(refusal)
-}
-
-/// The `Value` view of one reading of a document, built from an explicit heap
-/// stack so a document of any depth converts on any thread stack. Each number
-/// is the integer its text spells when it spells one that fits an `i64` or
-/// `u64`, and the double its text denotes otherwise. The caller drops the
-/// result through `quire_canonical::drop_value`, as `Value`'s own drop recurses.
-fn document_value(document: &quire_canonical::Document) -> Value {
-    use quire_canonical::{Items, Members, Node};
-    enum Open<'d> {
-        Array(Vec<Value>, Items<'d>),
-        Object(serde_json::Map<String, Value>, Members<'d>, String),
-    }
-    let mut open: Vec<Open<'_>> = Vec::new();
-    let mut pending = Some(document.root());
-    loop {
-        let mut finished = None;
-        if let Some(node) = pending.take() {
-            match node.node() {
-                Node::Null => finished = Some(Value::Null),
-                Node::Bool(flag) => finished = Some(Value::Bool(flag)),
-                Node::Number(number) => {
-                    let value = json_number(number);
-                    finished = Some(value.map_or(Value::Null, Value::Number));
-                }
-                Node::String(text) => finished = Some(Value::String(text.to_owned())),
-                Node::Array(items) => open.push(Open::Array(Vec::new(), items)),
-                Node::Object(members) => {
-                    open.push(Open::Object(serde_json::Map::new(), members, String::new()));
-                }
-            }
-        }
-        // Hand each finished value to its container, then move to the next
-        // child, closing every container with none left.
-        loop {
-            if let Some(value) = finished.take() {
-                match open.last_mut() {
-                    None => return value,
-                    Some(Open::Array(elements, _)) => elements.push(value),
-                    Some(Open::Object(members, _, name)) => {
-                        members.insert(std::mem::take(name), value);
-                    }
-                }
-            }
-            match open.last_mut() {
-                None => return Value::Null,
-                Some(Open::Array(_, items)) => match items.next() {
-                    Some(item) => {
-                        pending = Some(item);
-                        break;
-                    }
-                    None => {
-                        if let Some(Open::Array(elements, _)) = open.pop() {
-                            finished = Some(Value::Array(elements));
-                        }
-                    }
-                },
-                Some(Open::Object(_, members, name)) => match members.next() {
-                    Some((key, member)) => {
-                        key.clone_into(name);
-                        pending = Some(member);
-                        break;
-                    }
-                    None => {
-                        if let Some(Open::Object(members, _, _)) = open.pop() {
-                            finished = Some(Value::Object(members));
-                        }
-                    }
-                },
-            }
-        }
-    }
-}
-
-/// The reader's `incomplete` for `bytes`: the document's length as consumed
-/// and no pointer, as every byte-limit outcome is (FR-038-AC-26).
-fn bytes_exceeded(limit: quire_canonical::LimitExceeded) -> ValidationFailure {
-    ValidationFailure::incomplete(
-        CheckedPackageLimit::Bytes,
-        limit.bound,
-        limit.required,
-        None,
-    )
-}
-
-/// The RFC 6901 pointer and cause of the first number, in document order,
-/// that has no exact RFC 8785 spelling (see [`inexact_cause`]); `None` when
-/// there is none. Walks from an explicit heap stack, so a document of any
-/// depth is walked on any thread stack.
-fn first_inexact_number(
-    document: &quire_canonical::Document,
-) -> Option<(JsonPointer, CheckedPackageRefusalCause)> {
-    use quire_canonical::{Items, Members, Node};
-    enum Open<'d> {
-        Array(Items<'d>, usize),
-        Object(Members<'d>),
-    }
-    let mut path: Vec<Step<'_>> = Vec::new();
-    let mut open: Vec<Open<'_>> = Vec::new();
-    let mut next = Some(document.root());
-    loop {
-        if let Some(value) = next.take() {
-            match value.node() {
-                Node::Number(number) => {
-                    if let Some(cause) = inexact_cause(number.text(), number.value()) {
-                        return Some((pointer_from_steps(path.iter().copied()), cause));
-                    }
-                }
-                Node::Array(items) => open.push(Open::Array(items, 0)),
-                Node::Object(members) => open.push(Open::Object(members)),
-                Node::Null | Node::Bool(_) | Node::String(_) => {}
-            }
-        }
-        // The path holds one step for each open container but the innermost
-        // child being entered, so it is cut back to the open containers
-        // before the next child's step is pushed.
-        let depth = open.len().saturating_sub(1);
-        match open.last_mut() {
-            None => return None,
-            Some(Open::Array(items, index)) => match items.next() {
-                Some(item) => {
-                    path.truncate(depth);
-                    path.push(Step::Index(*index));
-                    *index = index.saturating_add(1);
-                    next = Some(item);
-                }
-                None => {
-                    open.pop();
-                }
-            },
-            Some(Open::Object(members)) => match members.next() {
-                Some((name, member)) => {
-                    path.truncate(depth);
-                    path.push(Step::Key(name));
-                    next = Some(member);
-                }
-                None => {
-                    open.pop();
-                }
-            },
-        }
-    }
-}
-
-/// The cause of a model-document number's refusal, or `None` when the number
-/// is admitted. `text` is the
-/// number as spelled in the document and `value` the double `quire-canonical`
-/// read from it. The decision is made on the text, never on a double:
-///
-/// - `inexact-integer` when the text denotes a whole value past 2^53,
-///   however spelled;
-/// - `inexact-number` when the digits and scale of the text differ from those
-///   of the text `quire-canonical` writes for `value`, so the exact value of
-///   the number is not the one its RFC 8785 encoding carries.
-fn inexact_cause(text: &str, value: f64) -> Option<CheckedPackageRefusalCause> {
-    use CheckedPackageRefusalCause as Cause;
-    let spelled = Spelling::of(text);
-    if spelled.is_whole_past_2_pow_53() {
-        return Some(Cause::InexactInteger);
-    }
-    // Writing one finite double cannot fail, and its text is ASCII; were
-    // either to fail, the number has no RFC 8785 text to be exact against, so
-    // it is refused.
-    let mut written = Vec::new();
-    let mut writer = quire_canonical::Writer::new(
-        &mut written,
-        quire_canonical::Limits::new(DOUBLE_TEXT_BYTES),
-    );
-    let wrote = writer.number(value).is_ok();
-    let exact = wrote
-        && std::str::from_utf8(&written).is_ok_and(|written| spelled == Spelling::of(written));
-    (!exact).then_some(Cause::InexactNumber)
-}
-
-/// The bytes one double's RFC 8785 text can take (at most 25), with room to
-/// spare: the room one number's text is written in, not a cap on a document.
-const DOUBLE_TEXT_BYTES: u64 = 64;
-
-/// The decimal digits of `2^53`, 9007199254740992.
-const MAXIMUM_INTEGER_DIGITS: &str = "9007199254740992";
-
-/// A JSON number's value as `digits` x 10^`scale`, with neither a leading nor
-/// a trailing zero in `digits`, so two texts spell one value exactly when
-/// their spellings are equal. Zero has no digits and no sign.
-#[derive(Debug, Eq, PartialEq)]
-struct Spelling {
-    negative: bool,
-    digits: String,
-    scale: i64,
-}
-
-impl Spelling {
-    /// The spelling of `text`, a number `quire-canonical` read or wrote, so
-    /// `-? int frac? exp?`.
-    fn of(text: &str) -> Self {
-        let (negative, unsigned) = match text.strip_prefix('-') {
-            Some(unsigned) => (true, unsigned),
-            None => (false, text),
-        };
-        let (mantissa, exponent) = unsigned.split_once(['e', 'E']).unwrap_or((unsigned, "0"));
-        let (whole, fraction) = mantissa.split_once('.').unwrap_or((mantissa, ""));
-        let digits = [whole, fraction].concat();
-        let trimmed = digits.trim_start_matches('0');
-        let significant = trimmed.trim_end_matches('0');
-        if significant.is_empty() {
-            return Self {
-                negative: false,
-                digits: String::new(),
-                scale: 0,
-            };
-        }
-        let trailing = trimmed.len().saturating_sub(significant.len());
-        let scale = parse_exponent(exponent)
-            .saturating_sub(i64::try_from(fraction.len()).unwrap_or(i64::MAX))
-            .saturating_add(i64::try_from(trailing).unwrap_or(i64::MAX));
-        Self {
-            negative,
-            digits: significant.to_owned(),
-            scale,
-        }
-    }
-
-    /// Whether the value is a whole number of magnitude greater than 2^53.
-    /// `digits` has no trailing zero, so a negative `scale` leaves a nonzero
-    /// fraction: the value is not whole.
-    fn is_whole_past_2_pow_53(&self) -> bool {
-        if self.digits.is_empty() || self.scale < 0 {
-            return false;
-        }
-        let length = i64::try_from(self.digits.len()).unwrap_or(i64::MAX);
-        let maximum = i64::try_from(MAXIMUM_INTEGER_DIGITS.len()).unwrap_or(i64::MAX);
-        match length.saturating_add(self.scale).cmp(&maximum) {
-            std::cmp::Ordering::Greater => true,
-            std::cmp::Ordering::Less => false,
-            // Sixteen integer digits: `digits` padded with `scale` zeros.
-            std::cmp::Ordering::Equal => {
-                let padding = usize::try_from(self.scale).unwrap_or(0);
-                [self.digits.as_str(), &"0".repeat(padding)]
-                    .concat()
-                    .as_str()
-                    .cmp(MAXIMUM_INTEGER_DIGITS)
-                    .is_gt()
-            }
-        }
-    }
-}
-
-/// A JSON exponent, `[+-]?digits`, saturated to an `i64`.
-fn parse_exponent(text: &str) -> i64 {
-    let (negative, digits) = match text.strip_prefix('-') {
-        Some(digits) => (true, digits),
-        None => (false, text.strip_prefix('+').unwrap_or(text)),
-    };
-    let magnitude = digits.bytes().fold(0_i64, |total, byte| {
-        total
-            .saturating_mul(10)
-            .saturating_add(i64::from(byte.saturating_sub(b'0')))
-    });
-    if negative {
-        -magnitude
-    } else {
-        magnitude
-    }
-}
-
 /// A Semantic IR 2.0.0 document's own `package.identity`. The document's
 /// `package.version` is neither required nor read: a selection binds by
 /// identity alone.
-pub(super) fn semantic_ir_identity(document: &Value) -> Option<&str> {
-    document.get("package")?.get("identity")?.as_str()
-}
-
-/// FR-322 step 1 for one selected identity: admission, then the
-/// document's declarations. The document's parse and read are charged to
-/// the reader's `work` limit at the identity's root.
 pub(super) fn admit_selection(
     identity: &str,
     checked_package: &str,
@@ -2740,15 +3262,10 @@ pub(super) fn admit_selection(
     budget: &mut Budget<'_, '_>,
     unit_refs: &UnitRefs,
 ) -> Result<(DomainModel, Arc<quire_canonical::Document>), SelectionFailure> {
-    let (document, selected) = admit_document(
-        identity,
-        evidence.domain_package_document(identity),
-        semantic_ir_identity,
-        budget,
-    )?;
-    let model = read_semantic_ir(&document, checked_package, budget, unit_refs);
-    quire_canonical::drop_value(document);
-    model.map(|model| (model, selected))
+    let selected =
+        document::admit_document(identity, evidence.domain_package_document(identity), budget)?;
+    let model = read_semantic_ir(View::root(&selected), checked_package, budget, unit_refs)?;
+    Ok((model, selected))
 }
 
 /// Whether `text` is an FR-154 object id, `^[A-Za-z][A-Za-z0-9_]*$`.
@@ -2761,31 +3278,28 @@ fn is_object_id(text: &str) -> bool {
 }
 
 /// An optional array member: absent reads as empty.
-fn list<'v>(value: &'v Value, member: &str) -> Result<&'v [Value], ModelRefusal> {
+fn list<'v>(value: View<'v>, member: &str) -> Result<List<'v>, ModelRefusal> {
     match value.get(member) {
-        None => Ok(&[]),
-        Some(items) => items
-            .as_array()
-            .map(Vec::as_slice)
-            .ok_or_else(ModelRefusal::malformed),
+        None => Ok(List::empty()),
+        Some(items) => items.as_array().ok_or_else(ModelRefusal::malformed),
     }
 }
 
-fn text<'v>(value: &'v Value, member: &str) -> Result<&'v str, ModelRefusal> {
+fn text<'v>(value: View<'v>, member: &str) -> Result<&'v str, ModelRefusal> {
     value
         .get(member)
-        .and_then(Value::as_str)
+        .and_then(View::as_str)
         .ok_or_else(ModelRefusal::malformed)
 }
 
 /// A Semantic IR multiplicity's shape, `upper` absent when unbounded.
-fn semantic_ir_multiplicity(value: &Value) -> Result<Multiplicity, ModelRefusal> {
+fn semantic_ir_multiplicity(value: View<'_>) -> Result<Multiplicity, ModelRefusal> {
     let multiplicity = value
         .get("multiplicity")
         .ok_or_else(ModelRefusal::malformed)?;
     let lower = multiplicity
         .get("lower")
-        .and_then(Value::as_u64)
+        .and_then(View::as_u64)
         .ok_or_else(ModelRefusal::malformed)?;
     let upper = match multiplicity.get("upper") {
         None => None,
@@ -2794,7 +3308,7 @@ fn semantic_ir_multiplicity(value: &Value) -> Result<Multiplicity, ModelRefusal>
     let flag = |member: &str| {
         multiplicity
             .get(member)
-            .and_then(Value::as_bool)
+            .and_then(View::as_bool)
             .ok_or_else(ModelRefusal::malformed)
     };
     Ok(Multiplicity {
@@ -2808,7 +3322,7 @@ fn semantic_ir_multiplicity(value: &Value) -> Result<Multiplicity, ModelRefusal>
 /// A member's IR node identity, which FR-154 requires to be
 /// `<owner>/<name>`.
 // Reads a selected domain package document's member identity text.
-fn member_identity(member: &Value, owner: &str) -> Result<Box<str>, ModelRefusal> {
+fn member_identity<'v>(member: View<'v>, owner: &str) -> Result<&'v str, ModelRefusal> {
     let identity = text(member, "identity")?;
     let name = identity
         .strip_prefix(owner)
@@ -2817,18 +3331,50 @@ fn member_identity(member: &Value, owner: &str) -> Result<Box<str>, ModelRefusal
     if name.is_empty() || name.contains('/') {
         return Err(ModelRefusal::malformed());
     }
-    Ok(identity.into())
+    Ok(identity)
 }
 
-type RationalValueError = (ModelRefusal, Vec<Segment>);
+type RationalValueError = (ModelRefusal, RationalPath);
+
+/// Where in a Rational value type a refusal points: a member of the type, or
+/// a member of one of its constraints.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct RationalPath {
+    head: &'static str,
+    constraint: Option<(usize, &'static str)>,
+}
+
+impl RationalPath {
+    const fn member(name: &'static str) -> Self {
+        Self {
+            head: name,
+            constraint: None,
+        }
+    }
+
+    const fn constraint(index: usize, name: &'static str) -> Self {
+        Self {
+            head: "constraints",
+            constraint: Some((index, name)),
+        }
+    }
+
+    fn segments(self) -> SegPath {
+        let path = SegPath::from_slice(&[Segment::Name(self.head)]);
+        match self.constraint {
+            Some((index, name)) => path.then(Segment::Index(index)).then(Segment::Name(name)),
+            None => path,
+        }
+    }
+}
 
 /// FR-154's ordered Rational value-type grammar and selected-unit resolution.
 fn rational_value_type(
-    value: &Value,
+    value: View<'_>,
     unit_refs: &UnitRefs,
 ) -> Result<Option<ValueBounds>, RationalValueError> {
-    let malformed = |path| (ModelRefusal::malformed(), path);
-    let unsupported = |path| {
+    let malformed = |path: RationalPath| (ModelRefusal::malformed(), path);
+    let unsupported = |path: RationalPath| {
         (
             ModelRefusal::new(
                 CheckedPackageRefusalCode::UnsupportedConstruct,
@@ -2838,114 +3384,91 @@ fn rational_value_type(
         )
     };
     let constraints =
-        list(value, "constraints").map_err(|_| malformed(vec![Segment::Name("constraints")]))?;
+        list(value, "constraints").map_err(|_| malformed(RationalPath::member("constraints")))?;
     let identity =
-        text(value, "identity").map_err(|_| malformed(vec![Segment::Name("identity")]))?;
+        text(value, "identity").map_err(|_| malformed(RationalPath::member("identity")))?;
     let keywords = [
         "minNumerator",
         "maxNumerator",
         "minDenominator",
         "maxDenominator",
     ];
-    let mut found = BTreeMap::new();
+    // The constraint of each keyword, with its position among the constraints.
+    let mut found: [Option<(usize, View<'_>)>; 4] = [None; 4];
     for (index, constraint) in constraints.iter().enumerate() {
         let keyword = constraint
             .get("keyword")
-            .and_then(Value::as_str)
+            .and_then(View::as_str)
             .unwrap_or("");
-        if !keywords.contains(&keyword) {
-            return Err(unsupported(vec![
-                Segment::Name("constraints"),
-                Segment::Index(index),
-                Segment::Name("keyword"),
-            ]));
+        let Some(slot) = keywords.iter().position(|candidate| *candidate == keyword) else {
+            return Err(unsupported(RationalPath::constraint(index, "keyword")));
+        };
+        if constraint.get("appliesTo").and_then(View::as_str) != Some(identity) {
+            return Err(malformed(RationalPath::constraint(index, "appliesTo")));
         }
-        if constraint.get("appliesTo").and_then(Value::as_str) != Some(identity) {
-            return Err(malformed(vec![
-                Segment::Name("constraints"),
-                Segment::Index(index),
-                Segment::Name("appliesTo"),
-            ]));
-        }
-        if found.insert(keyword, (index, constraint)).is_some() {
-            return Err(malformed(vec![
-                Segment::Name("constraints"),
-                Segment::Index(index),
-                Segment::Name("keyword"),
-            ]));
+        if found
+            .get_mut(slot)
+            .is_none_or(|entry| entry.replace((index, constraint)).is_some())
+        {
+            return Err(malformed(RationalPath::constraint(index, "keyword")));
         }
     }
-    if !constraints.is_empty() {
-        for keyword in keywords {
-            if !found.contains_key(keyword) {
-                return Err(malformed(vec![Segment::Name("constraints")]));
-            }
-        }
+    if !constraints.is_empty() && found.iter().any(Option::is_none) {
+        return Err(malformed(RationalPath::member("constraints")));
     }
-    let mut numbers = Vec::with_capacity(4);
-    for keyword in keywords {
-        if let Some((index, constraint)) = found.get(keyword) {
-            let operands = constraint.get("operands").and_then(Value::as_object);
-            let number = operands
-                .filter(|operands| operands.len() == 1)
-                .and_then(|operands| operands.get("value"))
-                .and_then(|value| match value {
-                    Value::Number(number) => number
-                        .as_i64()
-                        .filter(|number| number.unsigned_abs() <= (1_u64 << 53)),
-                    Value::String(text) => text
-                        .parse::<i64>()
-                        .ok()
-                        .filter(|number| number.to_string() == text.as_str()),
-                    _ => None,
-                })
-                .ok_or_else(|| {
-                    malformed(vec![
-                        Segment::Name("constraints"),
-                        Segment::Index(*index),
-                        Segment::Name("operands"),
-                    ])
-                })?;
-            numbers.push(i128::from(number));
+    let mut numbers = [0_i128; 4];
+    let mut read = 0;
+    for entry in found.iter().flatten() {
+        let (index, constraint) = entry;
+        let operands = constraint.get("operands").and_then(View::as_object);
+        let number = operands
+            .filter(|operands| operands.len() == 1)
+            .and_then(|operands| operands.get("value"))
+            .and_then(|value| match value.node() {
+                quire_canonical::Node::Number(_) => value
+                    .as_i64()
+                    .filter(|number| number.unsigned_abs() <= (1_u64 << 53)),
+                quire_canonical::Node::String(text) => text
+                    .parse::<i64>()
+                    .ok()
+                    .filter(|number| decimal_text_is(*number, text)),
+                _ => None,
+            })
+            .ok_or_else(|| malformed(RationalPath::constraint(*index, "operands")))?;
+        if let Some(slot) = numbers.get_mut(read) {
+            *slot = i128::from(number);
         }
+        read += 1;
     }
-    let bounds = if numbers.is_empty() {
+    let bounds = if read == 0 {
         None
     } else {
-        let [numerator_min, numerator_max, denominator_min, denominator_max] = numbers.as_slice()
-        else {
-            return Err(malformed(vec![Segment::Name("constraints")]));
-        };
+        let [numerator_min, numerator_max, denominator_min, denominator_max] = numbers;
         let bounds = RationalBounds {
-            numerator_min: *numerator_min,
-            numerator_max: *numerator_max,
-            denominator_min: *denominator_min,
-            denominator_max: *denominator_max,
+            numerator_min,
+            numerator_max,
+            denominator_min,
+            denominator_max,
         };
         if bounds.numerator_min > bounds.numerator_max
             || bounds.denominator_min <= 0
             || bounds.denominator_min > bounds.denominator_max
         {
-            return Err(unsupported(vec![Segment::Name("constraints")]));
+            return Err(unsupported(RationalPath::member("constraints")));
         }
         Some(bounds)
     };
     let unit = match value.get("unit") {
         None => None,
-        Some(Value::String(name))
-            if matches!(
-                SelectedTypeRef::from_admitted_name(name),
-                Some(SelectedTypeRef::Unit(_))
-            ) =>
-        {
-            Some(
+        Some(unit) => match unit.as_str() {
+            Some(name) if SelectedTypeRef::is_unit_name(name) => Some(
                 unit_refs
-                    .get(name.as_str())
+                    .get(name)
                     .cloned()
-                    .ok_or_else(|| (ModelRefusal::missing_name(), vec![Segment::Name("unit")]))?,
-            )
-        }
-        Some(_) => return Err(malformed(vec![Segment::Name("unit")])),
+                    .ok_or_else(|| (ModelRefusal::missing_name(), RationalPath::member("unit")))?,
+            ),
+            _ => return Err(malformed(RationalPath::member("unit"))),
+        },
     };
     Ok(bounds.map(|bounds| ValueBounds::Rational(bounds, unit)))
 }
@@ -2953,63 +3476,88 @@ fn rational_value_type(
 /// An FCD value type bound as `Int[lo, hi]`, Rational, or `Text[min, max; profile]`.
 // Reads a selected domain package document's value type.
 #[ix_trace_rs::string_edge]
-fn semantic_ir_value_type(value: &Value, unit_refs: &UnitRefs) -> Option<ValueBounds> {
-    let constraint = |keyword: &str| -> Option<&Value> {
-        let mut found = list(value, "constraints")
-            .ok()?
-            .iter()
-            .filter(|constraint| {
-                constraint.get("keyword").and_then(Value::as_str) == Some(keyword)
-            });
-        let constraint = found.next()?;
-        if found.next().is_some() {
-            return None;
-        }
-        Some(constraint)
-    };
-    let integer = |keyword| -> Option<i128> {
-        match constraint(keyword)?.get("operands")?.get("value")? {
-            Value::Number(number) => number.as_i64().map(i128::from),
-            Value::String(text) => text.parse().ok(),
-            _ => None,
-        }
-    };
-    let scalar = value.get("scalar").and_then(Value::as_str)?;
-    if scalar != "rational" && value.get("unit").is_some() {
-        return None;
-    }
-    match scalar {
-        "integer" => {
-            let (lower, upper) = (integer("min")?, integer("max")?);
-            (lower <= upper).then_some(ValueBounds::Integer(IntegerBounds { lower, upper }))
-        }
-        "rational" => rational_value_type(value, unit_refs).ok().flatten(),
-        "string" => {
-            let (lower, upper) = (
-                u64::try_from(integer("minLength")?).ok()?,
-                u64::try_from(integer("maxLength")?).ok()?,
-            );
-            let name = constraint("format")?
-                .get("operands")?
-                .get("name")?
-                .as_str()?;
-            let profile = name.strip_prefix("text-profile:")?;
-            if lower > upper
-                || !matches!(
-                    profile,
-                    "unicode-scalars" | "nfc" | "nfd" | "nfkc" | "nfkd" | "binary-utf8"
-                )
-            {
+fn semantic_ir_value_type_charged(
+    value: View<'_>,
+    unit_refs: &UnitRefs,
+    budget: &mut Budget<'_, '_>,
+) -> Result<Option<ValueBounds>, ValidationFailure> {
+    let mut denied = None;
+    let value = (|| {
+        let constraint = |keyword: &str| -> Option<View<'_>> {
+            let mut found = list(value, "constraints")
+                .ok()?
+                .iter()
+                .filter(|constraint| {
+                    constraint.get("keyword").and_then(View::as_str) == Some(keyword)
+                });
+            let constraint = found.next()?;
+            if found.next().is_some() {
                 return None;
             }
-            Some(ValueBounds::Text(TextBounds {
-                lower,
-                upper,
-                profile: profile.into(),
-            }))
+            Some(constraint)
+        };
+        let integer = |keyword| -> Option<i128> {
+            let value = constraint(keyword)?.get("operands")?.get("value")?;
+            match value.node() {
+                quire_canonical::Node::Number(_) => value.as_i64().map(i128::from),
+                quire_canonical::Node::String(text) => text.parse().ok(),
+                _ => None,
+            }
+        };
+        let scalar = value.get("scalar").and_then(View::as_str)?;
+        if scalar != "rational" && value.get("unit").is_some() {
+            return None;
         }
-        _ => None,
+        match scalar {
+            "integer" => {
+                let (lower, upper) = (integer("min")?, integer("max")?);
+                (lower <= upper).then_some(ValueBounds::Integer(IntegerBounds { lower, upper }))
+            }
+            "rational" => rational_value_type(value, unit_refs).ok().flatten(),
+            "string" => {
+                let (lower, upper) = (
+                    u64::try_from(integer("minLength")?).ok()?,
+                    u64::try_from(integer("maxLength")?).ok()?,
+                );
+                let name = constraint("format")?
+                    .get("operands")?
+                    .get("name")?
+                    .as_str()?;
+                let profile = name.strip_prefix("text-profile:")?;
+                if lower > upper
+                    || !matches!(
+                        profile,
+                        "unicode-scalars" | "nfc" | "nfd" | "nfkc" | "nfkd" | "binary-utf8"
+                    )
+                {
+                    return None;
+                }
+                Some(ValueBounds::Text(TextBounds {
+                    lower,
+                    upper,
+                    profile: match budget.text(profile, "declarations") {
+                        Ok(profile) => profile,
+                        Err(stop) => {
+                            denied = Some(stop);
+                            return None;
+                        }
+                    },
+                }))
+            }
+            _ => None,
+        }
+    })();
+    match denied {
+        Some(stop) => Err(stop),
+        None => Ok(value),
     }
+}
+
+#[cfg(test)]
+fn semantic_ir_value_type(value: View<'_>, unit_refs: &UnitRefs) -> Option<ValueBounds> {
+    let mut meter = WorkMeter::new(u64::MAX);
+    let mut budget = Budget::node(&mut meter, 0);
+    semantic_ir_value_type_charged(value, unit_refs, &mut budget).expect("unmetered fixture")
 }
 
 /// FR-154's declaration-refusal order for one node. Parameter collisions and
@@ -3040,60 +3588,123 @@ pub(super) enum Segment {
     Index(usize),
 }
 
+/// The deepest member path of a declaration: a list item's member's item's member.
+const SEGMENT_DEPTH: usize = 8;
+
+/// A member path held inline: no allocation, ordered as the list of its
+/// segments is.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) struct SegPath {
+    len: usize,
+    segments: [Segment; SEGMENT_DEPTH],
+}
+
+impl SegPath {
+    pub(super) fn from_slice(segments: &[Segment]) -> Self {
+        let mut path = Self {
+            len: 0,
+            segments: [Segment::Index(0); SEGMENT_DEPTH],
+        };
+        for segment in segments {
+            path = path.then(*segment);
+        }
+        path
+    }
+
+    /// This path followed by `tail`.
+    pub(super) fn then(mut self, tail: Segment) -> Self {
+        if let Some(slot) = self.segments.get_mut(self.len) {
+            *slot = tail;
+            self.len += 1;
+        }
+        self
+    }
+}
+
+impl std::ops::Deref for SegPath {
+    type Target = [Segment];
+
+    fn deref(&self) -> &[Segment] {
+        self.segments.get(..self.len).unwrap_or_default()
+    }
+}
+
+impl Ord for SegPath {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        (**self).cmp(&**other)
+    }
+}
+
+impl PartialOrd for SegPath {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
 /// One failure inside one node, ordered by table row and then member path.
 struct Defect<'v> {
     row: Row,
-    path: Vec<Segment>,
+    path: SegPath,
     refusal: ModelRefusal,
-    declaration: &'v Value,
+    /// The value the failure is about; `None` for an absent member, which
+    /// reads as `null`.
+    declaration: Option<View<'v>>,
 }
 
-/// The failures of one node.
+/// The failures of one node: only the one FR-154 reports is kept, first by
+/// table row, then by member path, so recording failures allocates nothing.
 struct Defects<'v> {
-    entries: Vec<Defect<'v>>,
-    declaration: &'v Value,
+    first: Option<Defect<'v>>,
+    declaration: Option<View<'v>>,
 }
 
 impl<'v> Defects<'v> {
-    fn new(declaration: &'v Value) -> Self {
+    fn new(declaration: View<'v>) -> Self {
         Self {
-            entries: Vec::new(),
-            declaration,
+            first: None,
+            declaration: Some(declaration),
         }
     }
-    fn context(&mut self, declaration: &'v Value) {
-        self.declaration = declaration;
+    fn context(&mut self, declaration: View<'v>) {
+        self.declaration = Some(declaration);
+    }
+    /// The context of a member the declaration lacks.
+    fn context_absent(&mut self) {
+        self.declaration = None;
     }
     fn push(&mut self, row: Row, path: &[Segment], refusal: ModelRefusal) {
-        self.entries.push(Defect {
-            row,
-            path: path.to_vec(),
-            refusal,
-            declaration: self.declaration,
-        });
+        let path = SegPath::from_slice(path);
+        if self
+            .first
+            .as_ref()
+            .is_none_or(|first| (row, path) < (first.row, first.path))
+        {
+            self.first = Some(Defect {
+                row,
+                path,
+                refusal,
+                declaration: self.declaration,
+            });
+        }
     }
 
     /// The failure FR-154 reports for the node: first by table row, then by
     /// member path.
     fn first(self) -> Option<Defect<'v>> {
-        self.entries
-            .into_iter()
-            .min_by(|a, b| (a.row, &a.path).cmp(&(b.row, &b.path)))
+        self.first
     }
 }
 
-fn joined(base: &[Segment], tail: Segment) -> Vec<Segment> {
-    let mut path = base.to_vec();
-    path.push(tail);
-    path
+fn joined(base: &[Segment], tail: Segment) -> SegPath {
+    SegPath::from_slice(base).then(tail)
 }
 
 /// Require a non-empty meaning member without accepting an absent or malformed list.
 fn required_items<'v>(
-    value: &'v Value,
+    value: View<'v>,
     member: &'static str,
     defects: &mut Defects<'v>,
-) -> &'v [Value] {
+) -> List<'v> {
     match list(value, member) {
         Ok(items) if !items.is_empty() => items,
         _ => {
@@ -3103,54 +3714,73 @@ fn required_items<'v>(
                 &[Segment::Name(member)],
                 ModelRefusal::malformed(),
             );
-            &[]
+            List::empty()
         }
     }
 }
 
 fn meaning_reference<'v>(
-    value: &'v Value,
-    expected: &BTreeSet<&str>,
-    declared: &BTreeSet<&str>,
+    value: Option<View<'v>>,
+    expected: &SortedSet<&str>,
+    declared: &SortedSet<&str>,
     path: &[Segment],
     defects: &mut Defects<'v>,
 ) {
-    defects.context(value);
-    match value.as_str() {
+    match value {
+        Some(value) => defects.context(value),
+        None => defects.context_absent(),
+    }
+    match value.and_then(View::as_str) {
         Some(name) if expected.contains(name) => {}
         Some(name) if declared.contains(name) => {
             defects.push(Row::Meaning, path, ModelRefusal::malformed());
         }
         Some(_) => defects.push(Row::Reference, path, ModelRefusal::missing_name()),
-        None if value.is_null() => {
+        None if value.is_none_or(View::is_null) => {
             defects.push(Row::Reference, path, ModelRefusal::missing_name());
         }
         None => defects.push(Row::Meaning, path, ModelRefusal::malformed()),
     }
 }
 
+/// The identities of `items` that carry the string member `member`, in order.
+fn identity_set<'v>(
+    items: &List<'v>,
+    member: &str,
+    budget: &mut Budget<'_, '_>,
+) -> Result<SortedSet<&'v str>, ValidationFailure> {
+    let mut set = SortedSet::with_capacity(budget, items.len(), SET_FORM)?;
+    for item in items.iter() {
+        if let Some(identity) = item.get(member).and_then(View::as_str) {
+            set.insert(budget, identity, SET_FORM)?;
+        }
+    }
+    Ok(set)
+}
+
+/// The locus form of the declaration reader's tables.
+const SET_FORM: &str = "declarations";
+
 /// FR-208's required members are checked before a selected declaration can
 /// contribute an authenticated Process, StateMachine or PersistenceInterface key.
 fn check_selected_meaning<'v>(
-    value: &'v Value,
+    value: View<'v>,
     meaning: meaning::Kind,
     scope: &Scope<'_>,
     defects: &mut Defects<'v>,
-) {
+    budget: &mut Budget<'_, '_>,
+) -> Result<(), ValidationFailure> {
     if !matches!(
         meaning,
         meaning::Kind::Process | meaning::Kind::StateMachine | meaning::Kind::PersistenceInterface
     ) {
-        return;
+        return Ok(());
     }
     let declared = &scope.all_types;
     match meaning {
         meaning::Kind::Process => {
             let fields = list(value, "fields").unwrap_or_default();
-            let identities: BTreeSet<&str> = fields
-                .iter()
-                .filter_map(|field| field.get("identity").and_then(Value::as_str))
-                .collect();
+            let identities = identity_set(&fields, "identity", budget)?;
             for (index, field) in required_items(value, "identityFields", defects)
                 .iter()
                 .enumerate()
@@ -3167,13 +3797,14 @@ fn check_selected_meaning<'v>(
                     );
                 }
             }
-            let mut names = BTreeSet::new();
-            for (index, step) in required_items(value, "steps", defects).iter().enumerate() {
+            let steps = required_items(value, "steps", defects);
+            let mut names = SortedSet::with_capacity(budget, steps.len(), SET_FORM)?;
+            for (index, step) in steps.iter().enumerate() {
                 let base = [Segment::Name("steps"), Segment::Index(index)];
                 defects.context(step);
-                let name = step.get("name").and_then(Value::as_str);
+                let name = step.get("name").and_then(View::as_str);
                 if let Some(name) = name.filter(|name| is_object_id(name)) {
-                    if !names.insert(name) {
+                    if !names.insert(budget, name, SET_FORM)? {
                         defects.push(
                             Row::Meaning,
                             &base,
@@ -3187,7 +3818,7 @@ fn check_selected_meaning<'v>(
                     defects.push(Row::Meaning, &base, ModelRefusal::malformed());
                 }
                 if !matches!(
-                    step.get("stepKind").and_then(Value::as_str),
+                    step.get("stepKind").and_then(View::as_str),
                     Some("command" | "event" | "decision" | "compensation" | "wait")
                 ) {
                     defects.push(
@@ -3208,12 +3839,17 @@ fn check_selected_meaning<'v>(
         }
         meaning::Kind::StateMachine => {
             required_items(value, "operations", defects);
-            let mut states = BTreeSet::new();
-            for (index, state) in required_items(value, "states", defects).iter().enumerate() {
+            let listed = required_items(value, "states", defects);
+            let mut states = SortedSet::with_capacity(budget, listed.len(), SET_FORM)?;
+            for (index, state) in listed.iter().enumerate() {
                 let path = [Segment::Name("states"), Segment::Index(index)];
                 defects.context(state);
-                let identity = state.get("identity").and_then(Value::as_str);
-                if identity.is_some_and(|identity| !states.insert(identity)) {
+                let identity = state.get("identity").and_then(View::as_str);
+                let repeated = match identity {
+                    Some(identity) => !states.insert(budget, identity, SET_FORM)?,
+                    None => false,
+                };
+                if repeated {
                     defects.push(
                         Row::Meaning,
                         &path,
@@ -3226,16 +3862,19 @@ fn check_selected_meaning<'v>(
                     defects.push(Row::Meaning, &path, ModelRefusal::malformed());
                 }
             }
-            let operations: BTreeSet<&str> = list(value, "operations")
-                .unwrap_or_default()
-                .iter()
-                .filter_map(|operation| operation.get("identity").and_then(Value::as_str))
-                .collect();
-            let clauses: BTreeMap<&str, &Value> = list(value, "clauses")
-                .unwrap_or_default()
-                .iter()
-                .filter_map(|clause| Some((clause.get("clauseId")?.as_str()?, clause)))
-                .collect();
+            let operations = identity_set(
+                &list(value, "operations").unwrap_or_default(),
+                "identity",
+                budget,
+            )?;
+            let authored = list(value, "clauses").unwrap_or_default();
+            let mut clauses: SortedMap<&str, View<'_>> =
+                SortedMap::with_capacity(budget, authored.len(), SET_FORM)?;
+            for clause in authored.iter() {
+                if let Some(id) = clause.get("clauseId").and_then(View::as_str) {
+                    clauses.insert(budget, id, clause, SET_FORM)?;
+                }
+            }
             for (index, transition) in required_items(value, "transitions", defects)
                 .iter()
                 .enumerate()
@@ -3245,20 +3884,20 @@ fn check_selected_meaning<'v>(
                     [("from", &states), ("to", &states), ("trigger", &operations)]
                 {
                     let path = joined(&base, Segment::Name(member));
-                    meaning_reference(&transition[member], expected, declared, &path, defects);
+                    meaning_reference(transition.get(member), expected, declared, &path, defects);
                 }
                 if let Some(guard) = transition.get("guard") {
                     let path = joined(&base, Segment::Name("guard"));
                     defects.context(transition);
-                    let clause_id = guard.get("clauseId").and_then(Value::as_str);
+                    let clause_id = guard.get("clauseId").and_then(View::as_str);
                     let clause = clause_id.and_then(|id| clauses.get(id).copied());
                     match clause {
-                        _ if guard.get("language").and_then(Value::as_str) != Some("quire") => {
+                        _ if guard.get("language").and_then(View::as_str) != Some("quire") => {
                             defects.push(Row::Meaning, &path, ModelRefusal::malformed());
                         }
                         None => defects.push(Row::Reference, &path, ModelRefusal::missing_name()),
                         Some(clause)
-                            if clause.get("language").and_then(Value::as_str) != Some("quire") =>
+                            if clause.get("language").and_then(View::as_str) != Some("quire") =>
                         {
                             defects.push(Row::Meaning, &path, ModelRefusal::malformed());
                         }
@@ -3307,10 +3946,10 @@ fn check_selected_meaning<'v>(
             {
                 if operation
                     .get("pre")
-                    .is_some_and(|pre| !pre.as_array().is_some_and(Vec::is_empty))
+                    .is_some_and(|pre| !pre.is_empty_array())
                     || operation
                         .get("post")
-                        .is_some_and(|post| !post.as_array().is_some_and(Vec::is_empty))
+                        .is_some_and(|post| !post.is_empty_array())
                 {
                     defects.context(operation);
                     defects.push(
@@ -3328,7 +3967,7 @@ fn check_selected_meaning<'v>(
                 .enumerate()
             {
                 meaning_reference(
-                    persisted,
+                    Some(persisted),
                     &scope.object_types,
                     declared,
                     &[Segment::Name("persists"), Segment::Index(index)],
@@ -3338,21 +3977,22 @@ fn check_selected_meaning<'v>(
         }
         _ => {}
     }
+    Ok(())
 }
 
 fn check_event_lists<'v>(
-    value: &'v Value,
+    value: View<'v>,
     base: &[Segment],
     members: &[&'static str],
     scope: &Scope<'_>,
-    declared: &BTreeSet<&str>,
+    declared: &SortedSet<&str>,
     defects: &mut Defects<'v>,
 ) {
     for &member in members {
         if let Ok(events) = list(value, member) {
             for (index, event) in events.iter().enumerate() {
                 let path = joined(&joined(base, Segment::Name(member)), Segment::Index(index));
-                meaning_reference(event, &scope.events, declared, &path, defects);
+                meaning_reference(Some(event), &scope.events, declared, &path, defects);
             }
         } else {
             defects.context(value);
@@ -3366,40 +4006,178 @@ fn check_event_lists<'v>(
 }
 
 /// One declared type node: its declaration and meaning, or the refusal it draws.
-type ClassifiedType<'v> = Result<(&'v Value, meaning::Kind), ModelRefusal>;
+type ClassifiedType<'v> = Result<(View<'v>, meaning::Kind), ModelRefusal>;
 
 /// The document-wide sets a node's references are checked against. All are
 /// known before any node's body is read, so no reference outcome depends on
 /// the order the nodes are read in.
 struct Scope<'v> {
     /// Every classified type identity, for wrong-kind versus absent references.
-    all_types: BTreeSet<&'v str>,
+    all_types: SortedSet<&'v str>,
     /// Named option definitions, known before any member body is read.
-    option_types: BTreeSet<&'v str>,
+    option_types: SortedSet<&'v str>,
     /// Declared value-definition forms, including yet-unread option/collection bodies.
-    value_definitions: BTreeSet<&'v str>,
+    value_definitions: SortedSet<&'v str>,
     /// Object-identity forms accepted as declared field types.
-    objects: BTreeSet<&'v str>,
+    objects: SortedSet<&'v str>,
     /// Object and systems-interface supertypes, excluding process/state forms.
-    nominal_objects: BTreeSet<&'v str>,
+    nominal_objects: SortedSet<&'v str>,
     /// Object types alone may occur in a persistence interface's `persists` list.
-    object_types: BTreeSet<&'v str>,
+    object_types: SortedSet<&'v str>,
     /// Event types alone may be consumed or emitted by steps and transitions.
-    events: BTreeSet<&'v str>,
+    events: SortedSet<&'v str>,
     /// Process and state-machine supertypes must stay within their meanings.
-    processes: BTreeSet<&'v str>,
-    state_machines: BTreeSet<&'v str>,
+    processes: SortedSet<&'v str>,
+    state_machines: SortedSet<&'v str>,
     /// Record value types, which carry value fields without object identity.
-    records: BTreeSet<&'v str>,
+    records: SortedSet<&'v str>,
     /// Meanings forbidden as a record field's declared type.
-    record_field_forbidden: BTreeSet<&'v str>,
+    record_field_forbidden: SortedSet<&'v str>,
     /// Type nodes whose own declaration is refused; a reference to one is
     /// not reported again, its own refusal stands for it (FR-154).
-    refused: BTreeSet<&'v str>,
+    refused: SortedSet<&'v str>,
     /// Field and operation members of selected field-bearing declarations.
-    members: BTreeSet<Box<str>>,
+    members: SortedSet<&'v str>,
     /// Relationship identities are collected before any declaration body is read.
-    relationships: BTreeSet<&'v str>,
+    relationships: SortedSet<&'v str>,
+}
+
+/// How many declarations of each kind a document holds: the capacity every
+/// table the reader builds is requested at.
+#[derive(Default)]
+struct Counts {
+    classified: usize,
+    refused: usize,
+    value_definitions: usize,
+    options: usize,
+    objects: usize,
+    nominal_objects: usize,
+    object_types: usize,
+    events: usize,
+    processes: usize,
+    state_machines: usize,
+    records: usize,
+    record_field_forbidden: usize,
+    persistence_interfaces: usize,
+    value_types: usize,
+    tuple_types: usize,
+    variant_types: usize,
+    collection_types: usize,
+    relation_nodes: usize,
+    other_types: usize,
+    members: usize,
+    relationships: usize,
+}
+
+impl Counts {
+    fn of(classified: &[(&str, ClassifiedType<'_>)]) -> Self {
+        let mut counts = Self {
+            classified: classified.len(),
+            ..Self::default()
+        };
+        for (_, entry) in classified {
+            let Ok((declared, meaning)) = entry else {
+                counts.refused += 1;
+                continue;
+            };
+            let members = |name| list(*declared, name).map_or(0, |items| items.len());
+            match meaning {
+                meaning::Kind::SequenceType
+                | meaning::Kind::MapType
+                | meaning::Kind::ReferenceType => {
+                    counts.value_definitions += 1;
+                    counts.collection_types += 1;
+                }
+                meaning::Kind::OptionType => {
+                    counts.value_definitions += 1;
+                    counts.options += 1;
+                    counts.collection_types += 1;
+                }
+                meaning::Kind::ObjectType
+                | meaning::Kind::StateMachine
+                | meaning::Kind::Process
+                | meaning::Kind::SystemsInterface
+                | meaning::Kind::RecordValueType => {
+                    if *meaning == meaning::Kind::RecordValueType {
+                        counts.records += 1;
+                    } else {
+                        counts.objects += 1;
+                        match meaning {
+                            meaning::Kind::Process => counts.processes += 1,
+                            meaning::Kind::StateMachine => counts.state_machines += 1,
+                            _ => {
+                                counts.nominal_objects += 1;
+                                if *meaning == meaning::Kind::ObjectType {
+                                    counts.object_types += 1;
+                                }
+                            }
+                        }
+                    }
+                    if matches!(
+                        meaning,
+                        meaning::Kind::Process | meaning::Kind::StateMachine
+                    ) {
+                        counts.record_field_forbidden += 1;
+                    }
+                    counts.members += members("fields") + members("operations");
+                    counts.relationships += members("relationships");
+                }
+                meaning::Kind::ValueType => counts.value_types += 1,
+                meaning::Kind::TupleValueType => counts.tuple_types += 1,
+                meaning::Kind::VariantType => counts.variant_types += 1,
+                meaning::Kind::SystemsConnection => {
+                    counts.relation_nodes += 1;
+                    counts.relationships += 1;
+                }
+                meaning::Kind::EventType
+                | meaning::Kind::PersistenceInterface
+                | meaning::Kind::Namespace
+                | meaning::Kind::Population
+                | meaning::Kind::SystemsPart
+                | meaning::Kind::SystemsPort
+                | meaning::Kind::SystemsAllocation => {
+                    counts.other_types += 1;
+                    if matches!(
+                        meaning,
+                        meaning::Kind::EventType
+                            | meaning::Kind::PersistenceInterface
+                            | meaning::Kind::Namespace
+                    ) {
+                        counts.record_field_forbidden += 1;
+                    }
+                    if *meaning == meaning::Kind::EventType {
+                        counts.events += 1;
+                    }
+                    if *meaning == meaning::Kind::PersistenceInterface {
+                        counts.persistence_interfaces += 1;
+                    }
+                }
+            }
+        }
+        counts
+    }
+}
+
+impl<'v> Scope<'v> {
+    fn new(counts: &Counts, budget: &mut Budget<'_, '_>) -> Result<Self, ValidationFailure> {
+        let mut set = |capacity| SortedSet::with_capacity(budget, capacity, SET_FORM);
+        Ok(Self {
+            all_types: set(counts.classified - counts.refused)?,
+            option_types: set(counts.options)?,
+            value_definitions: set(counts.value_definitions)?,
+            objects: set(counts.objects)?,
+            nominal_objects: set(counts.nominal_objects)?,
+            object_types: set(counts.object_types)?,
+            events: set(counts.events)?,
+            processes: set(counts.processes)?,
+            state_machines: set(counts.state_machines)?,
+            records: set(counts.records)?,
+            record_field_forbidden: set(counts.record_field_forbidden)?,
+            refused: set(counts.refused + counts.relationships)?,
+            members: set(counts.members)?,
+            relationships: set(counts.relationships)?,
+        })
+    }
 }
 
 /// A node's own refusal, from its identity, its kind and whether another
@@ -3408,22 +4186,22 @@ struct Scope<'v> {
 #[ix_trace_rs::string_edge]
 fn classify<'v>(
     prefix: &str,
-    meanings: &BTreeMap<(&str, &str), &'v str>,
-    declared: &[&'v Value],
+    meanings: &SortedMap<(&str, &str), &'v str>,
+    declared: &[(&'v str, usize, View<'v>)],
     node: &str,
 ) -> ClassifiedType<'v> {
-    let one = |declared: &&'v Value| -> ClassifiedType<'v> {
+    let one = |declared: View<'v>| -> ClassifiedType<'v> {
         if !node.strip_prefix(prefix).is_some_and(is_object_id) {
             return Err(ModelRefusal::malformed());
         }
         let meaning = match declared.get("kind") {
-            Some(Value::String(kind)) if kind == "sequence" => Some(meaning::Kind::SequenceType),
-            Some(Value::String(kind)) if kind == "map" => Some(meaning::Kind::MapType),
-            Some(Value::String(kind)) if kind == "option" => Some(meaning::Kind::OptionType),
-            Some(Value::String(kind)) if kind == "reference" => Some(meaning::Kind::ReferenceType),
+            Some(kind) if kind.as_str() == Some("sequence") => Some(meaning::Kind::SequenceType),
+            Some(kind) if kind.as_str() == Some("map") => Some(meaning::Kind::MapType),
+            Some(kind) if kind.as_str() == Some("option") => Some(meaning::Kind::OptionType),
+            Some(kind) if kind.as_str() == Some("reference") => Some(meaning::Kind::ReferenceType),
             Some(kind) if kind.is_object() => {
-                let module = kind.get("module").and_then(Value::as_str);
-                let name = kind.get("name").and_then(Value::as_str);
+                let module = kind.get("module").and_then(View::as_str);
+                let name = kind.get("name").and_then(View::as_str);
                 module
                     .zip(name)
                     .and_then(|(module, name)| meanings.get(&(module, name)).copied())
@@ -3432,12 +4210,15 @@ fn classify<'v>(
             _ => None,
         };
         meaning
-            .map(|meaning| (*declared, meaning))
+            .map(|meaning| (declared, meaning))
             .ok_or_else(ModelRefusal::malformed)
     };
-    let checked = declared.iter().map(one).collect::<Result<Vec<_>, _>>()?;
-    match checked.as_slice() {
-        [single] => Ok(*single),
+    let mut single = None;
+    for (_, _, declared) in declared {
+        single = Some(one(*declared)?);
+    }
+    match (declared.len(), single) {
+        (1, Some(single)) => Ok(single),
         _ => Err(ModelRefusal::new(
             CheckedPackageRefusalCode::InvalidModelBinding,
             CheckedPackageRefusalCause::ConflictingBinding,
@@ -3446,12 +4227,12 @@ fn classify<'v>(
 }
 
 /// The work of reading one type node: itself and every member list entry.
-fn node_size(value: &Value) -> u64 {
-    let len = |value: &Value, member: &str| {
+fn node_size(value: View<'_>) -> u64 {
+    let len = |value: View<'_>, member: &str| {
         value
             .get(member)
-            .and_then(Value::as_array)
-            .map_or(0, Vec::len)
+            .and_then(View::as_array)
+            .map_or(0, |items| items.len())
     };
     let mut total = 1_usize;
     for member in [
@@ -3471,35 +4252,57 @@ fn node_size(value: &Value) -> u64 {
         total = total.saturating_add(len(value, member));
     }
     if matches!(
-        value.get("kind").and_then(Value::as_str),
+        value.get("kind").and_then(View::as_str),
         Some("sequence" | "map" | "option" | "reference")
     ) {
         total = total.saturating_add(1);
     }
-    for operation in value
-        .get("operations")
-        .and_then(Value::as_array)
-        .map_or(&[][..], Vec::as_slice)
-    {
+    let members = |name: &str| value.get(name).and_then(View::as_array).unwrap_or_default();
+    for operation in members("operations") {
         total = total.saturating_add(len(operation, "params"));
     }
-    for step in value
-        .get("steps")
-        .and_then(Value::as_array)
-        .map_or(&[][..], Vec::as_slice)
-    {
+    for step in members("steps") {
         total = total
             .saturating_add(len(step, "consumes"))
             .saturating_add(len(step, "emits"));
     }
-    for transition in value
-        .get("transitions")
-        .and_then(Value::as_array)
-        .map_or(&[][..], Vec::as_slice)
-    {
+    for transition in members("transitions") {
         total = total.saturating_add(len(transition, "emits"));
     }
     units(total)
+}
+
+/// The type nodes of a document in identity order, each declaration with its
+/// position in the document.
+struct Declared<'v> {
+    rows: Vec<(&'v str, usize, View<'v>)>,
+}
+
+impl<'v> Declared<'v> {
+    /// Every declaration of `node`, in document order.
+    fn group(&self, node: &str) -> &[(&'v str, usize, View<'v>)] {
+        let start = self.rows.partition_point(|row| row.0 < node);
+        let rest = self.rows.get(start..).unwrap_or_default();
+        let len = rest.partition_point(|row| row.0 == node);
+        rest.get(..len).unwrap_or_default()
+    }
+
+    /// The document position of the first declaration of `node`.
+    fn position(&self, node: &str) -> Option<usize> {
+        self.group(node).first().map(|row| row.1)
+    }
+}
+
+/// [`read_semantic_ir`] over a retained document, for a test outside this
+/// module.
+#[cfg(test)]
+pub(super) fn read_semantic_ir_of(
+    document: &quire_canonical::Document,
+    checked_package: &str,
+    budget: &mut Budget<'_, '_>,
+    unit_refs: &UnitRefs,
+) -> Result<DomainModel, SelectionFailure> {
+    read_semantic_ir(View::root(document), checked_package, budget, unit_refs)
 }
 
 /// Reads an admitted Semantic IR 2.0.0 document's declarations (FR-154),
@@ -3508,208 +4311,233 @@ fn node_size(value: &Value) -> u64 {
 /// in FR-154's table order.
 /// Every node and every member read is charged to `budget`.
 pub(super) fn read_semantic_ir(
-    document: &Value,
+    document: View<'_>,
     checked_package: &str,
     budget: &mut Budget<'_, '_>,
     unit_refs: &UnitRefs,
 ) -> Result<DomainModel, SelectionFailure> {
-    let identity = semantic_ir_identity(document).ok_or_else(ModelRefusal::malformed)?;
-    let mut meanings: BTreeMap<(&str, &str), &str> = BTreeMap::new();
-    for construct in list(document, "constructs")? {
+    const F: &str = SET_FORM;
+    let identity = document::identity_of(document).ok_or_else(ModelRefusal::malformed)?;
+    let constructs = list(document, "constructs")?;
+    let mut meanings: SortedMap<(&str, &str), &str> =
+        SortedMap::with_capacity(budget, constructs.len(), F)?;
+    for construct in constructs {
         let kind = construct.get("kind").ok_or_else(ModelRefusal::malformed)?;
         let meaning = construct
             .get("construct")
             .map_or(Err(ModelRefusal::malformed()), |inner| {
                 text(inner, "meaning")
             })?;
-        meanings.insert((text(kind, "module")?, text(kind, "name")?), meaning);
+        meanings.insert(
+            budget,
+            (text(kind, "module")?, text(kind, "name")?),
+            meaning,
+            F,
+        )?;
     }
-    let prefix = format!("ix://{identity}/");
-    let mut types: BTreeMap<&str, Vec<&Value>> = BTreeMap::new();
-    let mut aliases: BTreeMap<Box<str>, Box<str>> = BTreeMap::new();
-    let mut document_positions = BTreeMap::new();
-    for (position, declared) in list(document, "types")?.iter().enumerate() {
+    let prefix_len = "ix://".len() + identity.len() + 1;
+    budget.request(prefix_len, F)?;
+    let mut prefix = String::with_capacity(prefix_len);
+    prefix.push_str("ix://");
+    prefix.push_str(identity);
+    prefix.push('/');
+    let declared_types = list(document, "types")?;
+    let alias_count = declared_types
+        .iter()
+        .filter(|declared| declared.get("kind").and_then(View::as_str) == Some("alias"))
+        .count();
+    let mut aliases: SortedMap<Box<str>, Box<str>> =
+        SortedMap::with_capacity(budget, alias_count, F)?;
+    let mut seen: SortedSet<&str> =
+        SortedSet::with_capacity(budget, declared_types.len() - alias_count, F)?;
+    let mut declared: Declared<'_> = Declared {
+        rows: budget.vec(declared_types.len() - alias_count, F)?,
+    };
+    for (position, row) in declared_types.iter().enumerate() {
         // A node with no identity has none to share and is malformed on its
         // own; the empty identity orders before every other.
-        let Some(node) = declared.get("identity").and_then(Value::as_str) else {
-            return Err(
-                SelectionRefusal::located(ModelRefusal::malformed(), declared, budget)?.into(),
-            );
+        let Some(node) = row.get("identity").and_then(View::as_str) else {
+            return Err(SelectionRefusal::located(ModelRefusal::malformed(), row, budget)?.into());
         };
-        if declared.get("kind").and_then(Value::as_str) == Some("alias") {
-            budget.charge(node_size(declared))?;
-            let target = text(declared, "target")?;
-            if aliases.insert(node.into(), target.into()).is_some() || types.contains_key(node) {
-                return Err(SelectionRefusal::located(
-                    ModelRefusal::malformed(),
-                    declared,
-                    budget,
-                )?
-                .into());
+        if row.get("kind").and_then(View::as_str) == Some("alias") {
+            budget.charge(node_size(row))?;
+            let target = text(row, "target")?;
+            let key = budget.text(node, F)?;
+            let value = budget.text(target, F)?;
+            if aliases.insert(budget, key, value, F)?.is_some() || seen.contains(node) {
+                return Err(
+                    SelectionRefusal::located(ModelRefusal::malformed(), row, budget)?.into(),
+                );
             }
             continue;
         }
         if aliases.contains_key(node) {
-            return Err(
-                SelectionRefusal::located(ModelRefusal::malformed(), declared, budget)?.into(),
-            );
+            return Err(SelectionRefusal::located(ModelRefusal::malformed(), row, budget)?.into());
         }
-        types.entry(node).or_default().push(declared);
-        document_positions.entry(node).or_insert(position);
+        seen.insert(budget, node, F)?;
+        declared.rows.push((node, position, row));
     }
+    drop(seen);
+    // Rows are ordered by identity, then by document position.
+    declared
+        .rows
+        .sort_unstable_by(|a, b| a.0.cmp(b.0).then(a.1.cmp(&b.1)));
     // Each node's meaning, or the refusal its own identity, uniqueness or
     // kind draws; read before any body so a reference check sees every
     // declared node.
-    let mut classified: Vec<(&str, ClassifiedType)> = types
+    let distinct = declared
+        .rows
         .iter()
-        .map(|(node, declared)| (*node, classify(&prefix, &meanings, declared, node)))
-        .collect();
-    classified.sort_by_key(|(node, classified)| match classified {
-        Ok((_, meaning::Kind::TupleValueType)) => {
-            (0, document_positions.get(node).copied().unwrap_or(0))
-        }
-        Ok((_, meaning::Kind::VariantType)) => {
-            (1, document_positions.get(node).copied().unwrap_or(0))
-        }
-        _ => (2, 0),
+        .enumerate()
+        .filter(|(at, row)| {
+            *at == 0
+                || declared
+                    .rows
+                    .get(at - 1)
+                    .is_none_or(|prior| prior.0 != row.0)
+        })
+        .count();
+    let mut classified: Vec<(&str, ClassifiedType)> = budget.vec(distinct, F)?;
+    let mut at = 0;
+    while let Some(first) = declared.rows.get(at) {
+        let node = first.0;
+        let group = declared.group(node);
+        classified.push((node, classify(&prefix, &meanings, group, node)));
+        at += group.len();
+    }
+    classified.sort_unstable_by_key(|(node, classified)| match classified {
+        Ok((_, meaning::Kind::TupleValueType)) => (0, declared.position(node).unwrap_or(0), *node),
+        Ok((_, meaning::Kind::VariantType)) => (1, declared.position(node).unwrap_or(0), *node),
+        _ => (2, 0, *node),
     });
-    let mut dimensions = BTreeMap::new();
-    for dimension in list(document, "dimensions")? {
+    let counts = Counts::of(&classified);
+    let dimension_rows = list(document, "dimensions")?;
+    let mut dimensions: SortedMap<Box<str>, SelectedDimension> =
+        SortedMap::with_capacity(budget, dimension_rows.len(), F)?;
+    for dimension in dimension_rows {
         budget.charge(node_size(dimension))?;
         let identity = text(dimension, "identity")?;
         let name = text(dimension, "name")?;
         let base = dimension
             .get("base")
-            .and_then(Value::as_bool)
+            .and_then(View::as_bool)
             .ok_or_else(ModelRefusal::malformed)?;
-        let terms = list(dimension, "terms")?
-            .iter()
-            .map(|term| {
-                Ok((
-                    text(term, "dimension")?.into(),
-                    text(term, "exponent")?.into(),
-                ))
-            })
-            .collect::<Result<Vec<_>, ModelRefusal>>()?;
+        let term_rows = list(dimension, "terms")?;
+        let mut terms = budget.vec(term_rows.len(), F)?;
+        for term in term_rows {
+            let pair = (
+                budget.text(text(term, "dimension")?, F)?,
+                budget.text(text(term, "exponent")?, F)?,
+            );
+            terms.push(pair);
+        }
         if base && !terms.is_empty() {
             return Err(ModelRefusal::malformed().into());
         }
-        if dimensions
-            .insert(
-                identity.into(),
-                SelectedDimension {
-                    name: name.into(),
-                    base,
-                    terms,
-                },
-            )
-            .is_some()
-        {
+        let key = budget.text(identity, F)?;
+        let selected = SelectedDimension {
+            name: budget.text(name, F)?,
+            base,
+            terms,
+        };
+        if dimensions.insert(budget, key, selected, F)?.is_some() {
             return Err(ModelRefusal::malformed().into());
         }
     }
-    let mut units = BTreeMap::new();
-    for unit in list(document, "units")? {
+    let unit_rows = list(document, "units")?;
+    let mut units: SortedMap<Box<str>, SelectedUnit> =
+        SortedMap::with_capacity(budget, unit_rows.len(), F)?;
+    for unit in unit_rows.iter() {
         budget.charge(node_size(unit))?;
         let identity = text(unit, "identity")?;
         let target = unit
             .get("target")
-            .map(|_| text(unit, "target").map(Box::<str>::from))
+            .map(|_| text(unit, "target"))
             .transpose()?;
+        let target = target.map(|target| budget.text(target, F)).transpose()?;
         let selected = SelectedUnit {
-            name: text(unit, "name")?.into(),
-            dimension: text(unit, "dimension")?.into(),
+            name: budget.text(text(unit, "name")?, F)?,
+            dimension: budget.text(text(unit, "dimension")?, F)?,
             target,
-            scale: text(unit, "scale")?.into(),
-            offset: text(unit, "offset")?.into(),
+            scale: budget.text(text(unit, "scale")?, F)?,
+            offset: budget.text(text(unit, "offset")?, F)?,
         };
-        if units.insert(identity.into(), selected).is_some() {
+        let key = budget.text(identity, F)?;
+        if units.insert(budget, key, selected, F)?.is_some() {
             return Err(ModelRefusal::malformed().into());
         }
     }
+    let population_rows = list(document, "populations")?;
     let mut model = DomainModel {
-        identity: identity.into(),
-        checked_package: checked_package.into(),
+        identity: budget.text(identity, F)?,
+        checked_package: budget.text(checked_package, F)?,
         root: budget.root,
         bytes: budget.bytes,
-        object_types: BTreeMap::new(),
-        state_machines: BTreeSet::new(),
-        processes: BTreeSet::new(),
-        persistence_interfaces: BTreeSet::new(),
-        persistence_operations: BTreeMap::new(),
-        record_types: BTreeMap::new(),
-        event_types: BTreeSet::new(),
-        tuple_types: BTreeMap::new(),
-        value_types: BTreeMap::new(),
+        object_types: SortedMap::with_capacity(budget, counts.objects, F)?,
+        state_machines: SortedSet::with_capacity(budget, counts.state_machines, F)?,
+        processes: SortedSet::with_capacity(budget, counts.processes, F)?,
+        persistence_interfaces: SortedSet::with_capacity(budget, counts.persistence_interfaces, F)?,
+        persistence_operations: SortedMap::with_capacity(budget, counts.persistence_interfaces, F)?,
+        record_types: SortedMap::with_capacity(budget, counts.records, F)?,
+        event_types: SortedSet::with_capacity(budget, counts.events, F)?,
+        tuple_types: SortedMap::with_capacity(budget, counts.tuple_types, F)?,
+        value_types: SortedMap::with_capacity(budget, counts.value_types, F)?,
         aliases,
-        variant_types: BTreeMap::new(),
+        variant_types: SortedMap::with_capacity(budget, counts.variant_types, F)?,
         dimensions,
         units,
-        collection_types: BTreeMap::new(),
+        collection_types: SortedMap::with_capacity(budget, counts.collection_types, F)?,
         unit_refs: unit_refs.clone(),
         own_seconds_declared: list(document, "units")?
             .iter()
-            .any(|unit| unit.get("name").and_then(Value::as_str) == Some("s")),
-        relationships: BTreeMap::new(),
-        populations: BTreeSet::new(),
-        population_members: BTreeMap::new(),
-        relation_nodes: BTreeSet::new(),
-        other_types: BTreeMap::new(),
+            .any(|unit| unit.get("name").and_then(View::as_str) == Some("s")),
+        relationships: SortedMap::with_capacity(budget, counts.relationships, F)?,
+        populations: SortedSet::with_capacity(budget, population_rows.len(), F)?,
+        population_members: SortedMap::with_capacity(budget, population_rows.len(), F)?,
+        relation_nodes: SortedSet::with_capacity(budget, counts.relation_nodes, F)?,
+        other_types: SortedMap::with_capacity(budget, counts.other_types, F)?,
         fields: FieldTables::default(),
     };
-    for population in list(document, "populations")? {
+    for population in population_rows {
         budget.charge(node_size(population))?;
         let node = text(population, "identity")?;
         if population.get("node").is_some() {
             return Err(ModelRefusal::malformed().into());
         }
-        let (_, meaning) = classify(&prefix, &meanings, &[population], node)?;
-        if meaning != meaning::Kind::Population || !model.populations.insert(node.into()) {
+        let group = [(node, 0, population)];
+        let (_, meaning) = classify(&prefix, &meanings, &group, node)?;
+        let key = budget.text(node, F)?;
+        if meaning != meaning::Kind::Population
+            || !model.populations.insert(budget, key.clone(), F)?
+        {
             return Err(ModelRefusal::malformed().into());
         }
-        let members = list(population, "members")?
-            .iter()
-            .map(|member| {
-                member
-                    .as_str()
-                    .map(Box::<str>::from)
-                    .ok_or_else(ModelRefusal::malformed)
-            })
-            .collect::<Result<BTreeSet<_>, _>>()?;
-        model.population_members.insert(node.into(), members);
+        let member_rows = list(population, "members")?;
+        let mut members = SortedSet::with_capacity(budget, member_rows.len(), F)?;
+        for member in member_rows {
+            let member = member.as_str().ok_or_else(ModelRefusal::malformed)?;
+            let member = budget.text(member, F)?;
+            members.insert(budget, member, F)?;
+        }
+        model.population_members.insert(budget, key, members, F)?;
     }
-    let mut scope = Scope {
-        all_types: BTreeSet::new(),
-        option_types: BTreeSet::new(),
-        value_definitions: BTreeSet::new(),
-        objects: BTreeSet::new(),
-        nominal_objects: BTreeSet::new(),
-        object_types: BTreeSet::new(),
-        events: BTreeSet::new(),
-        processes: BTreeSet::new(),
-        state_machines: BTreeSet::new(),
-        records: BTreeSet::new(),
-        record_field_forbidden: BTreeSet::new(),
-        refused: BTreeSet::new(),
-        members: BTreeSet::new(),
-        relationships: BTreeSet::new(),
-    };
+    let mut scope = Scope::new(&counts, budget)?;
     for (node, classified) in &classified {
-        let (declared, meaning) = match classified {
+        let (declared_node, meaning) = match classified {
             Ok(classified) => *classified,
             Err(_) => {
-                scope.refused.insert(node);
+                scope.refused.insert(budget, node, F)?;
                 continue;
             }
         };
-        scope.all_types.insert(node);
+        scope.all_types.insert(budget, node, F)?;
         match meaning {
             meaning::Kind::SequenceType | meaning::Kind::MapType | meaning::Kind::ReferenceType => {
-                scope.value_definitions.insert(node);
+                scope.value_definitions.insert(budget, node, F)?;
             }
             meaning::Kind::OptionType => {
-                scope.value_definitions.insert(node);
-                scope.option_types.insert(node);
+                scope.value_definitions.insert(budget, node, F)?;
+                scope.option_types.insert(budget, node, F)?;
             }
             meaning::Kind::ObjectType
             | meaning::Kind::StateMachine
@@ -3717,17 +4545,17 @@ pub(super) fn read_semantic_ir(
             | meaning::Kind::SystemsInterface
             | meaning::Kind::RecordValueType => {
                 if meaning == meaning::Kind::RecordValueType {
-                    scope.records.insert(node);
+                    scope.records.insert(budget, node, F)?;
                 } else {
-                    scope.objects.insert(node);
+                    scope.objects.insert(budget, node, F)?;
                     if meaning == meaning::Kind::Process {
-                        scope.processes.insert(node);
+                        scope.processes.insert(budget, node, F)?;
                     } else if meaning == meaning::Kind::StateMachine {
-                        scope.state_machines.insert(node);
+                        scope.state_machines.insert(budget, node, F)?;
                     } else {
-                        scope.nominal_objects.insert(node);
+                        scope.nominal_objects.insert(budget, node, F)?;
                         if meaning == meaning::Kind::ObjectType {
-                            scope.object_types.insert(node);
+                            scope.object_types.insert(budget, node, F)?;
                         }
                     }
                 }
@@ -3735,35 +4563,38 @@ pub(super) fn read_semantic_ir(
                     meaning,
                     meaning::Kind::Process | meaning::Kind::StateMachine
                 ) {
-                    scope.record_field_forbidden.insert(node);
+                    scope.record_field_forbidden.insert(budget, node, F)?;
                 }
                 // Members and relationships are collected from every object
                 // type before any is read: a reference to one resolves the
                 // same whichever node declares it first.
                 for member in ["fields", "operations"] {
-                    for item in list(declared, member).unwrap_or_default() {
+                    for item in list(declared_node, member).unwrap_or_default() {
                         if let Ok(identity) = member_identity(item, node) {
-                            scope.members.insert(identity);
+                            scope.members.insert(budget, identity, F)?;
                         }
                     }
                 }
-                for item in list(declared, "relationships").unwrap_or_default() {
-                    if let Some(identity) = item.get("identity").and_then(Value::as_str) {
+                for item in list(declared_node, "relationships").unwrap_or_default() {
+                    if let Some(identity) = item.get("identity").and_then(View::as_str) {
                         if !valid_relationship_identity(&model.identity, identity) {
-                            scope.refused.insert(identity);
+                            scope.refused.insert(budget, identity, F)?;
                         }
-                        scope.relationships.insert(identity);
+                        scope.relationships.insert(budget, identity, F)?;
                     }
                 }
             }
             meaning::Kind::ValueType => {
-                if declared.get("unit").is_some()
-                    && declared.get("scalar").and_then(Value::as_str) != Some("rational")
+                if declared_node.get("unit").is_some()
+                    && declared_node.get("scalar").and_then(View::as_str) != Some("rational")
                 {
-                    let mut selected =
-                        SelectionRefusal::located(ModelRefusal::malformed(), declared, budget)?;
-                    let type_index = *document_positions
-                        .get(node)
+                    let mut selected = SelectionRefusal::located(
+                        ModelRefusal::malformed(),
+                        declared_node,
+                        budget,
+                    )?;
+                    let type_index = declared
+                        .position(node)
                         .ok_or_else(ModelRefusal::malformed)?;
                     selected.document_pointer = Some(
                         JsonPointer::root()
@@ -3773,20 +4604,22 @@ pub(super) fn read_semantic_ir(
                     );
                     return Err(selected.into());
                 }
-                let bounds = if declared.get("scalar").and_then(Value::as_str) == Some("rational") {
-                    match rational_value_type(declared, &model.unit_refs) {
+                let bounds = if declared_node.get("scalar").and_then(View::as_str)
+                    == Some("rational")
+                {
+                    match rational_value_type(declared_node, &model.unit_refs) {
                         Ok(bounds) => bounds,
                         Err((refusal, path)) => {
                             let mut selected =
-                                SelectionRefusal::located(refusal, declared, budget)?;
-                            let type_index = *document_positions
-                                .get(node)
+                                SelectionRefusal::located(refusal, declared_node, budget)?;
+                            let type_index = declared
+                                .position(node)
                                 .ok_or_else(ModelRefusal::malformed)?;
                             let mut pointer = JsonPointer::root().key("types").index(type_index);
-                            for segment in path {
+                            for segment in path.segments().iter() {
                                 pointer = match segment {
                                     Segment::Name(name) => pointer.key(name),
-                                    Segment::Index(index) => pointer.index(index),
+                                    Segment::Index(index) => pointer.index(*index),
                                 };
                             }
                             selected.document_pointer = Some(pointer);
@@ -3794,19 +4627,25 @@ pub(super) fn read_semantic_ir(
                         }
                     }
                 } else {
-                    semantic_ir_value_type(declared, &model.unit_refs)
+                    semantic_ir_value_type_charged(declared_node, &model.unit_refs, budget)?
                 };
-                model.value_types.insert((*node).into(), bounds);
+                let key = budget.text(node, F)?;
+                model.value_types.insert(budget, key, bounds, F)?;
             }
             meaning::Kind::TupleValueType => {
-                model.tuple_types.insert((*node).into(), Vec::new());
+                let key = budget.text(node, F)?;
+                model.tuple_types.insert(budget, key, Vec::new(), F)?;
             }
             meaning::Kind::VariantType => {
-                model.variant_types.insert((*node).into(), BTreeMap::new());
+                let key = budget.text(node, F)?;
+                model
+                    .variant_types
+                    .insert(budget, key, SortedMap::new(), F)?;
             }
             meaning::Kind::SystemsConnection => {
-                model.relation_nodes.insert((*node).into());
-                scope.relationships.insert(node);
+                let key = budget.text(node, F)?;
+                model.relation_nodes.insert(budget, key, F)?;
+                scope.relationships.insert(budget, node, F)?;
             }
             meaning::Kind::EventType
             | meaning::Kind::PersistenceInterface
@@ -3815,45 +4654,50 @@ pub(super) fn read_semantic_ir(
             | meaning::Kind::SystemsPart
             | meaning::Kind::SystemsPort
             | meaning::Kind::SystemsAllocation => {
-                model.other_types.insert((*node).into(), meaning);
+                let key = budget.text(node, F)?;
+                model.other_types.insert(budget, key, meaning, F)?;
                 if matches!(
                     meaning,
                     meaning::Kind::EventType
                         | meaning::Kind::PersistenceInterface
                         | meaning::Kind::Namespace
                 ) {
-                    scope.record_field_forbidden.insert(node);
+                    scope.record_field_forbidden.insert(budget, node, F)?;
                 }
                 if meaning == meaning::Kind::EventType {
-                    model.event_types.insert((*node).into());
-                    scope.events.insert(node);
+                    let key = budget.text(node, F)?;
+                    model.event_types.insert(budget, key, F)?;
+                    scope.events.insert(budget, node, F)?;
                 }
                 if meaning == meaning::Kind::PersistenceInterface {
-                    model.persistence_interfaces.insert((*node).into());
+                    let key = budget.text(node, F)?;
+                    model.persistence_interfaces.insert(budget, key, F)?;
                 }
             }
         }
     }
-    let mut objects = Vec::new();
-    let mut records = Vec::new();
-    let mut relationships = BTreeMap::new();
+    let mut objects: Vec<(&str, FieldBearingTypeDecl)> = budget.vec(counts.objects, F)?;
+    let mut records: Vec<(&str, FieldBearingTypeDecl)> = budget.vec(counts.records, F)?;
+    let mut relationships: SortedMap<Box<str>, RelationshipDecl> =
+        SortedMap::with_capacity(budget, counts.relationships, F)?;
     for (node, classified) in classified {
-        let (declared, meaning) = match classified {
+        let (declared_node, meaning) = match classified {
             Ok(value) => value,
             Err(refusal) => {
-                let candidates = types.get(node).map_or(&[][..], Vec::as_slice);
+                let candidates = declared.group(node);
                 return Err(SelectionRefusal::group(refusal, candidates, budget)?.into());
             }
         };
-        budget.charge(node_size(declared))?;
+        budget.charge(node_size(declared_node))?;
         match meaning {
             meaning::Kind::OptionType | meaning::Kind::ReferenceType => {
-                let type_index = *document_positions
-                    .get(node)
+                let type_index = declared
+                    .position(node)
                     .ok_or_else(ModelRefusal::malformed)?;
                 let definition =
-                    option_types::read(declared, meaning, type_index, &model, &scope, budget)?;
-                model.collection_types.insert(node.into(), definition);
+                    option_types::read(declared_node, meaning, type_index, &model, &scope, budget)?;
+                let key = budget.text(node, F)?;
+                model.collection_types.insert(budget, key, definition, F)?;
             }
             meaning::Kind::SequenceType | meaning::Kind::MapType => {
                 let member = if meaning == meaning::Kind::SequenceType {
@@ -3861,9 +4705,9 @@ pub(super) fn read_semantic_ir(
                 } else {
                     "values"
                 };
-                let reference = text(declared, member)?;
+                let reference = text(declared_node, member)?;
                 let selected = model
-                    .selected_type_ref(reference)
+                    .selected_type_ref(reference, budget)?
                     .ok_or_else(ModelRefusal::malformed)?;
                 let refusal = match &selected {
                     SelectedTypeRef::Map(..) => Some(ModelRefusal::malformed()),
@@ -3881,24 +4725,25 @@ pub(super) fn read_semantic_ir(
                     _ => None,
                 };
                 if let Some(refusal) = refusal {
-                    return Err(SelectionRefusal::located(refusal, declared, budget)?.into());
+                    return Err(SelectionRefusal::located(refusal, declared_node, budget)?.into());
                 }
                 let definition = if meaning == meaning::Kind::SequenceType {
                     SelectedTypeDefinition::Sequence(selected)
                 } else {
                     SelectedTypeDefinition::Map(selected)
                 };
-                model.collection_types.insert(node.into(), definition);
+                let key = budget.text(node, F)?;
+                model.collection_types.insert(budget, key, definition, F)?;
             }
             meaning::Kind::ObjectType
             | meaning::Kind::StateMachine
             | meaning::Kind::Process
             | meaning::Kind::SystemsInterface
             | meaning::Kind::RecordValueType => {
-                let mut defects = Defects::new(declared);
-                check_selected_meaning(declared, meaning, &scope, &mut defects);
+                let mut defects = Defects::new(declared_node);
+                check_selected_meaning(declared_node, meaning, &scope, &mut defects, budget)?;
                 let (object, declared_relationships) = semantic_ir_object_type(
-                    declared,
+                    declared_node,
                     node,
                     meaning == meaning::Kind::SystemsInterface,
                     meaning == meaning::Kind::RecordValueType,
@@ -3909,16 +4754,17 @@ pub(super) fn read_semantic_ir(
                     },
                     &relationships,
                     &mut defects,
-                );
+                    budget,
+                )?;
                 if let Some(refusal) = defects.first() {
                     let mut selected =
                         SelectionRefusal::located(refusal.refusal, refusal.declaration, budget)?;
                     let mut pointer = JsonPointer::root().key("types").index(
-                        *document_positions
-                            .get(node)
+                        declared
+                            .position(node)
                             .ok_or_else(ModelRefusal::malformed)?,
                     );
-                    for step in &refusal.path {
+                    for step in refusal.path.iter() {
                         pointer = match step {
                             Segment::Name(name) => pointer.key(name),
                             Segment::Index(index) => pointer.index(*index),
@@ -3935,9 +4781,11 @@ pub(super) fn read_semantic_ir(
                     records.push((node, object));
                 } else {
                     if meaning == meaning::Kind::StateMachine {
-                        model.state_machines.insert(node.into());
+                        let key = budget.text(node, F)?;
+                        model.state_machines.insert(budget, key, F)?;
                     } else if meaning == meaning::Kind::Process {
-                        model.processes.insert(node.into());
+                        let key = budget.text(node, F)?;
+                        model.processes.insert(budget, key, F)?;
                     }
                     objects.push((node, object));
                 }
@@ -3947,7 +4795,10 @@ pub(super) fn read_semantic_ir(
                     // relationship before defects.first returns. AC-196 tests
                     // pin both same-owner and cross-owner first-refusal contexts.
                     // This defensive insertion check must not replace that pass.
-                    if relationships.insert(identity, relationship).is_some() {
+                    if relationships
+                        .insert(budget, identity, relationship, F)?
+                        .is_some()
+                    {
                         return Err(ModelRefusal::new(
                             CheckedPackageRefusalCode::InvalidModelBinding,
                             CheckedPackageRefusalCause::ConflictingBinding,
@@ -3961,20 +4812,25 @@ pub(super) fn read_semantic_ir(
                 // variant payload references are checked.
             }
             meaning::Kind::TupleValueType => {
-                let Some(&type_index) = document_positions.get(node) else {
+                let Some(type_index) = declared.position(node) else {
                     return Err(ModelRefusal::malformed().into());
                 };
-                let positions = match list(declared, "positions") {
+                let positions = match list(declared_node, "positions") {
                     Ok(positions) => positions,
                     Err(refusal) => {
                         return Err(selected_tuple_refusal(
-                            refusal, declared, type_index, None, budget,
+                            refusal,
+                            declared_node,
+                            type_index,
+                            None,
+                            budget,
                         )?
                         .into());
                     }
                 };
-                let mut types = Vec::with_capacity(positions.len());
-                let mut seen = BTreeSet::new();
+                let mut types = budget.vec(positions.len(), F)?;
+                let mut seen: SortedSet<&str> =
+                    SortedSet::with_capacity(budget, positions.len(), F)?;
                 for (ordinal, position) in positions.iter().enumerate() {
                     let identity = match text(position, "identity") {
                         Ok(identity) => identity,
@@ -3989,7 +4845,7 @@ pub(super) fn read_semantic_ir(
                             .into());
                         }
                     };
-                    if !seen.insert(identity) {
+                    if !seen.insert(budget, identity, F)? {
                         return Err(selected_tuple_refusal(
                             ModelRefusal::new(
                                 CheckedPackageRefusalCode::InvalidModelBinding,
@@ -4003,6 +4859,7 @@ pub(super) fn read_semantic_ir(
                         .into());
                     }
                 }
+                drop(seen);
                 if [
                     "fields",
                     "identityFields",
@@ -4011,11 +4868,11 @@ pub(super) fn read_semantic_ir(
                     "clauses",
                 ]
                 .iter()
-                .any(|member| declared.get(*member).is_some())
+                .any(|member| declared_node.get(member).is_some())
                 {
                     return Err(selected_tuple_refusal(
                         ModelRefusal::malformed(),
-                        declared,
+                        declared_node,
                         type_index,
                         None,
                         budget,
@@ -4025,7 +4882,7 @@ pub(super) fn read_semantic_ir(
                 if positions.is_empty() {
                     return Err(selected_tuple_refusal(
                         ModelRefusal::malformed(),
-                        declared,
+                        declared_node,
                         type_index,
                         None,
                         budget,
@@ -4033,9 +4890,8 @@ pub(super) fn read_semantic_ir(
                     .into());
                 }
                 for (ordinal, position) in positions.iter().enumerate() {
-                    let expected = format!("{node}/p{ordinal}");
                     let identity = text(position, "identity")?;
-                    if identity != expected {
+                    if !is_position_identity(identity, node, ordinal) {
                         return Err(selected_tuple_refusal(
                             ModelRefusal::malformed(),
                             position,
@@ -4058,7 +4914,7 @@ pub(super) fn read_semantic_ir(
                             .into());
                         }
                     };
-                    let Some(admitted) = model.selected_type_ref(type_ref) else {
+                    let Some(admitted) = model.selected_type_ref(type_ref, budget)? else {
                         return Err(selected_tuple_refusal(
                             ModelRefusal::malformed(),
                             position,
@@ -4129,13 +4985,14 @@ pub(super) fn read_semantic_ir(
                         .into());
                     }
                 }
-                model.tuple_types.insert(node.into(), types);
+                let key = budget.text(node, F)?;
+                model.tuple_types.insert(budget, key, types, F)?;
             }
             meaning::Kind::PersistenceInterface => {
-                let mut defects = Defects::new(declared);
-                check_selected_meaning(declared, meaning, &scope, &mut defects);
+                let mut defects = Defects::new(declared_node);
+                check_selected_meaning(declared_node, meaning, &scope, &mut defects, budget)?;
                 let (operations, _) = semantic_ir_object_type(
-                    declared,
+                    declared_node,
                     node,
                     true,
                     false,
@@ -4146,16 +5003,17 @@ pub(super) fn read_semantic_ir(
                     },
                     &relationships,
                     &mut defects,
-                );
+                    budget,
+                )?;
                 if let Some(refusal) = defects.first() {
                     let mut selected =
                         SelectionRefusal::located(refusal.refusal, refusal.declaration, budget)?;
                     let mut pointer = JsonPointer::root().key("types").index(
-                        *document_positions
-                            .get(node)
+                        declared
+                            .position(node)
                             .ok_or_else(ModelRefusal::malformed)?,
                     );
-                    for step in &refusal.path {
+                    for step in refusal.path.iter() {
                         pointer = match step {
                             Segment::Name(name) => pointer.key(name),
                             Segment::Index(index) => pointer.index(*index),
@@ -4165,32 +5023,38 @@ pub(super) fn read_semantic_ir(
                     selected.declaration_path = Some(refusal.path);
                     return Err(selected.into());
                 }
-                model.persistence_operations.insert(node.into(), operations);
+                let key = budget.text(node, F)?;
+                model
+                    .persistence_operations
+                    .insert(budget, key, operations, F)?;
             }
             meaning::Kind::VariantType => {
-                let Some(&type_index) = document_positions.get(node) else {
+                let Some(type_index) = declared.position(node) else {
                     return Err(ModelRefusal::malformed().into());
                 };
-                let cases = match list(declared, "variants") {
+                let cases = match list(declared_node, "variants") {
                     Ok(cases) => cases,
                     Err(refusal) => {
-                        return Err(SelectionRefusal::located(refusal, declared, budget)?.into());
+                        return Err(
+                            SelectionRefusal::located(refusal, declared_node, budget)?.into()
+                        );
                     }
                 };
-                let mut names = BTreeMap::new();
+                let mut names: SortedMap<Box<str>, SelectedVariantCase> =
+                    SortedMap::with_capacity(budget, cases.len(), F)?;
                 for (case_index, case) in cases.iter().enumerate() {
                     let name = match text(case, "name") {
                         Ok(name) => name,
                         Err(refusal) => {
                             return Err(
-                                SelectionRefusal::located(refusal, declared, budget)?.into()
+                                SelectionRefusal::located(refusal, declared_node, budget)?.into()
                             );
                         }
                     };
                     if name.is_empty() || names.contains_key(name) {
                         return Err(SelectionRefusal::located(
                             ModelRefusal::malformed(),
-                            declared,
+                            declared_node,
                             budget,
                         )?
                         .into());
@@ -4207,24 +5071,28 @@ pub(super) fn read_semantic_ir(
                         }
                     };
                     let payload = match case.get("payloadType") {
-                        None | Some(Value::Null) => None,
-                        Some(Value::String(reference)) => {
-                            let Some(resolved) = model.selected_type_ref(reference) else {
-                                return Err(unsupported_variant_payload(
-                                    case, type_index, case_index, budget,
+                        None => None,
+                        Some(payload) if payload.is_null() => None,
+                        Some(payload) => match payload.as_str() {
+                            Some(reference) => {
+                                let Some(resolved) = model.selected_type_ref(reference, budget)?
+                                else {
+                                    return Err(unsupported_variant_payload(
+                                        case, type_index, case_index, budget,
+                                    )?
+                                    .into());
+                                };
+                                Some(resolved)
+                            }
+                            None => {
+                                return Err(SelectionRefusal::located(
+                                    ModelRefusal::malformed(),
+                                    case,
+                                    budget,
                                 )?
                                 .into());
-                            };
-                            Some(resolved)
-                        }
-                        Some(_) => {
-                            return Err(SelectionRefusal::located(
-                                ModelRefusal::malformed(),
-                                case,
-                                budget,
-                            )?
-                            .into());
-                        }
+                            }
+                        },
                     };
                     if let Some(reference) = &payload {
                         let valid = match reference {
@@ -4263,24 +5131,24 @@ pub(super) fn read_semantic_ir(
                             .into());
                         }
                     }
-                    names.insert(
-                        name.into(),
-                        SelectedVariantCase {
-                            identity: identity.into(),
-                            position: case_index,
-                            payload,
-                        },
-                    );
+                    let key = budget.text(name, F)?;
+                    let selected = SelectedVariantCase {
+                        identity: budget.text(identity, F)?,
+                        position: case_index,
+                        payload,
+                    };
+                    names.insert(budget, key, selected, F)?;
                 }
                 if names.is_empty() {
                     return Err(SelectionRefusal::located(
                         ModelRefusal::malformed(),
-                        declared,
+                        declared_node,
                         budget,
                     )?
                     .into());
                 }
-                model.variant_types.insert(node.into(), names);
+                let key = budget.text(node, F)?;
+                model.variant_types.insert(budget, key, names, F)?;
             }
             meaning::Kind::EventType
             | meaning::Kind::Namespace
@@ -4291,19 +5159,32 @@ pub(super) fn read_semantic_ir(
             | meaning::Kind::SystemsAllocation => {}
         }
     }
-    model.object_types.extend(
-        objects
-            .into_iter()
-            .map(|(node, object)| (Box::from(node), object)),
-    );
-    model.record_types.extend(
-        records
-            .into_iter()
-            .map(|(node, record)| (Box::from(node), record)),
-    );
+    for (node, object) in objects {
+        let key = budget.text(node, F)?;
+        model.object_types.insert(budget, key, object, F)?;
+    }
+    for (node, record) in records {
+        let key = budget.text(node, F)?;
+        model.record_types.insert(budget, key, record, F)?;
+    }
     model.relationships = relationships;
     option_types::check_constraints(document, &model, &scope, budget)?;
     Ok(model)
+}
+
+/// Whether `identity` is the identity of position `ordinal` of tuple `node`,
+/// `<node>/p<ordinal>`.
+fn is_position_identity(identity: &str, node: &str, ordinal: usize) -> bool {
+    use std::fmt::Write as _;
+    struct Expect<'t>(&'t str);
+    impl std::fmt::Write for Expect<'_> {
+        fn write_str(&mut self, part: &str) -> std::fmt::Result {
+            self.0 = self.0.strip_prefix(part).ok_or(std::fmt::Error)?;
+            Ok(())
+        }
+    }
+    let mut remaining = Expect(identity);
+    write!(remaining, "{node}/p{ordinal}").is_ok() && remaining.0.is_empty()
 }
 
 /// What a node's references are checked against.
@@ -4312,25 +5193,23 @@ struct References<'a> {
     scope: &'a Scope<'a>,
 }
 
-enum CheckedTypeRefInput {
-    MapValue(Box<str>),
+enum CheckedTypeRefInput<'a> {
+    MapValue(&'a str),
     Unit,
     Native,
     Declared,
     Malformed,
 }
 
-impl CheckedTypeRefInput {
+impl<'a> CheckedTypeRefInput<'a> {
     #[ix_trace_rs::string_edge]
-    fn from_wire(value: &str) -> Self {
-        match SelectedTypeRef::from_admitted_name(value) {
-            Some(SelectedTypeRef::Map(key, value)) if key.as_ref() == "Text" => {
-                Self::MapValue(value)
-            }
-            Some(SelectedTypeRef::Map(..)) => Self::Malformed,
-            Some(SelectedTypeRef::Unit(_)) => Self::Unit,
-            Some(SelectedTypeRef::Native(_)) => Self::Native,
-            Some(SelectedTypeRef::Declared(_)) => Self::Declared,
+    fn from_wire(value: &'a str) -> Self {
+        match SelectedTypeRef::admit(value) {
+            Some(Admitted::Map("Text", value)) => Self::MapValue(value),
+            Some(Admitted::Map(..)) => Self::Malformed,
+            Some(Admitted::Unit(_)) => Self::Unit,
+            Some(Admitted::Native) => Self::Native,
+            Some(Admitted::Declared(_)) => Self::Declared,
             None if value.starts_with(NATIVE_PREFIX)
                 || value
                     .strip_prefix("Map<")
@@ -4374,17 +5253,20 @@ impl References<'_> {
     // Reads a selected domain package document's type reference prefix.
     fn check_type_ref(&self, type_ref: &str, path: &[Segment], defects: &mut Defects) {
         let path = joined(path, Segment::Name("typeRef"));
-        let resolved = self.model.selected_type_ref(type_ref);
+        let resolved = self
+            .model
+            .resolve_alias(type_ref)
+            .and_then(SelectedTypeRef::admit);
         let resolved_name = match &resolved {
-            Some(SelectedTypeRef::Declared(name) | SelectedTypeRef::Unit(name)) => name.as_ref(),
+            Some(Admitted::Declared(name) | Admitted::Unit(name)) => name,
             _ => type_ref,
         };
         let input = match resolved {
-            Some(SelectedTypeRef::Native(_)) => CheckedTypeRefInput::Native,
+            Some(Admitted::Native) => CheckedTypeRefInput::Native,
             _ => CheckedTypeRefInput::from_wire(resolved_name),
         };
         match input {
-            CheckedTypeRefInput::MapValue(value) => self.check_type_ref(&value, &[], defects),
+            CheckedTypeRefInput::MapValue(value) => self.check_type_ref(value, &[], defects),
             CheckedTypeRefInput::Unit if self.model.unit_refs.contains_key(resolved_name) => {}
             CheckedTypeRefInput::Unit => {
                 defects.push(Row::Reference, &path, ModelRefusal::missing_name());
@@ -4445,26 +5327,33 @@ impl References<'_> {
     /// Reads a field or operation's optional redefinition reference.
     fn redefinition(
         &self,
-        member: &Value,
+        member: View<'_>,
         base: &[Segment],
         defects: &mut Defects,
-    ) -> Option<Box<str>> {
+        budget: &mut Budget<'_, '_>,
+    ) -> Result<Option<Box<str>>, ValidationFailure> {
         let path = joined(base, Segment::Name("redefines"));
-        match member.get("redefines").map(Value::as_str) {
-            None => None,
+        match member.get("redefines").map(View::as_str) {
+            None => Ok(None),
             Some(Some(target)) => {
                 self.check_redefines(target, &path, defects);
-                Some(Box::from(target))
+                Ok(Some(budget.text(target, "declarations")?))
             }
             Some(None) => {
                 defects.push(Row::Meaning, &path, ModelRefusal::malformed());
-                None
+                Ok(None)
             }
         }
     }
 
     /// A `typeRef` with a multiplicity: a field, parameter or result.
-    fn slot(&self, value: &Value, base: &[Segment], defects: &mut Defects) -> TypedSlot {
+    fn slot(
+        &self,
+        value: View<'_>,
+        base: &[Segment],
+        defects: &mut Defects,
+        budget: &mut Budget<'_, '_>,
+    ) -> Result<TypedSlot, ValidationFailure> {
         let type_ref = match text(value, "typeRef") {
             Ok(type_ref) => {
                 self.check_type_ref(type_ref, base, defects);
@@ -4507,11 +5396,16 @@ impl References<'_> {
                 }
             }
         };
-        TypedSlot {
-            name: value.get("name").and_then(Value::as_str).map(Box::from),
-            type_ref: self.model.selected_type_ref(type_ref),
+        let name = value
+            .get("name")
+            .and_then(View::as_str)
+            .map(|name| budget.text(name, "declarations"))
+            .transpose()?;
+        Ok(TypedSlot {
+            name,
+            type_ref: self.model.selected_type_ref(type_ref, budget)?,
             multiplicity,
-        }
+        })
     }
 }
 
@@ -4571,12 +5465,13 @@ impl RelationshipCategory {
 
 /// Closed authored relationship metadata and ends, read at the selection row.
 fn semantic_ir_relationship(
-    value: &Value,
+    value: View<'_>,
     owner: &str,
     base: &[Segment],
     references: &References<'_>,
     defects: &mut Defects,
-) -> Option<(Box<str>, RelationshipDecl)> {
+    budget: &mut Budget<'_, '_>,
+) -> Result<Option<(Box<str>, RelationshipDecl)>, ValidationFailure> {
     let parsed = (|| {
         let members = value.as_object()?;
         if !members
@@ -4592,10 +5487,10 @@ fn semantic_ir_relationship(
         let direction = RelationshipDirection::from_wire(value.get("direction")?.as_str()?)?;
         if value
             .get("category")
-            .and_then(Value::as_str)
+            .and_then(View::as_str)
             .and_then(RelationshipCategory::from_wire)
             .is_none()
-            || value.get("composite").and_then(Value::as_bool).is_none()
+            || value.get("composite").and_then(View::as_bool).is_none()
             || !valid_relationship_origin(value.get("origin")?)
         {
             return None;
@@ -4606,17 +5501,17 @@ fn semantic_ir_relationship(
     })();
     let Some((identity, source, target, direction)) = parsed else {
         defects.push(Row::Meaning, base, ModelRefusal::malformed());
-        return None;
+        return Ok(None);
     };
     for (end, member) in [(&source, "sourceEnd"), (&target, "targetEnd")] {
-        if let Err((row, refusal)) = references.object_ref(&end.type_ref) {
+        if let Err((row, refusal)) = references.object_ref(end.type_ref) {
             defects.push(row, &joined(base, Segment::Name(member)), refusal);
-            return None;
+            return Ok(None);
         }
     }
-    if source.type_ref.as_ref() != owner {
+    if source.type_ref != owner {
         defects.push(Row::Meaning, base, ModelRefusal::malformed());
-        return None;
+        return Ok(None);
     }
     for (end, member) in [(&source, "sourceEnd"), (&target, "targetEnd")] {
         if end
@@ -4632,58 +5527,81 @@ fn semantic_ir_relationship(
                     CheckedPackageRefusalCause::UnpreservedModelMeaning,
                 ),
             );
-            return None;
+            return Ok(None);
         }
     }
-    Some((
-        identity.into(),
+    let form = "declarations";
+    let key = budget.text(identity, form)?;
+    let mut own = |end: RelationshipEndView<'_>| -> Result<RelationshipEnd, ValidationFailure> {
+        Ok(RelationshipEnd {
+            role: end.role.map(|role| budget.text(role, form)).transpose()?,
+            type_ref: budget.text(end.type_ref, form)?,
+            multiplicity: end.multiplicity,
+        })
+    };
+    let source = own(source)?;
+    let target = own(target)?;
+    Ok(Some((
+        key,
         RelationshipDecl {
             source,
             target,
             direction,
         },
-    ))
+    )))
 }
 
 fn valid_relationship_identity(package: &str, identity: &str) -> bool {
-    let prefix = format!("ix://{package}/relationship/");
-    identity.strip_prefix(&prefix).is_some_and(|name| {
-        !name.is_empty() && !name.contains('/') && valid_semantic_identity(identity)
-    })
+    identity
+        .strip_prefix("ix://")
+        .and_then(|rest| rest.strip_prefix(package))
+        .and_then(|rest| rest.strip_prefix("/relationship/"))
+        .is_some_and(|name| {
+            !name.is_empty() && !name.contains('/') && valid_semantic_identity(identity)
+        })
 }
 
-fn relationship_end(value: &Value, required_role: bool) -> Option<RelationshipEnd> {
+/// One end of a relationship as the document spells it.
+struct RelationshipEndView<'v> {
+    role: Option<&'v str>,
+    type_ref: &'v str,
+    multiplicity: Multiplicity,
+}
+
+fn relationship_end(value: View<'_>, required_role: bool) -> Option<RelationshipEndView<'_>> {
     let members = value.as_object()?;
     if !members
         .keys()
-        .all(|key| matches!(key.as_str(), "type" | "role" | "multiplicity"))
+        .all(|key| matches!(key, "type" | "role" | "multiplicity"))
     {
         return None;
     }
     let role = match members.get("role") {
-        Some(Value::String(role)) if !role.is_empty() => Some(role.as_str().into()),
+        Some(role) => match role.as_str() {
+            Some(role) if !role.is_empty() => Some(role),
+            _ => return None,
+        },
         None if !required_role => None,
-        _ => return None,
+        None => return None,
     };
     let multiplicity = value.get("multiplicity")?.as_object()?;
     if !multiplicity
         .keys()
-        .all(|key| matches!(key.as_str(), "lower" | "upper" | "ordered" | "unique"))
+        .all(|key| matches!(key, "lower" | "upper" | "ordered" | "unique"))
     {
         return None;
     }
-    Some(RelationshipEnd {
+    Some(RelationshipEndView {
         role,
         type_ref: value
             .get("type")?
             .as_str()
-            .filter(|id| valid_semantic_identity(id))?
-            .into(),
+            .filter(|id| valid_semantic_identity(id))?,
         multiplicity: semantic_ir_multiplicity(value).ok()?,
     })
 }
 
-fn valid_relationship_origin(value: &Value) -> bool {
+fn valid_relationship_origin(value: View<'_>) -> bool {
     OriginView::decode(value).is_some()
 }
 
@@ -4744,44 +5662,124 @@ fn valid_semver(version: &str) -> bool {
 }
 
 /// One member list of the node, or the failure of a member that is not a list.
-fn items<'v>(value: &'v Value, member: &'static str, defects: &mut Defects) -> &'v [Value] {
+fn items<'v>(value: View<'v>, member: &'static str, defects: &mut Defects) -> List<'v> {
     items_at(value, member, &[Segment::Name(member)], defects)
 }
 
 /// One member identity, or the failure of one that is not `<owner>/<name>`.
-fn identity_of(member: &Value, owner: &str, path: &[Segment], defects: &mut Defects) -> Box<str> {
-    member_identity(member, owner).unwrap_or_else(|refusal| {
-        defects.push(
-            Row::Meaning,
-            &joined(path, Segment::Name("identity")),
-            refusal,
-        );
-        Box::from("")
-    })
+fn identity_of(
+    member: View<'_>,
+    owner: &str,
+    path: &[Segment],
+    defects: &mut Defects,
+    budget: &mut Budget<'_, '_>,
+) -> Result<Box<str>, ValidationFailure> {
+    match member_identity(member, owner) {
+        Ok(identity) => budget.text(identity, "declarations"),
+        Err(refusal) => {
+            defects.push(
+                Row::Meaning,
+                &joined(path, Segment::Name("identity")),
+                refusal,
+            );
+            Ok(Box::from(""))
+        }
+    }
+}
+
+/// The frame an operation declares: the closed members of
+/// [`SourceOperationFrame`], each absent one empty. `None` when a member is
+/// unknown or of the wrong kind.
+fn operation_frame(
+    raw: View<'_>,
+    budget: &mut Budget<'_, '_>,
+) -> Result<Option<SourceOperationFrame>, ValidationFailure> {
+    let Some(members) = raw.as_object() else {
+        return Ok(None);
+    };
+    if !members.keys().all(|key| {
+        matches!(
+            key,
+            "modifies"
+                | "creates"
+                | "deletes"
+                | "modifies_receiver"
+                | "deletes_receiver"
+                | "deletes_parameters"
+        )
+    }) {
+        return Ok(None);
+    }
+    let mut names = |member: &str| -> Result<Option<Vec<Box<str>>>, ValidationFailure> {
+        let Some(value) = members.get(member) else {
+            return Ok(Some(Vec::new()));
+        };
+        let Some(items) = value.as_array() else {
+            return Ok(None);
+        };
+        let mut owned = budget.vec(items.len(), "declarations")?;
+        for item in items {
+            let Some(text) = item.as_str() else {
+                return Ok(None);
+            };
+            owned.push(budget.text(text, "declarations")?);
+        }
+        Ok(Some(owned))
+    };
+    let (Some(modifies), Some(creates), Some(deletes), Some(modifies_receiver)) = (
+        names("modifies")?,
+        names("creates")?,
+        names("deletes")?,
+        names("modifies_receiver")?,
+    ) else {
+        return Ok(None);
+    };
+    let Some(deletes_parameters) = names("deletes_parameters")? else {
+        return Ok(None);
+    };
+    let deletes_receiver = match members.get("deletes_receiver") {
+        None => false,
+        Some(flag) => match flag.as_bool() {
+            Some(flag) => flag,
+            None => return Ok(None),
+        },
+    };
+    Ok(Some(SourceOperationFrame {
+        modifies,
+        creates,
+        deletes,
+        modifies_receiver,
+        deletes_receiver,
+        deletes_parameters,
+    }))
 }
 
 /// One object type or systems interface; every failure of the node is
 /// recorded in `defects`, and the declaration returned is meaningful only
 /// when there is none.
 // Reads a selected domain package document's supertype references.
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn semantic_ir_object_type<'v>(
-    value: &'v Value,
+    value: View<'v>,
     node: &str,
     interface: bool,
     record: bool,
     meaning: meaning::Kind,
     references: &References<'_>,
-    known_relationships: &BTreeMap<Box<str>, RelationshipDecl>,
+    known_relationships: &SortedMap<Box<str>, RelationshipDecl>,
     defects: &mut Defects<'v>,
-) -> (FieldBearingTypeDecl, Vec<(Box<str>, RelationshipDecl)>) {
-    let mut fields = Vec::new();
-    for (index, field) in items(value, "fields", defects).iter().enumerate() {
+    budget: &mut Budget<'_, '_>,
+) -> Result<(FieldBearingTypeDecl, Vec<(Box<str>, RelationshipDecl)>), ValidationFailure> {
+    const F: &str = SET_FORM;
+    let field_rows = items(value, "fields", defects);
+    let mut fields = budget.vec(field_rows.len(), F)?;
+    for (index, field) in field_rows.iter().enumerate() {
         defects.context(field);
         let base = [Segment::Name("fields"), Segment::Index(index)];
         if record
             && field
                 .get("typeRef")
-                .and_then(Value::as_str)
+                .and_then(View::as_str)
                 .is_some_and(|name| references.scope.record_field_forbidden.contains(name))
         {
             defects.push(
@@ -4810,8 +5808,8 @@ fn semantic_ir_object_type<'v>(
                 false
             }
         };
-        let redefines = references.redefinition(field, &base, defects);
-        let slot = references.slot(field, &base, defects);
+        let redefines = references.redefinition(field, &base, defects, budget)?;
+        let slot = references.slot(field, &base, defects, budget)?;
         if optional
             && (slot.multiplicity.lower, slot.multiplicity.upper) == (1, Some(1))
             && matches!(&slot.type_ref, Some(SelectedTypeRef::Declared(name)) if references.scope.option_types.contains(name.as_ref()))
@@ -4823,28 +5821,31 @@ fn semantic_ir_object_type<'v>(
             );
         }
         fields.push(FieldDecl {
-            identity: identity_of(field, node, &base, defects),
+            identity: identity_of(field, node, &base, defects, budget)?,
             slot,
             optional,
             redefines,
         });
     }
     defects.context(value);
-    let mut operations = Vec::new();
-    for (index, operation) in items(value, "operations", defects).iter().enumerate() {
+    let operation_rows = items(value, "operations", defects);
+    let mut operations = budget.vec(operation_rows.len(), F)?;
+    for (index, operation) in operation_rows.iter().enumerate() {
         defects.context(operation);
         let base = [Segment::Name("operations"), Segment::Index(index)];
-        let operation_identity = identity_of(operation, node, &base, defects);
+        let operation_identity = identity_of(operation, node, &base, defects, budget)?;
         let params_path = joined(&base, Segment::Name("params"));
-        let mut parameters = Vec::new();
         let declared = items_at(operation, "params", &params_path, defects);
-        let mut seen = BTreeMap::new();
-        let mut colliding = BTreeSet::new();
+        let mut parameters = budget.vec(declared.len(), F)?;
+        // The positions of the parameters that share an identity with an
+        // earlier one, and that earlier one.
+        let mut seen: SortedMap<&str, usize> = SortedMap::with_capacity(budget, declared.len(), F)?;
+        let mut colliding: SortedSet<usize> = SortedSet::with_capacity(budget, declared.len(), F)?;
         for (position, parameter) in declared.iter().enumerate() {
-            if let Some(identity) = parameter.get("identity").and_then(Value::as_str) {
+            if let Some(identity) = parameter.get("identity").and_then(View::as_str) {
                 if let Some(&first) = seen.get(identity) {
-                    colliding.insert(first);
-                    colliding.insert(position);
+                    colliding.insert(budget, first, F)?;
+                    colliding.insert(budget, position, F)?;
                     defects.context(parameter);
                     defects.push(
                         Row::ParameterDuplicate,
@@ -4855,21 +5856,22 @@ fn semantic_ir_object_type<'v>(
                         ),
                     );
                 } else {
-                    seen.insert(identity, position);
+                    seen.insert(budget, identity, position, F)?;
                 }
             }
         }
+        drop(seen);
         for (position, parameter) in declared.iter().enumerate() {
             defects.context(parameter);
             let at = joined(&params_path, Segment::Index(position));
             if !colliding.contains(&position) && parameter.get("identity").is_some() {
-                identity_of(parameter, &operation_identity, &at, defects);
+                identity_of(parameter, &operation_identity, &at, defects, budget)?;
             }
             if !colliding.contains(&position) {
-                let name = parameter.get("name").and_then(Value::as_str);
+                let name = parameter.get("name").and_then(View::as_str);
                 let identity_name = parameter
                     .get("identity")
-                    .and_then(Value::as_str)
+                    .and_then(View::as_str)
                     .and_then(|identity| identity.strip_prefix(operation_identity.as_ref()))
                     .and_then(|suffix| suffix.strip_prefix('/'));
                 if identity_name.is_some()
@@ -4883,16 +5885,23 @@ fn semantic_ir_object_type<'v>(
                     );
                 }
             }
-            parameters.push(references.slot(parameter, &at, defects));
+            parameters.push(references.slot(parameter, &at, defects, budget)?);
         }
+        drop(colliding);
         defects.context(operation);
-        let result = operation.get("returns").map(|returns| {
-            references.slot(returns, &joined(&base, Segment::Name("returns")), defects)
-        });
+        let result = match operation.get("returns") {
+            Some(returns) => Some(references.slot(
+                returns,
+                &joined(&base, Segment::Name("returns")),
+                defects,
+                budget,
+            )?),
+            None => None,
+        };
         let frame = match operation.get("frame") {
-            Some(raw) => match serde_json::from_value(raw.clone()) {
-                Ok(frame) => frame,
-                Err(_) => {
+            Some(raw) => match operation_frame(raw, budget)? {
+                Some(frame) => frame,
+                None => {
                     defects.push(
                         Row::Meaning,
                         &joined(&base, Segment::Name("frame")),
@@ -4908,21 +5917,25 @@ fn semantic_ir_object_type<'v>(
             parameters,
             result,
             frame,
-            redefines: references.redefinition(operation, &base, defects),
+            redefines: references.redefinition(operation, &base, defects, budget)?,
         });
     }
     defects.context(value);
-    let mut relationships = Vec::new();
-    let mut local_relationships = BTreeSet::new();
-    for (index, relationship) in items(value, "relationships", defects).iter().enumerate() {
+    let relationship_rows = items(value, "relationships", defects);
+    let mut relationships = budget.vec(relationship_rows.len(), F)?;
+    let mut local_relationships: SortedSet<&str> =
+        SortedSet::with_capacity(budget, relationship_rows.len(), F)?;
+    for (index, relationship) in relationship_rows.iter().enumerate() {
         defects.context(relationship);
         let base = [Segment::Name("relationships"), Segment::Index(index)];
         if let Some(identity) = relationship
             .get("identity")
-            .and_then(Value::as_str)
+            .and_then(View::as_str)
             .filter(|identity| valid_relationship_identity(&references.model.identity, identity))
         {
-            if known_relationships.contains_key(identity) || !local_relationships.insert(identity) {
+            if known_relationships.contains_key(identity)
+                || !local_relationships.insert(budget, identity, F)?
+            {
                 defects.push(
                     Row::Duplicate,
                     &joined(&base, Segment::Name("identity")),
@@ -4934,24 +5947,26 @@ fn semantic_ir_object_type<'v>(
             }
         }
         if let Some(declared) =
-            semantic_ir_relationship(relationship, node, &base, references, defects)
+            semantic_ir_relationship(relationship, node, &base, references, defects, budget)?
         {
             relationships.push(declared);
         }
     }
+    drop(local_relationships);
     defects.context(value);
-    let mut supertypes = Vec::new();
-    for (index, supertype) in items(value, "supertypes", defects).iter().enumerate() {
+    let supertype_rows = items(value, "supertypes", defects);
+    let mut supertypes = budget.vec(supertype_rows.len(), F)?;
+    for (index, supertype) in supertype_rows.iter().enumerate() {
         let path = [Segment::Name("supertypes"), Segment::Index(index)];
         match supertype.as_str() {
             Some(supertype) => {
                 references.check_supertype(supertype, meaning, &path, defects);
-                supertypes.push(Box::from(supertype));
+                supertypes.push(budget.text(supertype, F)?);
             }
             None => defects.push(Row::Meaning, &path, ModelRefusal::malformed()),
         }
     }
-    (
+    Ok((
         FieldBearingTypeDecl {
             interface,
             supertypes,
@@ -4959,20 +5974,28 @@ fn semantic_ir_object_type<'v>(
             operations,
         },
         relationships,
-    )
+    ))
 }
 
 /// A member list nested at `path`, or the failure of one that is not a list.
 fn items_at<'v>(
-    value: &'v Value,
+    value: View<'v>,
     member: &'static str,
     path: &[Segment],
     defects: &mut Defects,
-) -> &'v [Value] {
+) -> List<'v> {
     list(value, member).unwrap_or_else(|refusal| {
         defects.push(Row::Meaning, path, refusal);
-        &[]
+        List::empty()
     })
+}
+
+/// A fixture value as the view the reader takes, kept alive for the test run.
+#[cfg(test)]
+pub(in crate::checked_package::v2) fn view_of(value: &serde_json::Value) -> View<'static> {
+    let bytes = serde_json::to_vec(value).expect("encode fixture");
+    let document = quire_canonical::read(&bytes, 1 << 30).expect("read fixture");
+    View::root(Box::leak(Box::new(document)))
 }
 
 #[cfg(test)]
@@ -4982,6 +6005,64 @@ pub(super) mod tests;
 mod structural_member_type_tests {
     use super::{declaration_id, CollectionKind, DeclarationForm, IntegerBounds, MemberType};
     use serde_json::json;
+
+    #[ix_trace_rs::trace("TC-472", "FR-038-AC-504")]
+    #[test]
+    fn member_type_identity_allocates_only_reserved_storage() {
+        use super::{Budget, RationalBounds, TextBounds};
+        use crate::checked_package::v2::{native_join_budget::NativeJoinBudget, WorkMeter};
+        let target = declaration_id("model", DeclarationForm::ObjectType, "Thing");
+        let bounds = RationalBounds {
+            numerator_min: i128::MIN,
+            numerator_max: i128::MAX,
+            denominator_min: 1,
+            denominator_max: 99,
+        };
+        let cases = [
+            MemberType::Integer,
+            MemberType::Reference(target.clone()),
+            MemberType::Record(target.clone()),
+            MemberType::IntRange(IntegerBounds {
+                lower: i128::MIN,
+                upper: i128::MAX,
+            }),
+            MemberType::RationalRange(bounds),
+            MemberType::CarriedRational(bounds, target),
+            MemberType::TextBounds(TextBounds {
+                lower: 0,
+                upper: u64::MAX,
+                profile: "nfc".into(),
+            }),
+            MemberType::Option(Box::new(MemberType::Collection {
+                kind: CollectionKind::Set,
+                element: Box::new(MemberType::Boolean),
+                bounds: Some((0, u64::MAX)),
+            })),
+        ];
+        for member in cases {
+            let expected = member.node_id("checked");
+            let run = |limit| {
+                let mut native = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
+                let mut result = None;
+                let measured = allocation_counter::measure(|| {
+                    let mut meter = WorkMeter::over(&mut native);
+                    let mut budget = Budget::new(&mut meter, 0, u64::MAX);
+                    result = Some(member.node_id_in("checked", &mut budget));
+                });
+                (
+                    result.expect("ran"),
+                    measured.bytes_total,
+                    native.read_storage_consumed(),
+                )
+            };
+            let (actual, allocated, charged) = run(u64::MAX);
+            assert_eq!(actual.expect("unlimited"), expected);
+            assert!(charged > 0);
+            assert_eq!(allocated, charged, "{member:?}");
+            assert_eq!(run(charged).0.expect("exact limit"), expected);
+            assert!(run(charged - 1).0.is_err(), "one short: {member:?}");
+        }
+    }
 
     /// Trace: FR-038-AC-364, FR-322-AC-62.
     #[test]
@@ -5041,9 +6122,12 @@ mod structural_member_type_tests {
                 {"keyword":"maxDenominator","appliesTo":"ix://example/Ratio","operands":{"value":12}}
             ])
         };
-        let unit_refs = std::sync::Arc::new(std::collections::BTreeMap::new());
-        let value = super::semantic_ir_value_type(&declared(constraints(json!(-3))), &unit_refs)
-            .expect("bounded Rational");
+        let unit_refs = crate::checked_package::v2::model_members::UnitRefs::default();
+        let value = super::semantic_ir_value_type(
+            super::view_of(&declared(constraints(json!(-3)))),
+            &unit_refs,
+        )
+        .expect("bounded Rational");
         let super::ValueBounds::Rational(bounds, None) = value else {
             panic!("Rational value type must retain Rational bounds");
         };
@@ -5059,11 +6143,12 @@ mod structural_member_type_tests {
         let unit = super::derived_id("example", "scalar_type", "unit", Vec::new());
         let mut refs = std::collections::BTreeMap::new();
         refs.insert("ix://quire/unit/m".into(), unit.clone());
-        let refs = std::sync::Arc::new(refs);
+        let refs = super::tests::unit_refs_of(refs);
         let mut with_unit = declared(constraints(json!(-3)));
         with_unit["unit"] = json!("ix://quire/unit/m");
         let super::ValueBounds::Rational(carried_bounds, Some(actual_unit)) =
-            super::semantic_ir_value_type(&with_unit, &refs).expect("unit-bearing Rational")
+            super::semantic_ir_value_type(super::view_of(&with_unit), &refs)
+                .expect("unit-bearing Rational")
         else {
             panic!("unit-bearing Rational must retain its unit");
         };
@@ -5078,25 +6163,22 @@ mod structural_member_type_tests {
         );
         for bad in [json!(-3.5), json!(null)] {
             assert!(
-                super::semantic_ir_value_type(&declared(constraints(bad.clone())), &unit_refs)
-                    .is_none(),
+                super::semantic_ir_value_type(
+                    super::view_of(&declared(constraints(bad.clone()))),
+                    &unit_refs
+                )
+                .is_none(),
                 "wrong bound carrier must not become a bounded type"
             );
             let (refusal, path) =
-                super::rational_value_type(&declared(constraints(bad)), &unit_refs)
+                super::rational_value_type(super::view_of(&declared(constraints(bad))), &unit_refs)
                     .expect_err("wrong carrier must refuse before tuple or payload admission");
             assert_eq!(refusal, super::ModelRefusal::malformed());
-            assert_eq!(
-                path,
-                vec![
-                    super::Segment::Name("constraints"),
-                    super::Segment::Index(0),
-                    super::Segment::Name("operands")
-                ]
-            );
+            assert_eq!(path, super::RationalPath::constraint(0, "operands"));
         }
         assert!(
-            super::semantic_ir_value_type(&declared(json!([])), &unit_refs).is_none(),
+            super::semantic_ir_value_type(super::view_of(&declared(json!([]))), &unit_refs)
+                .is_none(),
             "unbounded Rational must remain unmapped"
         );
     }
@@ -5105,8 +6187,8 @@ mod structural_member_type_tests {
     #[test]
     fn selected_rational_bounds_preserve_canonical_signed_64_values() {
         use super::{
-            admit_document, Budget, CheckedPackageRefusalCause, ModelRefusal, RationalValueError,
-            Segment, SelectionFailure, UnitRefs, ValueBounds, WorkMeter,
+            document::admit_document, Budget, CheckedPackageRefusalCause, ModelRefusal,
+            RationalValueError, SelectionFailure, UnitRefs, ValueBounds, View, WorkMeter,
         };
 
         let selected = |lower: serde_json::Value, upper: serde_json::Value| {
@@ -5125,17 +6207,7 @@ mod structural_member_type_tests {
             let bytes = serde_json::to_vec(document).expect("selected document");
             let mut meter = WorkMeter::new(u64::MAX);
             let mut budget = Budget::new(&mut meter, 0, u64::MAX);
-            admit_document(
-                "test/orders",
-                Some(&bytes),
-                |document| {
-                    document
-                        .pointer("/package/identity")
-                        .and_then(serde_json::Value::as_str)
-                },
-                &mut budget,
-            )
-            .map(|(value, _)| value)
+            admit_document("test/orders", Some(&bytes), &mut budget)
         };
         let unit_refs = UnitRefs::default();
         for (lower, upper, expected_lower, expected_upper) in [
@@ -5154,10 +6226,15 @@ mod structural_member_type_tests {
             (json!("-3"), json!("7"), -3, 7),
         ] {
             let document = read(&selected(lower, upper)).expect("canonical selected document");
-            let Some(ValueBounds::Rational(bounds, None)) =
-                super::rational_value_type(&document["types"][0], &unit_refs)
-                    .expect("selected Rational bounds")
-            else {
+            let Some(ValueBounds::Rational(bounds, None)) = super::rational_value_type(
+                View::root(&document)
+                    .get("types")
+                    .and_then(View::as_array)
+                    .and_then(|types| types.iter().next())
+                    .expect("first type"),
+                &unit_refs,
+            )
+            .expect("selected Rational bounds") else {
                 panic!("selected Rational bounds must remain exact");
             };
             assert_eq!(
@@ -5185,17 +6262,19 @@ mod structural_member_type_tests {
         ] {
             let document =
                 read(&selected(json!(-3), json!(bad))).expect("well-shaped selected document");
-            let (refusal, path): RationalValueError =
-                super::rational_value_type(&document["types"][0], &unit_refs)
-                    .expect_err("non-canonical or out-of-range decimal refuses");
+            let (refusal, path): RationalValueError = super::rational_value_type(
+                View::root(&document)
+                    .get("types")
+                    .and_then(View::as_array)
+                    .and_then(|types| types.iter().next())
+                    .expect("first type"),
+                &unit_refs,
+            )
+            .expect_err("non-canonical or out-of-range decimal refuses");
             assert_eq!(refusal, ModelRefusal::malformed(), "{bad}");
             assert_eq!(
                 path,
-                vec![
-                    Segment::Name("constraints"),
-                    Segment::Index(1),
-                    Segment::Name("operands")
-                ],
+                super::RationalPath::constraint(1, "operands"),
                 "{bad}"
             );
         }
@@ -5223,5 +6302,63 @@ mod structural_member_type_tests {
                 format!("/types/0/constraints/{constraint}/operands/value")
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod model_work_position_tests {
+    use super::*;
+    use ix_trace_rs::trace;
+    #[test]
+    #[trace("TC-472", "FR-038-AC-511")]
+    fn model_owner_work_denial_prepays_exact_pointer_before_construction() {
+        let path = super::super::stage_storage::Path::root()
+            .key("semantic_graph")
+            .key("nodes")
+            .index(4)
+            .key("owner");
+        let length = "/semantic_graph/nodes/4/owner".len() as u64;
+        let run = |work, storage| {
+            let mut caller = NativeJoinBudget::new(work, 0).with_read_storage_limit(storage);
+            let mut stop = None;
+            let allocated = allocation_counter::measure(|| {
+                let mut meter = WorkMeter::over(&mut caller);
+                stop = Some(Budget::node(&mut meter, 4).charge_at_position(1, "model", path));
+            });
+            (stop.expect("charge"), caller, allocated.bytes_total)
+        };
+        let (result, caller, allocated) = run(1, 0);
+        assert!(result.is_ok());
+        assert_eq!(allocated, 0);
+        assert_eq!(caller.consumed().work, 1);
+        let (result, mut caller, allocated) = run(0, length);
+        let Err(ValidationFailure::Budget(stop)) = result else {
+            panic!("work denial");
+        };
+        assert_eq!(stop.resource, super::super::PackageReadResource::Work);
+        assert_eq!(stop.amount, 1);
+        assert_eq!(
+            stop.path.as_ref().map(JsonPointer::as_str),
+            Some("/semantic_graph/nodes/4/owner")
+        );
+        assert_eq!(allocated, length);
+        assert_eq!(caller.read_storage_consumed(), length);
+        assert_eq!(
+            caller.first_unpaid_locus(),
+            Some(NativeJoinLocus {
+                source: NativeJoinLocusSource::PackageRead(PackageReadStage::Graph, 4),
+                form: "model"
+            })
+        );
+        assert_eq!(caller.take_prepaid_diagnostic(), Some(true));
+        let (result, mut caller, allocated) = run(0, length - 1);
+        let Err(ValidationFailure::Budget(stop)) = result else {
+            panic!("work denial without affordable pointer");
+        };
+        assert!(stop.path.is_none());
+        assert_eq!(stop.amount, 1);
+        assert_eq!(allocated, 0);
+        assert_eq!(caller.read_storage_consumed(), 0);
+        assert_eq!(caller.take_prepaid_diagnostic(), Some(false));
     }
 }

@@ -140,7 +140,7 @@ fn read_with_selected_model_document(
             serde_json::to_vec(document).expect("selected document bytes"),
         )
         .expect("selected model evidence");
-    CheckedPackageV2::read(
+    crate::read_and_account(
         &crate::fixture_support::canonical(package),
         CheckedPackageReadLimits::bounded(),
         &evidence,

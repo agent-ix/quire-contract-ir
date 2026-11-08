@@ -5,24 +5,22 @@
 //! canonical form identically regardless of which closed schema is decoded
 //! from the resulting value.
 
-mod closed_members;
-
 use super::shared::{push_index, push_key};
 use super::shared::{
-    CheckedArtifactRef, CheckedNodeId, CheckedOccurrence, CheckedPackageIncomplete,
-    CheckedPackageLimit, CheckedPackageReadLimits, CheckedPackageRefusal,
-    CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedSourceMapEntry, CheckedSourceRef,
-    JsonPointer, RefusalFields,
+    CheckedArtifactRef, CheckedNodeId, CheckedPackageIncomplete, CheckedPackageLimit,
+    CheckedPackageReadLimits, CheckedPackageRefusal, CheckedPackageRefusalCause,
+    CheckedPackageRefusalCode, CheckedSourceRef, JsonPointer, RefusalFields,
 };
-use super::terms::{subterms_of, At, Cursor};
-use super::v2::{ApplicationOperator, BodyTerm, LiteralKind};
-use closed_members::ClosedMemberProvenance;
-use quire_walk::{walk, Children, Walk};
+use super::terms::{At, Cursor, TermSource};
+use super::v2::read_charge::{ReadStorage, Site};
+use super::v2::{ApplicationOperator, BodyTerm, LiteralKind, NodeIdRead};
+use quire_walk::{Children, Walk};
 use serde::de::{DeserializeSeed, MapAccess, SeqAccess, Visitor};
 use serde::Deserialize;
 use serde_json::{Map, Value};
 use std::cell::RefCell;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
+
 use std::fmt;
 use std::ops::ControlFlow;
 
@@ -231,21 +229,50 @@ impl<'a> Trail<'a> {
         Trail::Child(self, Step::Index(index))
     }
 
-    /// The steps from the document root to this position, in order. Walks the
+    /// How many steps lead from the document root to this position. Walks the
     /// chain iteratively.
-    pub(super) fn steps(&self) -> Vec<Step<'a>> {
-        let mut below = Vec::new();
+    pub(super) fn step_count(&self) -> usize {
+        let mut count = 0usize;
         let mut current = self;
-        let base = loop {
+        loop {
             match current {
-                Trail::Base(steps) => break *steps,
-                Trail::Child(parent, step) => {
-                    below.push(*step);
+                Trail::Base(steps) => return count.saturating_add(steps.len()),
+                Trail::Child(parent, _) => {
+                    count = count.saturating_add(1);
                     current = parent;
                 }
             }
-        };
-        base.iter().chain(below.iter().rev()).copied().collect()
+        }
+    }
+
+    /// The steps from the document root to this position, in order, in one
+    /// vector of exactly [`Self::step_count`] entries. Walks the chain
+    /// iteratively.
+    pub(super) fn steps(&self) -> Vec<Step<'a>> {
+        self.steps_with_capacity(self.step_count())
+    }
+
+    /// [`Self::steps`] in a vector of `capacity` (at least the step count)
+    /// entries: a walk's cursor reserves room for the steps below.
+    pub(super) fn steps_with_capacity(&self, capacity: usize) -> Vec<Step<'a>> {
+        let count = self.step_count();
+        let mut steps = Vec::with_capacity(capacity.max(count));
+        steps.resize(count, Step::Index(0));
+        let mut at = count;
+        let mut current = self;
+        loop {
+            match current {
+                Trail::Base(base) => {
+                    steps[..base.len()].copy_from_slice(base);
+                    return steps;
+                }
+                Trail::Child(parent, step) => {
+                    at -= 1;
+                    steps[at] = *step;
+                    current = parent;
+                }
+            }
+        }
     }
 
     /// The RFC 6901 pointer of this position. Walks the chain iteratively.
@@ -560,37 +587,52 @@ pub(super) fn canonical_value(
     read_value(bytes, limits, Ok)
 }
 
-/// Decode a closed package straight from its validated bytes. This uses the
-/// established pointer mapping without first materializing the complete
-/// package as a `Value`.
-pub(super) fn decode_closed_bytes<'de, T: Deserialize<'de>>(
-    bytes: &'de [u8],
+/// Decode a closed package from the reader's document: the closed wire is
+/// decoded in place, charging each string and sequence it requests to the
+/// budget's read storage, with the same member-fault pointers.
+#[cfg(test)]
+pub(super) fn decode_closed_document<'d, T: Deserialize<'d>>(
+    document: &'d std::sync::Arc<quire_canonical::Document>,
+    budget: &mut crate::checked_package::v2::NativeJoinBudget,
 ) -> Result<T, ValidationFailure> {
-    let mut deserializer = serde_json::Deserializer::from_slice(bytes);
-    match T::deserialize(&mut deserializer) {
-        Ok(decoded) => Ok(decoded),
-        Err(_) => {
-            // The traced wrapper adds a native frame per nested value. Use it
-            // only after a failed closed decode, to locate the offending
-            // shallow wire member without charging a valid deep term's stack.
-            let mut deserializer = serde_json::Deserializer::from_slice(bytes);
-            let provenance = ClosedMemberProvenance::new();
-            serde_path_to_error::deserialize::<_, T>(provenance.trace(&mut deserializer))
-                .map_err(|error| classify_closed_error(error, provenance.unknown_member()))
-        }
-    }
+    decode_closed_document_with_classifier(
+        document,
+        budget,
+        crate::checked_package::v2::DecodeContext::materialize_schema_failure,
+    )
 }
 
-fn classify_closed_error<E>(
-    error: serde_path_to_error::Error<E>,
-    unknown_member: bool,
-) -> ValidationFailure {
-    let code = if unknown_member {
-        CheckedPackageRefusalCode::UnknownMember
-    } else {
-        CheckedPackageRefusalCode::MalformedWire
+/// Classify the decoder's borrowed first fault before its one prepaid
+/// diagnostic is materialized. The policy must use the actual caller meter.
+pub(super) fn decode_closed_document_with_classifier<'d, T: Deserialize<'d>>(
+    document: &'d std::sync::Arc<quire_canonical::Document>,
+    budget: &mut crate::checked_package::v2::NativeJoinBudget,
+    classify: impl FnOnce(
+        CheckedPackageRefusalCode,
+        &[Step<'d>],
+        &mut crate::checked_package::v2::WorkMeter,
+    ) -> ValidationFailure,
+) -> Result<T, ValidationFailure> {
+    use crate::checked_package::v2::DecodeContext;
+    let context = DecodeContext::new(document, budget);
+    let outcome = match T::deserialize(context.root()) {
+        Ok(decoded) => Ok(decoded),
+        Err(_) if context.denied() => Err(None),
+        Err(_) => Err(Some(context.schema_failure_with_classifier(classify))),
     };
-    ValidationFailure::refused(code, decoder_pointer(JsonPointer::root(), error.path()))
+    let at = context.denied_at();
+    *budget = context.finish();
+    match outcome {
+        Ok(decoded) => Ok(decoded),
+        Err(Some(failure)) => Err(failure),
+        Err(None) => Err(match crate::checked_package::v2::decode_denial(budget) {
+            ValidationFailure::Budget(mut stop) => {
+                stop.path = at;
+                ValidationFailure::Budget(stop)
+            }
+            other => other,
+        }),
+    }
 }
 
 /// The decoder's position below `base` (the value it decoded) as a pointer.
@@ -710,110 +752,6 @@ pub(super) fn validate_definition_ref(
     }
 }
 
-/// Requires the source map to be exactly the graph's occurrence set, with
-/// nonempty, locked, current, non-overlapping half-open regions.
-pub(super) fn validate_source_map_entries<'a>(
-    nodes: impl Iterator<Item = (&'a CheckedNodeId, &'a [CheckedOccurrence])>,
-    source_map: &[CheckedSourceMapEntry],
-    locked_sources: &[CheckedSourceRef],
-    limits: CheckedPackageReadLimits,
-) -> Result<(), ValidationFailure> {
-    let entry_pointer = |entry: usize| JsonPointer::root().key("source_map").index(entry);
-    let region_pointer =
-        |entry: usize, region: usize| entry_pointer(entry).key("regions").index(region);
-    let mut expected = BTreeSet::new();
-    for (node_id, occurrences) in nodes {
-        for occurrence in occurrences {
-            expected.insert((node_id.clone(), occurrence.role.clone(), occurrence.ordinal));
-        }
-    }
-    let mut actual = BTreeSet::new();
-    let locked_sources = locked_sources.iter().collect::<BTreeSet<_>>();
-    let mut count = 0_u64;
-    for (entry_index, entry) in source_map.iter().enumerate() {
-        count = count.saturating_add(1);
-        if exceeds(count, limits.occurrences) {
-            return Err(ValidationFailure::incomplete(
-                CheckedPackageLimit::Occurrences,
-                limits.occurrences,
-                count,
-                Some(entry_pointer(entry_index)),
-            ));
-        }
-        if entry.regions.is_empty() {
-            return Err(ValidationFailure::refused(
-                CheckedPackageRefusalCode::InvalidSourceMap,
-                entry_pointer(entry_index).key("regions"),
-            ));
-        }
-        if !actual.insert((entry.node_id.clone(), entry.role.clone(), entry.ordinal)) {
-            return Err(ValidationFailure::refused(
-                CheckedPackageRefusalCode::InvalidSourceMap,
-                entry_pointer(entry_index),
-            ));
-        }
-        let before_regions = count;
-        count = count.saturating_add(u64::try_from(entry.regions.len()).unwrap_or(u64::MAX));
-        if exceeds(count, limits.occurrences) {
-            // `before_regions` was admitted, so the first region whose
-            // charge failed is the one that took the counter one past the
-            // limit.
-            let first_over = limits.occurrences.saturating_sub(before_regions);
-            return Err(ValidationFailure::incomplete(
-                CheckedPackageLimit::Occurrences,
-                limits.occurrences,
-                count,
-                Some(region_pointer(
-                    entry_index,
-                    usize::try_from(first_over).unwrap_or(usize::MAX),
-                )),
-            ));
-        }
-        let mut ranges = BTreeMap::<CheckedSourceRef, Vec<(u64, u64, usize)>>::new();
-        for (region_index, region) in entry.regions.iter().enumerate() {
-            let source_pointer = || region_pointer(entry_index, region_index).key("source");
-            if !locked_sources.contains(&region.source) {
-                return Err(ValidationFailure::refused(
-                    CheckedPackageRefusalCode::InvalidSourceMap,
-                    source_pointer(),
-                ));
-            }
-            if region.start >= region.end {
-                return Err(ValidationFailure::refused(
-                    CheckedPackageRefusalCode::InvalidSourceMap,
-                    region_pointer(entry_index, region_index),
-                ));
-            }
-            ranges.entry(region.source.clone()).or_default().push((
-                region.start,
-                region.end,
-                region_index,
-            ));
-        }
-        for ranges in ranges.values_mut() {
-            ranges.sort_unstable();
-            if let Some(pair) = ranges.windows(2).find(|pair| pair[0].1 > pair[1].0) {
-                return Err(ValidationFailure::refused(
-                    CheckedPackageRefusalCode::InvalidSourceMap,
-                    region_pointer(entry_index, pair[1].2),
-                ));
-            }
-        }
-    }
-    if actual != expected {
-        // An entry naming no graph occurrence is the value at fault; an
-        // occurrence no entry maps is a defect of the array as a whole.
-        let stray = source_map.iter().position(|entry| {
-            !expected.contains(&(entry.node_id.clone(), entry.role.clone(), entry.ordinal))
-        });
-        return Err(ValidationFailure::refused(
-            CheckedPackageRefusalCode::InvalidSourceMap,
-            stray.map_or_else(|| JsonPointer::root().key("source_map"), entry_pointer),
-        ));
-    }
-    Ok(())
-}
-
 /// Which member carried a reported reference target.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum ReferenceMember {
@@ -841,7 +779,14 @@ pub(super) struct ReferenceSite {
 
 /// Receives each reference target a walk finds, the site that carried it and
 /// the walk's position at that target.
-pub(super) type ReferenceVisitor<'v> = dyn FnMut(&CheckedNodeId, ReferenceSite, &Trail<'_>) + 'v;
+pub(super) type ReferenceVisitor<'v> = dyn FnMut(
+        CheckedNodeId,
+        ReferenceSite,
+        &Trail<'_>,
+        &mut dyn ReadStorage,
+        Site,
+    ) -> Result<(), ValidationFailure>
+    + 'v;
 
 /// The literal-value grammar a semantic term is validated against.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -866,60 +811,147 @@ pub(super) enum TermGrammar {
 /// check (`v2::flat_wire`) refuses a nested application ahead of it. A refusal
 /// points at the term that matches no closed shape, or at the member it is
 /// about.
-pub(super) fn validate_term(
-    value: &Value,
+pub(super) fn validate_term<'a, V: TermSource<'a>>(
+    value: V,
     grammar: TermGrammar,
     is_body_root: bool,
-    at: &Trail<'_>,
+    at: &Trail<'a>,
     visit: &mut ReferenceVisitor<'_>,
+    ids: Ids<'_, '_>,
 ) -> Result<u64, ValidationFailure> {
-    let cursor = Cursor::at(at);
+    let Ids { sink, site, row } = ids;
+    let shared = RefCell::new(sink);
+    let charge = |bytes: usize| -> Result<(), ValidationFailure> {
+        let mut sink = shared.borrow_mut();
+        sink.reserve(bytes as u128, site).map_err(|_| sink.denial())
+    };
+    let cursor = Cursor::charged(at, &charge)?;
     let root = cursor.root(value, is_body_root);
     let mut terms = TermWalk {
         grammar,
         cursor,
         visit,
+        sink: &shared,
+        site,
+        row,
+        charge: &charge,
         work: 0,
+        _terms: std::marker::PhantomData,
     };
-    match walk(&mut terms, root) {
-        ControlFlow::Continue(()) => Ok(terms.work),
-        ControlFlow::Break(failure) => Err(failure),
+    let mut reservation = SharedReservation {
+        sink: &shared,
+        site: site.form("walk"),
+    };
+    match quire_walk::walk_reserved(&mut terms, root, &mut reservation) {
+        Ok(ControlFlow::Continue(())) => Ok(terms.work),
+        Ok(ControlFlow::Break(failure)) => Err(failure),
+        Err(_) => Err(shared.borrow().denial()),
+    }
+}
+
+/// Where the node IDs a validated term carries are read: the sink their
+/// allocations are charged to, the charge site, and the operand row of the
+/// node holding the term. A `Value` term ignores it (the uncharged bridge).
+pub(super) struct Ids<'s, 'r> {
+    pub(super) sink: &'s mut dyn ReadStorage,
+    pub(super) site: Site,
+    pub(super) row: &'r [u64],
+}
+
+impl<'s, 'r> Ids<'s, 'r> {
+    /// A second [`Ids`] over the same sink, for the next call.
+    pub(super) fn reborrow(&mut self) -> Ids<'_, 'r> {
+        Ids {
+            sink: &mut *self.sink,
+            site: self.site,
+            row: self.row,
+        }
+    }
+}
+
+/// Runs `body` with an [`Ids`] that charges nothing, for a validator that
+/// reads a `Value` and holds no budget.
+///
+/// To be deleted: its read-path caller is `refinement.rs`'s row-term
+/// validation, which moves to the node views; the V1 reader's `Value` callers
+/// then use an unlimited budget of their own.
+pub(super) fn with_unmetered_ids<R>(body: impl FnOnce(Ids<'_, '_>) -> R) -> R {
+    with_unmetered_ids_row(&[], body)
+}
+
+/// Runs an ID-aware validator without a read ceiling while preserving the
+/// node's document operand row.
+pub(super) fn with_unmetered_ids_row<R>(row: &[u64], body: impl FnOnce(Ids<'_, '_>) -> R) -> R {
+    let mut budget = super::v2::NativeJoinBudget::unlimited();
+    let site = Site::new(super::v2::PackageReadStage::Graph, 0, "reference");
+    body(Ids {
+        sink: &mut budget,
+        site,
+        row,
+    })
+}
+
+/// The walker's growth requests, charged through the shared sink.
+struct SharedReservation<'r, 's> {
+    sink: &'r RefCell<&'s mut dyn ReadStorage>,
+    site: Site,
+}
+
+impl quire_walk::Reservation for SharedReservation<'_, '_> {
+    fn reserve(&mut self, bytes: usize) -> Result<(), quire_walk::Denied> {
+        super::v2::observe_allocation_class("walker_growth", || {
+            self.sink
+                .borrow_mut()
+                .reserve(bytes as u128, self.site)
+                .map_err(|_| quire_walk::Denied)
+        })
     }
 }
 
 /// [`validate_term`]'s walk: each entered term is checked and charged on its
 /// own, and its subterms are entered after it.
-struct TermWalk<'a, 'v, 'w> {
+struct TermWalk<'a, 'v, 'w, 'i, 's, 'r, V> {
     grammar: TermGrammar,
     cursor: Cursor<'a>,
     visit: &'v mut ReferenceVisitor<'w>,
+    sink: &'i RefCell<&'s mut dyn ReadStorage>,
+    site: Site,
+    row: &'r [u64],
+    charge: &'i dyn Fn(usize) -> Result<(), ValidationFailure>,
     work: u64,
+    _terms: std::marker::PhantomData<V>,
 }
 
-impl<'a> Walk for TermWalk<'a, '_, '_> {
+impl<'a, V: TermSource<'a>> Walk for TermWalk<'a, '_, '_, '_, '_, '_, V> {
     /// A term, and whether it is the body root.
-    type Node = At<'a, bool>;
+    type Node = At<'a, bool, V>;
     type Frame = ();
     type Stop = ValidationFailure;
 
     fn enter(
         &mut self,
-        node: At<'a, bool>,
-        children: &mut Children<'_, At<'a, bool>>,
+        node: At<'a, bool, V>,
+        children: &mut Children<'_, At<'a, bool, V>>,
     ) -> ControlFlow<ValidationFailure> {
-        self.cursor.enter(&node);
-        let wire = WireTerm::decode(node.value);
+        if let Err(failure) = self.cursor.enter_charged(&node, self.charge) {
+            return ControlFlow::Break(failure);
+        }
         match validate_one(
-            wire,
+            node.value,
             self.grammar,
             node.extra,
             &self.cursor.trail(),
             &mut *self.visit,
+            (self.sink, self.site, self.row),
         ) {
             Ok(work) => self.work = self.work.saturating_add(work),
             Err(failure) => return ControlFlow::Break(failure),
         }
-        children.extend(subterms_of(wire).map(|subterm| self.cursor.subterm(subterm, false)));
+        children.extend(
+            node.value
+                .subterms()
+                .map(|(child, key, index)| self.cursor.child(child, Some(key), index, false)),
+        );
         ControlFlow::Continue(())
     }
 
@@ -928,17 +960,18 @@ impl<'a> Walk for TermWalk<'a, '_, '_> {
     }
 }
 
-/// Validates the one term `value` at `at`, without its subterms, and returns
+/// Validates the one term `wire` at `at`, without its subterms, and returns
 /// the work it is charged: the checks of its own closed shape, in the order the
 /// term's members are read, and each reference it carries reported to `visit`.
 /// An `application` or `aggregate` whose `arguments` or `members` is no array is
 /// refused here, at that member, before any subterm is entered.
-fn validate_one(
-    wire: WireTerm<'_>,
+fn validate_one<'a, V: TermSource<'a>>(
+    wire: V,
     grammar: TermGrammar,
     is_body_root: bool,
     at: &Trail<'_>,
     visit: &mut ReferenceVisitor<'_>,
+    ids: IdRead<'_, '_, '_>,
 ) -> Result<u64, ValidationFailure> {
     let invalid = |position: &Trail<'_>| {
         ValidationFailure::refused(
@@ -946,9 +979,9 @@ fn validate_one(
             position.pointer(),
         )
     };
-    let Some(object) = wire.object() else {
+    if !wire.is_object() {
         return Err(invalid(at));
-    };
+    }
     match wire.tag() {
         TermTag::Known(_) | TermTag::ExtensionForm | TermTag::Unknown => {}
         TermTag::NonString => return Err(invalid(&at.key("term"))),
@@ -957,46 +990,50 @@ fn validate_one(
     let Some(term) = wire.kind() else {
         return Err(invalid(at));
     };
+    let _ = grammar;
     match term {
         BodyTerm::Literal => {
-            if exact_members(object, &["term", "type", "value_kind", "value"])
-                && matches!(
-                    super::v2::CheckedTerm::view_from_wire(wire),
-                    Some(super::v2::CheckedTermView::Literal { value, .. })
-                        if is_literal_value(value, grammar)
-                )
+            if wire.exact_members(&["term", "type", "value_kind", "value"])
+                && wire
+                    .member("value_kind")
+                    .and_then(TermSource::text)
+                    .and_then(LiteralKind::from_wire)
+                    .is_some()
+                && wire
+                    .member("value")
+                    .is_some_and(TermSource::literal_value_ok)
             {
                 visit_member(
-                    object,
+                    wire,
                     "type",
                     ReferenceMember::Type,
                     is_body_root,
                     at,
                     visit,
+                    ids,
                 )
             } else {
                 Err(invalid(at))
             }
         }
         BodyTerm::Reference => {
-            if exact_members(object, &["term", "target"]) {
+            if wire.exact_members(&["term", "target"]) {
                 visit_member(
-                    object,
+                    wire,
                     "target",
                     ReferenceMember::Target,
                     is_body_root,
                     at,
                     visit,
+                    ids,
                 )
             } else {
                 Err(invalid(at))
             }
         }
         BodyTerm::Application => {
-            if !(exact_members(
-                object,
-                &["term", "operator", "operation", "result_type", "arguments"],
-            ) && wire.operator().is_some())
+            if !(wire.exact_members(&["term", "operator", "operation", "result_type", "arguments"])
+                && wire.operator().is_some())
             {
                 return Err(invalid(at));
             }
@@ -1007,28 +1044,29 @@ fn validate_one(
             // same reason `validate_frame_semantics` runs separately from
             // this per-term walk rather than inline here.
             let result_type_work = visit_member(
-                object,
+                wire,
                 "result_type",
                 ReferenceMember::ResultType,
                 is_body_root,
                 at,
                 visit,
+                ids,
             )?;
-            let arguments = require_array(object, "arguments", at)?;
+            let arguments = require_array(wire, "arguments", at)?;
             Ok(result_type_work.saturating_add(arguments))
         }
         BodyTerm::Aggregate => {
-            if exact_members(object, &["term", "members"]) {
-                require_array(object, "members", at)
+            if wire.exact_members(&["term", "members"]) {
+                require_array(wire, "members", at)
             } else {
                 Err(invalid(at))
             }
         }
         BodyTerm::Binding => {
-            if exact_members(object, &["term", "name", "value"])
-                && object
-                    .get("name")
-                    .and_then(Value::as_str)
+            if wire.exact_members(&["term", "name", "value"])
+                && wire
+                    .member("name")
+                    .and_then(TermSource::text)
                     .is_some_and(is_nonempty)
             {
                 Ok(1)
@@ -1041,14 +1079,23 @@ fn validate_one(
         // is not reported to `visit`. Which positions admit it is decided by
         // the operation stage (step 7), not by this shape check.
         BodyTerm::DependencyReference => {
-            if !exact_members(object, &["term", "package", "node"]) {
+            if !wire.exact_members(&["term", "package", "node"]) {
                 return Err(invalid(at));
             }
-            if dependency_reference_package(wire).is_none() {
+            if !wire
+                .member("package")
+                .and_then(TermSource::text)
+                .is_some_and(is_nonempty)
+            {
                 return Err(invalid(&at.key("package")));
             }
-            if dependency_reference_node(wire).is_none() {
-                return Err(invalid(&at.key("node")));
+            let node = wire.member("node").map(|node| read_node_id(node, ids));
+            match node {
+                Some(Ok(NodeIdRead::Id(_))) => {}
+                Some(Err(failure)) => return Err(failure),
+                Some(Ok(NodeIdRead::Invalid(_) | NodeIdRead::Malformed)) | None => {
+                    return Err(invalid(&at.key("node")));
+                }
             }
             Ok(1)
         }
@@ -1059,6 +1106,21 @@ fn validate_one(
         | BodyTerm::ImplementationGuarantee
         | BodyTerm::ComponentComposition => Err(invalid(at)),
     }
+}
+
+/// The shared sink, the charge site and the operand row a term's node IDs are
+/// read with.
+type IdRead<'i, 's, 'r> = (&'i RefCell<&'s mut dyn ReadStorage>, Site, &'r [u64]);
+
+/// Reads `value` as a node ID, charging the shared sink.
+fn read_node_id<'a, V: TermSource<'a>>(
+    value: V,
+    (sink, site, row): IdRead<'_, '_, '_>,
+) -> Result<NodeIdRead, ValidationFailure> {
+    let mut sink = sink.borrow_mut();
+    value
+        .node_id(&mut **sink, site, row)
+        .map_err(|_| sink.denial())
 }
 
 /// The outcome of decoding a term discriminator from untrusted wire data.
@@ -1209,47 +1271,27 @@ impl<'a> WireTerm<'a> {
 
 /// The `term` tag of a semantic term or frame body, decoded; `None` when the
 /// member is absent, not a string, or outside the vocabulary.
-pub(super) fn body_term(value: &Value) -> Option<BodyTerm> {
-    WireTerm::decode(value).kind()
+pub(super) fn body_term<'a, V: TermSource<'a>>(value: V) -> Option<BodyTerm> {
+    value.kind()
 }
 
-/// A `dependency_reference` term's selected package name.
-#[ix_trace_rs::string_edge]
-pub(super) fn dependency_reference_package(term: WireTerm<'_>) -> Option<Box<str>> {
-    let package = term.field(TermField::Package)?.as_str()?;
-    (!package.is_empty()).then(|| package.into())
-}
-
-/// A `dependency_reference` term's `node`: a structural node identity;
-/// `None` for any other shape.
-#[ix_trace_rs::string_edge]
-pub(super) fn dependency_reference_node(term: WireTerm<'_>) -> Option<CheckedNodeId> {
-    let node = CheckedNodeId::deserialize(term.field(TermField::Node)?).ok()?;
-    node.is_well_formed().then_some(node)
-}
-
-/// An `application` term's decoded `operator` class.
-// Reads the JSON `operator` member of an application and decodes it.
-pub(super) fn application_operator(value: &Value) -> Option<ApplicationOperator> {
-    WireTerm::decode(value).operator()
-}
-
-/// Reports the node reference held in `object[key]` (the term at `at`).
-fn visit_member(
-    object: &Map<String, Value>,
+/// Reports the node reference held in `term[key]` (the term at `at`).
+fn visit_member<'a, V: TermSource<'a>>(
+    term: V,
     key: &str,
     member: ReferenceMember,
     is_body_root: bool,
     at: &Trail<'_>,
     visit: &mut ReferenceVisitor<'_>,
+    ids: IdRead<'_, '_, '_>,
 ) -> Result<u64, ValidationFailure> {
-    let Some(value) = object.get(key) else {
+    let Some(value) = term.member(key) else {
         return Err(ValidationFailure::refused(
             CheckedPackageRefusalCode::InvalidSemanticGraph,
             at.pointer(),
         ));
     };
-    visit_reference(value, member, is_body_root, &at.key(key), visit)
+    visit_reference_with(value, member, is_body_root, &at.key(key), visit, ids)
 }
 
 /// Parses one node reference at position `at`, reports its target and a
@@ -1258,6 +1300,42 @@ fn visit_member(
 /// `application.result_type`, and the V2 `frame` body's reference arrays.
 // Intake check of a structural node reference.
 #[ix_trace_rs::string_edge]
+fn visit_reference_with<'a, V: TermSource<'a>>(
+    value: V,
+    member: ReferenceMember,
+    is_body_root: bool,
+    at: &Trail<'_>,
+    visit: &mut ReferenceVisitor<'_>,
+    ids: IdRead<'_, '_, '_>,
+) -> Result<u64, ValidationFailure> {
+    match read_node_id(value, ids)? {
+        NodeIdRead::Malformed => Err(ValidationFailure::refused(
+            CheckedPackageRefusalCode::InvalidSemanticGraph,
+            at.pointer(),
+        )),
+        NodeIdRead::Invalid(_) => Err(ValidationFailure::refused(
+            CheckedPackageRefusalCode::MalformedWire,
+            at.pointer(),
+        )),
+        NodeIdRead::Id(target) => {
+            let mut sink = ids.0.borrow_mut();
+            visit(
+                target,
+                ReferenceSite {
+                    member,
+                    is_body_root,
+                },
+                at,
+                &mut **sink,
+                ids.1,
+            )?;
+            Ok(1)
+        }
+    }
+}
+
+/// [`visit_reference_with`] for a `Value` reference, read through the
+/// uncharged bridge.
 pub(super) fn visit_reference(
     value: &Value,
     member: ReferenceMember,
@@ -1265,59 +1343,35 @@ pub(super) fn visit_reference(
     at: &Trail<'_>,
     visit: &mut ReferenceVisitor<'_>,
 ) -> Result<u64, ValidationFailure> {
-    let target = CheckedNodeId::deserialize(value).map_err(|_| {
-        ValidationFailure::refused(
-            CheckedPackageRefusalCode::InvalidSemanticGraph,
-            at.pointer(),
-        )
-    })?;
-    if target.is_well_formed() {
-        visit(
-            &target,
-            ReferenceSite {
-                member,
-                is_body_root,
-            },
-            at,
-        );
-        Ok(1)
-    } else {
-        Err(ValidationFailure::refused(
-            CheckedPackageRefusalCode::MalformedWire,
-            at.pointer(),
-        ))
-    }
+    with_unmetered_ids(|Ids { sink, site, row }| {
+        let shared = RefCell::new(sink);
+        visit_reference_with(value, member, is_body_root, at, visit, (&shared, site, row))
+    })
 }
 
 pub(super) fn exact_members(object: &Map<String, Value>, expected: &[&str]) -> bool {
     object.len() == expected.len() && expected.iter().all(|member| object.contains_key(*member))
 }
 
-fn is_literal_value(value: &Value, grammar: TermGrammar) -> bool {
-    match value {
-        Value::Bool(_) | Value::String(_) | Value::Null => true,
-        Value::Number(number) => match grammar {
-            TermGrammar::V2 => number.is_i64() || number.is_u64(),
-        },
-        Value::Array(_) | Value::Object(_) => false,
-    }
-}
-
 /// Requires `object[key]`, the `aggregate.members` or `application.arguments`
 /// array of the term at `at`, to be an array, else refuses at that member, and
 /// charges the one unit of work the array itself costs. Its elements are
 /// entered, and charged, by the walk.
-fn require_array(
-    object: &Map<String, Value>,
+fn require_array<'a, V: TermSource<'a>>(
+    term: V,
     key: &str,
     at: &Trail<'_>,
 ) -> Result<u64, ValidationFailure> {
-    match object.get(key) {
-        Some(Value::Array(_)) => Ok(1),
-        _ => Err(ValidationFailure::refused(
+    if term
+        .member(key)
+        .is_some_and(|member| member.items().is_some())
+    {
+        Ok(1)
+    } else {
+        Err(ValidationFailure::refused(
             CheckedPackageRefusalCode::InvalidSemanticGraph,
             at.key(key).pointer(),
-        )),
+        ))
     }
 }
 
@@ -1751,8 +1805,8 @@ impl<'de> Visitor<'de> for StrictSeed<'_> {
 #[cfg(test)]
 mod tests {
     use super::{
-        canonical_value, first_difference, is_literal_value, validate_term, Step, TermGrammar,
-        Trail, ValidationFailure,
+        canonical_value, first_difference, validate_term, with_unmetered_ids, Step, TermGrammar,
+        TermSource, Trail, ValidationFailure,
     };
     use crate::checked_package::shared::{
         CheckedPackageReadLimits, CheckedPackageRefusalCode, JsonPointer,
@@ -1847,7 +1901,7 @@ mod tests {
             let number = &value["v"];
             assert!(number.is_number(), "{number}");
             assert_eq!(
-                is_literal_value(number, TermGrammar::V2),
+                TermSource::literal_value_ok(number),
                 integer,
                 "{}",
                 String::from_utf8_lossy(bytes)
@@ -1891,15 +1945,19 @@ mod tests {
                     term = Value::Object(aggregate);
                 }
                 let mut reported = Vec::new();
-                let work = validate_term(
-                    &term,
-                    TermGrammar::V2,
-                    true,
-                    &Trail::Base(&[]),
-                    &mut |target, site, _| {
-                        reported.push((target.path.len(), site.is_body_root));
-                    },
-                );
+                let work = with_unmetered_ids(|ids| {
+                    validate_term(
+                        &term,
+                        TermGrammar::V2,
+                        true,
+                        &Trail::Base(&[]),
+                        &mut |target, site, _, _, _| {
+                            reported.push((target.path.len(), site.is_body_root));
+                            Ok(())
+                        },
+                        ids,
+                    )
+                });
                 quire_canonical::drop_value(term);
                 (work, reported)
             })
@@ -1930,11 +1988,7 @@ mod tests {
             (json!([]), false),
             (json!({}), false),
         ] {
-            assert_eq!(
-                is_literal_value(&value, TermGrammar::V2),
-                is_literal,
-                "{value}"
-            );
+            assert_eq!(TermSource::literal_value_ok(&value), is_literal, "{value}");
         }
     }
 }

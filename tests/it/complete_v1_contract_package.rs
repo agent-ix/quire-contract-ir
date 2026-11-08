@@ -533,7 +533,13 @@ fn lowered_package_retains_typed_terms_by_admitted_node_key() {
         assert_eq!(reader.node(key), Some(node));
         if let Some(term) = source_term {
             typed_terms += 1;
-            assert_eq!(serde_json::to_value(term).expect("term json"), node.body);
+            assert_eq!(
+                quire_contract_model::CheckedJson::from_serializable(
+                    &serde_json::to_value(term).expect("term json")
+                )
+                .expect("term JSON is canonical"),
+                node.body
+            );
         }
     }
     assert!(typed_terms > 0, "fixture must exercise typed terms");

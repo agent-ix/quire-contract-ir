@@ -417,7 +417,7 @@ impl CheckedPackageV2 {
                 .ok_or_else(|| {
                     budget.error(CheckedCallableReadErrorCode::MalformedBody, &node.node_id)
                 })?;
-            if self.models.selected_declaration(&anchor.context).is_none() {
+            if self.models.selected_declaration(anchor.context).is_none() {
                 return Err(budget.error(
                     CheckedCallableReadErrorCode::UnavailableWitness,
                     &node.node_id,
@@ -458,8 +458,8 @@ impl CheckedPackageV2 {
                         &node.node_id,
                     )
                 })?;
-            if self.node_kind(&anchor.frame) != Some(CheckedNodeKind::State(StateForm::Frame))
-                || !matches!(self.term(&anchor.frame), Some(CheckedTerm::Frame { .. }))
+            if self.node_kind(anchor.frame) != Some(CheckedNodeKind::State(StateForm::Frame))
+                || !matches!(self.term(anchor.frame), Some(CheckedTerm::Frame { .. }))
             {
                 return Err(budget.error(CheckedCallableReadErrorCode::MissingFrame, &node.node_id));
             }
@@ -476,8 +476,8 @@ impl CheckedPackageV2 {
                 },
                 parameters,
                 body: function.body.clone(),
-                context: Some(anchor.context),
-                frame: Some(anchor.frame),
+                context: Some(anchor.context.clone()),
+                frame: Some(anchor.frame.clone()),
             });
         }
         Ok(CheckedCallableTable {
@@ -605,12 +605,6 @@ mod tests {
                 CheckedNodeKind::decode(tag, &node.semantic_form).expect("fixture form")
             })
             .collect();
-        let terms = wire
-            .semantic_graph
-            .nodes
-            .iter()
-            .map(|node| node.body.clone())
-            .collect();
         CheckedPackageV2 {
             schedulability_claim_index: Vec::new(),
             monitor_plan_index: Vec::new(),
@@ -621,15 +615,15 @@ mod tests {
             source_index: std::sync::Arc::new(retained_source_index(&wire)),
             lowering_facts: Vec::new(),
             wire: std::sync::Arc::new(wire),
-            terms: std::sync::Arc::new(terms),
             kinds: std::sync::Arc::new(kinds),
             bytes: 1 << 20,
             models: std::sync::Arc::new(RetainedModels::default()),
             selected_documents: std::sync::Arc::new(Vec::new()),
             direct_dependencies: Vec::new(),
             closure_index: Default::default(),
-            catalog: crate::checked_package::v2::operation_catalog::operation_catalog(),
+            catalog: crate::checked_package::v2::operation_catalog::owned_operation_catalog(),
             admission_binding: Default::default(),
+            body_documents: Vec::new(),
         }
         .retain_original_admission()
     }
@@ -669,8 +663,10 @@ mod tests {
     #[test]
     fn bodyless_declaration_is_not_a_callable_and_dangling_body_refuses() {
         let mut package = fixture(false);
-        std::sync::Arc::make_mut(&mut package.terms)[3] =
-            CheckedTerm::Aggregate { members: vec![] };
+        std::sync::Arc::make_mut(&mut package.wire)
+            .semantic_graph
+            .nodes[3]
+            .body = CheckedTerm::Aggregate { members: vec![] };
         let selected = SelectedOperationMembers::from_stage_rows(&package, [], 0).unwrap();
         assert!(package
             .callable_table(&selected, 100)
@@ -678,7 +674,10 @@ mod tests {
             .rows()
             .is_empty());
         drop(selected);
-        std::sync::Arc::make_mut(&mut package.terms)[3] = CheckedTerm::Aggregate {
+        std::sync::Arc::make_mut(&mut package.wire)
+            .semantic_graph
+            .nodes[3]
+            .body = CheckedTerm::Aggregate {
             members: vec![CheckedTerm::Binding {
                 name: "body".into(),
                 value: Box::new(CheckedTerm::Reference {
@@ -707,7 +706,10 @@ mod tests {
                 value: Box::new(CheckedTerm::Reference { target }),
             }],
         };
-        std::sync::Arc::make_mut(&mut package.terms)[3] = malformed(node_id('1'));
+        std::sync::Arc::make_mut(&mut package.wire)
+            .semantic_graph
+            .nodes[3]
+            .body = malformed(node_id('1'));
         assert_eq!(
             package
                 .source_callable(&node_id('4'), 100)
@@ -716,7 +718,10 @@ mod tests {
             CheckedCallableReadErrorCode::MalformedBody,
         );
 
-        std::sync::Arc::make_mut(&mut package.terms)[3] = malformed(node_id('3'));
+        std::sync::Arc::make_mut(&mut package.wire)
+            .semantic_graph
+            .nodes[3]
+            .body = malformed(node_id('3'));
         let foreign_owner = CheckedNodeOwner::Source {
             authority: "test".into(),
             identity: "other".into(),
@@ -741,7 +746,10 @@ mod tests {
             .semantic_graph
             .nodes[1]
             .owner = Some(foreign_owner);
-        std::sync::Arc::make_mut(&mut package.terms)[3] = CheckedTerm::Aggregate {
+        std::sync::Arc::make_mut(&mut package.wire)
+            .semantic_graph
+            .nodes[3]
+            .body = CheckedTerm::Aggregate {
             members: vec![
                 CheckedTerm::Binding {
                     name: "parameters".into(),
@@ -767,7 +775,10 @@ mod tests {
             CheckedCallableReadErrorCode::MalformedBody,
         );
 
-        std::sync::Arc::make_mut(&mut package.terms)[3] = malformed(node_id('2'));
+        std::sync::Arc::make_mut(&mut package.wire)
+            .semantic_graph
+            .nodes[3]
+            .body = malformed(node_id('2'));
         assert_eq!(
             package
                 .source_callable(&node_id('4'), 100)
@@ -833,7 +844,10 @@ mod tests {
     #[test]
     fn selective_body_parser_ignores_an_unrelated_malformed_function() {
         let mut package = fixture(false);
-        std::sync::Arc::make_mut(&mut package.terms)[4] = CheckedTerm::Reference {
+        std::sync::Arc::make_mut(&mut package.wire)
+            .semantic_graph
+            .nodes[4]
+            .body = CheckedTerm::Reference {
             target: node_id('9'),
         };
         let read = monitor_entry_callable(&package, &node_id('1'), &node_id('4'), 4).unwrap();

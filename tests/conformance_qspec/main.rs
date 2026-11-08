@@ -25,9 +25,7 @@
 
 use ix_trace_rs::trace;
 use quire_contract_model::{
-    encode_checked_package_v2, CheckedArtifactRef, CheckedExtensionClauseSchema,
-    CheckedExtensionDefinition, CheckedExtensionGrammarSchema, CheckedExtensionNodeSchema,
-    CheckedExtensionProduction, CheckedExtensionTypedNodeSchema, CheckedLiteralValue,
+    encode_checked_package_v2, CheckedArtifactRef, CheckedExtensionDefinition, CheckedLiteralValue,
     CheckedNodeId, CheckedNodeTag, CheckedOperationMember, CheckedPackageEvidence,
     CheckedPackageEvidenceInsertionError, CheckedPackageReadLimits,
     CheckedPackageRefusalCause as Cause, CheckedPackageRefusalCode as Code,
@@ -36,8 +34,14 @@ use quire_contract_model::{
     ContractPackageWireV1,
 };
 use serde_json::{json, Value};
-use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+
+#[path = "../it/support/qspec_inputs.rs"]
+mod qspec_inputs;
+use qspec_inputs::{
+    positive_document, read_json, read_json_wire, selected_document_assignments,
+    vector_selected_documents, DOMAIN_DOCUMENT, POSITIVE_ALL,
+};
 
 mod carried_quantity;
 mod certificate_member;
@@ -68,8 +72,13 @@ mod checked_package_v2_parameters;
 // alongside the map controls that consume its admitted unit identities.
 #[path = "../it/complete_identity_witness.rs"]
 mod complete_identity_witness;
+// The bounded-quantity charging control walks the read's requests with this
+// harness.
+#[path = "../it/checked_package_v2_graph_read_storage.rs"]
+mod checked_package_v2_graph_read_storage;
 #[path = "../it/checked_package_v2_map_type.rs"]
-mod map_type;
+mod checked_package_v2_map_type;
+use checked_package_v2_map_type as map_type;
 mod model_root;
 mod model_tuple_union;
 mod monitor_plan;
@@ -104,84 +113,14 @@ const SPECIFICATION_DIR: &str = "QUIRE_SPECIFICATION_DIR";
 const FIXTURES: &str = "proposals/checked-package-v2/fixtures";
 
 /// The complete published positive set required by FR-038-AC-107 and AC-176.
-const POSITIVE_ALL: [&str; 19] = [
-    "positive-all-families.json",
-    "positive-clause-operations.json",
-    "positive-control-operations.json",
-    "positive-dependency-call.json",
-    "positive-dependency-library.json",
-    "positive-extension-nodes.json",
-    "positive-integer-literal-references.json",
-    "positive-model-tuple-union.json",
-    "positive-nominal-identities.json",
-    "positive-operation-identities.json",
-    "positive-recursive-records.json",
-    "positive-state-transition.json",
-    "positive-tick-timed-model-nodes.json",
-    "positive-timed-clause-nodes.json",
-    "positive-timed-model-nodes.json",
-    "positive-timed-slot-nodes.json",
-    "positive-two-owners-a.json",
-    "positive-two-owners-b.json",
-    "positive-union-nodes.json",
-];
 
 /// The selected domain document in the proposal.
-const DOMAIN_DOCUMENT: &str = "domain-package-acme-orders.json";
 
 /// Read QSpec's authoritative fixture-to-document map; a declared selection
 /// cannot silently fall back to the baseline document.
-fn vector_selected_documents(proposal: &Path) -> Result<BTreeMap<String, String>, String> {
-    let mapping = read_json(&proposal.join("selected-documents.json"))?;
-    selected_document_assignments(&mapping, proposal)
-}
-
-fn selected_document_assignments(
-    mapping: &Value,
-    proposal: &Path,
-) -> Result<BTreeMap<String, String>, String> {
-    let assignments = mapping["selected_documents"]
-        .as_object()
-        .ok_or("selected-documents.json: selected_documents is not an object")?;
-    if assignments.is_empty() {
-        return Err("selected-documents.json: selected_documents is empty".into());
-    }
-    let mut documents = BTreeMap::new();
-    for (fixture, document) in assignments {
-        let name = fixture
-            .strip_prefix("fixtures/")
-            .ok_or_else(|| format!("selected-documents.json: invalid fixture path {fixture:?}"))?;
-        if !POSITIVE_ALL.contains(&name) {
-            return Err(format!(
-                "selected-documents.json: unlisted positive fixture {fixture}"
-            ));
-        }
-        let document = document.as_str().ok_or_else(|| {
-            format!("selected-documents.json: {fixture} document is not a string")
-        })?;
-        if !document.starts_with("domain-package-")
-            || !document.ends_with(".json")
-            || document.contains('/')
-            || document.contains('\\')
-        {
-            return Err(format!(
-                "selected-documents.json: invalid document {document:?}"
-            ));
-        }
-        read_json(&proposal.join(document))?;
-        documents.insert(name.to_owned(), document.to_owned());
-    }
-    Ok(documents)
-}
 
 /// Ordinary positives use QSpec's baseline Orders document. Missing or invalid
 /// document selections fail in `vector_selected_documents` before this lookup.
-fn positive_document<'a>(name: &str, documents: &'a BTreeMap<String, String>) -> &'a str {
-    documents
-        .get(name)
-        .map(String::as_str)
-        .unwrap_or(DOMAIN_DOCUMENT)
-}
 
 #[trace("TC-048", "FR-038-AC-107")]
 #[test]
@@ -250,22 +189,8 @@ fn proposal_dir_of(fixtures: &Path) -> PathBuf {
 }
 
 /// The JSON at `path`, or why it cannot be read.
-fn read_json(path: &Path) -> Result<Value, String> {
-    let mut value = read_json_wire(path)?;
-    // Tests author and mutate packages in resolved index form; `read_package`
-    // writes the wire form back.
-    fixture_support::resolve_operands(&mut value);
-    fixture_support::resolve_vector_rows(&mut value);
-    Ok(value)
-}
 
 /// Read a published JSON file exactly as published, operand rows included.
-fn read_json_wire(path: &Path) -> Result<Value, String> {
-    let text = std::fs::read(path)
-        .map_err(|error| format!("{} cannot be read: {error}", path.display()))?;
-    serde_json::from_slice(&text)
-        .map_err(|error| format!("{} is not JSON: {error}", path.display()))
-}
 
 /// Read `package` through the production reader with its declared features.
 fn read_package(package: &Value) -> Result<CheckedPackageV2ReadResult, String> {
@@ -280,48 +205,6 @@ fn read_package_with_document(
     domain_document: &Path,
 ) -> Result<CheckedPackageV2ReadResult, String> {
     read_package_with_document_and_extensions(package, name, domain_document, true)
-}
-
-fn quota_definition() -> CheckedExtensionDefinition {
-    CheckedExtensionDefinition {
-        grammar_schema: CheckedExtensionGrammarSchema {
-            productions: vec![CheckedExtensionProduction {
-                keyword: "quota".into(),
-                clauses: vec!["limit".into()],
-            }],
-        },
-        typed_node_schema: CheckedExtensionTypedNodeSchema {
-            nodes: vec![CheckedExtensionNodeSchema {
-                keyword: "quota".into(),
-                node_kind: "quota".into(),
-                clauses: vec![CheckedExtensionClauseSchema {
-                    name: "limit".into(),
-                    type_ref: "Int[1, 100]".into(),
-                }],
-            }],
-        },
-    }
-}
-
-fn policy_definition() -> CheckedExtensionDefinition {
-    CheckedExtensionDefinition {
-        grammar_schema: CheckedExtensionGrammarSchema {
-            productions: vec![CheckedExtensionProduction {
-                keyword: "policy".into(),
-                clauses: vec!["retain".into()],
-            }],
-        },
-        typed_node_schema: CheckedExtensionTypedNodeSchema {
-            nodes: vec![CheckedExtensionNodeSchema {
-                keyword: "policy".into(),
-                node_kind: "policy".into(),
-                clauses: vec![CheckedExtensionClauseSchema {
-                    name: "retain".into(),
-                    type_ref: "retention".into(),
-                }],
-            }],
-        },
-    }
 }
 
 fn read_package_with_document_and_extensions(
@@ -364,123 +247,16 @@ fn read_package_with_document_override(
     limits: CheckedPackageReadLimits,
     document_override: Option<&[u8]>,
 ) -> Result<CheckedPackageV2ReadResult, String> {
-    // The reader takes canonical bytes; the published files are indented.
     let bytes = fixture_support::canonical(package);
-    let mut evidence = CheckedPackageEvidence::new();
-    if hold_retention
-        && package["lock"]["definition_selections"]
-            .as_array()
-            .is_some_and(|rows| {
-                rows.iter()
-                    .any(|row| row["authority"] == "example" && row["identity"] == "retention")
-            })
-    {
-        evidence
-            .insert_extension_definition(
-                CheckedArtifactRef {
-                    authority: "example".into(),
-                    identity: "retention".into(),
-                },
-                retention_definition(),
-            )
-            .map_err(|error| error.to_string())?;
-    }
-    if package["lock"]["definition_selections"]
-        .as_array()
-        .is_some_and(|rows| {
-            rows.iter()
-                .any(|row| row["authority"] == "example" && row["identity"] == "quota")
-        })
-    {
-        evidence
-            .insert_extension_definition(
-                CheckedArtifactRef {
-                    authority: "example".into(),
-                    identity: "quota".into(),
-                },
-                quota_definition(),
-            )
-            .map_err(|error| error.to_string())?;
-    }
-    if package["lock"]["definition_selections"]
-        .as_array()
-        .is_some_and(|rows| {
-            rows.iter()
-                .any(|row| row["authority"] == "example" && row["identity"] == "policy")
-        })
-    {
-        evidence
-            .insert_extension_definition(
-                CheckedArtifactRef {
-                    authority: "example".into(),
-                    identity: "policy".into(),
-                },
-                policy_definition(),
-            )
-            .map_err(|error| error.to_string())?;
-    }
-    for feature in package["lock"]["required_features"]
-        .as_array()
-        .ok_or("lock.required_features is not an array")?
-    {
-        evidence.support_feature(
-            feature
-                .as_str()
-                .ok_or("a required feature is not a string")?,
-        );
-    }
-    if package["lock"]["dependency_selections"]
-        .as_array()
-        .is_some_and(|rows| rows.iter().any(|row| row["identity"] == "test/predicates"))
-    {
-        let dependency = read_json(&fixtures_dir().join("positive-dependency-library.json"))?;
-        let CheckedPackageV2ReadResult::Admitted(dependency) =
-            read_package_with_document(&dependency, "published dependency", domain_document)?
-        else {
-            return Err("published dependency library did not admit".into());
-        };
-        evidence
-            .insert_dependency_package("test/predicates", dependency)
-            .map_err(|error| format!("dependency evidence insertion failed: {error}"))?;
-    }
-    // Supply the one domain document this harness owns. Leave malformed or
-    // unselected root owners to the reader's own refusal path.
-    let roots = package["semantic_graph"]["nodes"]
-        .as_array()
-        .ok_or_else(|| format!("{name}: semantic_graph.nodes is not an array"))?
-        .iter()
-        .filter(|node| node["semantic_form"] == "model_root");
-    for root in roots {
-        let Some(identity) = root["owner"]["identity"].as_str() else {
-            continue;
-        };
-        if identity != "acme/orders" && identity != "acme/shapes" {
-            continue;
-        }
-        let selected_document = if identity == "acme/shapes" {
-            proposal_dir_of(&fixtures_dir()).join("domain-package-acme-shapes.json")
-        } else {
-            domain_document.to_path_buf()
-        };
-        let document = if identity == "acme/orders" {
-            match document_override {
-                Some(bytes) => bytes.to_vec(),
-                None => std::fs::read(&selected_document).map_err(|error| {
-                    format!("{} cannot be read: {error}", selected_document.display())
-                })?,
-            }
-        } else {
-            std::fs::read(&selected_document).map_err(|error| {
-                format!("{} cannot be read: {error}", selected_document.display())
-            })?
-        };
-        serde_json::from_slice::<Value>(&document)
-            .map_err(|error| format!("{} is not JSON: {error}", selected_document.display()))?;
-        evidence
-            .insert_domain_package_document(identity, document)
-            .map_err(|error| format!("{name}: evidence insertion failed: {error}"))?;
-    }
-    Ok(CheckedPackageV2::read(&bytes, limits, &evidence))
+    let evidence = qspec_inputs::evidence_for_published(
+        package,
+        name,
+        domain_document,
+        hold_retention,
+        document_override,
+        &fixtures_dir(),
+    )?;
+    Ok(crate::read_and_account(&bytes, limits, &evidence))
 }
 
 /// What the production reader makes of `package`: `admitted`, `incomplete`, or
@@ -613,14 +389,7 @@ struct ExpectedFailure {
 /// rule of AC-112 holds for it.
 const EXPECTED_FAILURES: &[ExpectedFailure] = &[];
 
-/// The replacement of `package` at `pointer`, or why it cannot be made.
-fn replace_at(package: &mut Value, pointer: &str, replacement: &Value) -> Result<(), String> {
-    let slot = package
-        .pointer_mut(pointer)
-        .ok_or_else(|| format!("pointer {pointer} resolves to nothing in the package"))?;
-    *slot = replacement.clone();
-    Ok(())
-}
+use qspec_inputs::replace_at;
 
 /// Sort fixture-authored structural ids by their typed wire order.
 fn typed_node_id(value: &Value) -> CheckedNodeId {
@@ -679,7 +448,7 @@ fn adverse_problems(base: &Value, adverse: &Value, expected: &[ExpectedFailure])
                 let flattened = entry.get("flattened").ok_or("no flattened member")?;
                 let mut control = base.clone();
                 replace_at(&mut control, pointer, flattened)?;
-                if reading_of(&control)?.starts_with("refused:malformed_wire") {
+                if !qspec_inputs::flat_body_control_passes(&read_package(&control)?) {
                     return Err("the flattened positive control is refused malformed_wire".into());
                 }
             }
@@ -2050,4 +1819,26 @@ fn tc_048_qspec_adverse_run_fails_closed() {
         neither.iter().any(|problem| problem.contains("neither")),
         "{neither:?}"
     );
+}
+
+#[path = "../it/support/qspec_read_proof.rs"]
+mod qspec_read_proof;
+use qspec_read_proof::read_and_account;
+use qspec_read_proof::read_and_account as fixture_read;
+
+fn measure_qspec_read_requests(read: impl FnOnce()) -> u64 {
+    allocation_counter::measure(read).bytes_total
+}
+
+fn without_qspec_instrumentation<T>(operation: impl FnOnce() -> T) -> T {
+    let mut result = None;
+    allocation_counter::opt_out(|| {
+        result = Some(std::panic::catch_unwind(std::panic::AssertUnwindSafe(
+            operation,
+        )));
+    });
+    match result.expect("instrumentation runs once") {
+        Ok(value) => value,
+        Err(panic) => std::panic::resume_unwind(panic),
+    }
 }

@@ -5,7 +5,7 @@ use super::*;
 
 fn at(
     refusal: ModelRefusal,
-    declaration: &Value,
+    declaration: View<'_>,
     pointer: JsonPointer,
     budget: &mut Budget<'_, '_>,
 ) -> Result<SelectionRefusal, ValidationFailure> {
@@ -21,10 +21,12 @@ fn reference(
     budget: &mut Budget<'_, '_>,
 ) -> Result<Option<SelectedTypeRef>, ValidationFailure> {
     let mut current = text;
-    let mut seen = BTreeSet::new();
+    let mut followed = 0_usize;
     while let Some(target) = model.aliases.get(current) {
         budget.charge(1)?;
-        if !seen.insert(current) {
+        // A chain without a loop is at most as long as the alias table.
+        followed += 1;
+        if followed > model.aliases.len() {
             return Ok(None);
         }
         current = target;
@@ -32,11 +34,11 @@ fn reference(
     if !valid_semantic_identity(current) {
         return Ok(None);
     }
-    Ok(SelectedTypeRef::from_admitted_name(current))
+    SelectedTypeRef::charged(current, budget)
 }
 
 pub(super) fn read(
-    declared: &Value,
+    declared: View<'_>,
     kind: meaning::Kind,
     position: usize,
     model: &DomainModel,
@@ -54,7 +56,7 @@ pub(super) fn read(
                 root.key("kind"),
                 budget,
             )?
-            .into())
+            .into());
         }
     };
     if kind == meaning::Kind::OptionType {
@@ -82,7 +84,7 @@ pub(super) fn read(
         }
         if declared
             .get("constraints")
-            .is_some_and(|value| !value.as_array().is_some_and(Vec::is_empty))
+            .is_some_and(|value| !value.is_empty_array())
         {
             return Err(at(
                 ModelRefusal::malformed(),
@@ -94,7 +96,7 @@ pub(super) fn read(
         }
     }
     let pointer = root.key(member);
-    let Some(inner) = declared.get(member).and_then(Value::as_str) else {
+    let Some(inner) = declared.get(member).and_then(View::as_str) else {
         return Err(at(ModelRefusal::malformed(), declared, pointer, budget)?.into());
     };
     let Some(selected) = reference(model, inner, budget)? else {
@@ -142,14 +144,14 @@ pub(super) fn read(
 }
 
 pub(super) fn check_constraints(
-    document: &Value,
+    document: View<'_>,
     model: &DomainModel,
     scope: &Scope<'_>,
     budget: &mut Budget<'_, '_>,
 ) -> Result<(), SelectionFailure> {
     for (position, constraint) in list(document, "constraints")?.iter().enumerate() {
         budget.charge(1)?;
-        let Some(applies_to) = constraint.get("appliesTo").and_then(Value::as_str) else {
+        let Some(applies_to) = constraint.get("appliesTo").and_then(View::as_str) else {
             continue;
         };
         if matches!(reference(model,applies_to,budget)?,Some(SelectedTypeRef::Declared(name)) if scope.option_types.contains(name.as_ref()))

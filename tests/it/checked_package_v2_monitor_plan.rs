@@ -14,7 +14,7 @@ use quire_contract_model::{
 use serde_json::{json, Value};
 
 fn read(wire: &Value) -> CheckedPackageV2ReadResult {
-    CheckedPackageV2::read(
+    crate::read_and_account(
         &canonical(wire),
         CheckedPackageReadLimits::bounded(),
         &evidence_for(wire),
@@ -107,5 +107,84 @@ fn anonymous_entry_support_keeps_model_and_source_owner_requirements() {
             refused.loci[0].path.as_ref().unwrap().as_str(),
             format!("/semantic_graph/nodes/{node}")
         );
+    }
+}
+
+/// The graph helper used by monitor admission pays its denial pointer once;
+/// final outcome conversion must neither reallocate nor charge it again.
+#[trace("TC-472", "FR-038-AC-510")]
+#[test]
+fn graph_storage_denial_pointer_is_paid_once_through_the_public_reader() {
+    use quire_contract_model::{
+        CheckedPackageV2BudgetedReadResult, NativeJoinBudget, NativeJoinLocusSource,
+        PackageReadResource, PackageReadStage,
+    };
+    let wire = v2_all_families();
+    let bytes = canonical(&wire);
+    let evidence = evidence_for(&wire);
+    let read = |limit| {
+        let mut budget = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
+        let result = CheckedPackageV2::read_with_budget(
+            &bytes,
+            CheckedPackageReadLimits::bounded(),
+            &evidence,
+            &mut budget,
+        );
+        (result, budget)
+    };
+    // Stop at the first suitable node-owned request, rather than sweeping
+    // graph or later-stage boundaries. Each jump is one exact request.
+    let mut before = 0_u64;
+    loop {
+        let (outcome, budget) = read(before);
+        assert!(
+            !matches!(outcome, CheckedPackageV2BudgetedReadResult::Admitted(_)),
+            "the supporting graph must make a node-owned request"
+        );
+        let locus = budget.first_unpaid_locus().expect("a denied request");
+        let amount = budget.first_unpaid_read_storage().expect("storage request");
+        if let NativeJoinLocusSource::PackageRead(PackageReadStage::Graph, position) = locus.source
+        {
+            let expected = format!("/semantic_graph/nodes/{position}");
+            let pointer_bytes = u64::try_from(expected.len()).expect("small pointer");
+            if locus.form == "state" && amount > u128::from(pointer_bytes) {
+                let (fits, paid) = read(before + pointer_bytes);
+                // Typed decoders and libraries can share the node tag while
+                // intentionally carrying no node pointer. Select the actual
+                // graph helper's node-owned pointer, and require one exists.
+                if !matches!(&fits, CheckedPackageV2BudgetedReadResult::BudgetIncomplete(value)
+                    if value.path.as_ref().map(|path| path.as_str()) == Some(expected.as_str()))
+                {
+                    before = before
+                        .checked_add(u64::try_from(amount).expect("fixture request fits"))
+                        .expect("fixture total fits");
+                    continue;
+                }
+                let CheckedPackageV2BudgetedReadResult::BudgetIncomplete(incomplete) = fits else {
+                    panic!("the denial pointer fits without a second charge: {fits:?}");
+                };
+                assert_eq!(incomplete.denied.resource, PackageReadResource::ReadStorage);
+                assert_eq!(incomplete.denied.amount, amount);
+                assert_eq!(
+                    incomplete.path.as_ref().expect("paid pointer").as_str(),
+                    expected
+                );
+                assert_eq!(paid.read_storage_consumed(), before + pointer_bytes);
+                assert_eq!(paid.first_unpaid_locus(), Some(locus));
+                let (short, unpaid) = read(before + pointer_bytes - 1);
+                let CheckedPackageV2BudgetedReadResult::Exhausted(exhausted) = short else {
+                    panic!("an unaffordable pointer exhausts: {short:?}");
+                };
+                assert_eq!(exhausted.denied.resource, PackageReadResource::ReadStorage);
+                assert_eq!(exhausted.denied.amount, amount);
+                assert_eq!(exhausted.locus, locus);
+                assert_eq!(unpaid.first_unpaid_read_storage(), Some(amount));
+                assert_eq!(unpaid.read_storage_consumed(), before);
+                break;
+            }
+        }
+        before = before
+            .checked_add(u64::try_from(amount).expect("fixture request fits"))
+            .expect("fixture total fits");
     }
 }

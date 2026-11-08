@@ -34,7 +34,7 @@ fn read_with_retention_definition(
             definition,
         )
         .expect("extension evidence");
-    CheckedPackageV2::read(
+    crate::read_and_account(
         &crate::fixture_support::canonical(package),
         CheckedPackageReadLimits::bounded(),
         &evidence,
@@ -384,7 +384,7 @@ fn tc_459_extension_evidence_conflict_retains_first_definition() {
     {
         evidence.support_feature(feature.as_str().expect("feature"));
     }
-    let read = CheckedPackageV2::read(&bytes, CheckedPackageReadLimits::bounded(), &evidence);
+    let read = crate::read_and_account(&bytes, CheckedPackageReadLimits::bounded(), &evidence);
     assert!(
         matches!(read, CheckedPackageV2ReadResult::Admitted(_)),
         "{read:?}"

@@ -953,9 +953,8 @@ fn validate_source_enum_row(
                 storage::node(at).saturating_add(2),
             )?;
             let source_entry = package
-                .source_index
-                .get(&(at.clone(), occurrence.role.clone(), occurrence.ordinal))
-                .and_then(|&position| package.source_map().get(position));
+                .source_position(at, &occurrence.role, occurrence.ordinal)
+                .and_then(|position| package.source_map().get(position));
             let Some(source_entry) = source_entry.filter(|entry| !entry.regions.is_empty()) else {
                 return Err(source_enum_error(
                     requested,
@@ -4020,7 +4019,7 @@ impl CheckedPackageV2 {
                     _ => {
                         return Err(refuse_target!(
                             ExactTypeProjectionErrorCode::MismatchedIdentityWitness
-                        ))
+                        ));
                     }
                 }
             }
@@ -4084,7 +4083,7 @@ impl CheckedPackageV2 {
                             _ => {
                                 return Err(refuse!(
                                     ExactTypeProjectionErrorCode::UnsupportedExactType
-                                ))
+                                ));
                             }
                         }
                     } else {
@@ -4535,12 +4534,6 @@ mod tests {
             "source_map":[],"capability_report":[],
             "diagnostics":{"catalog":{"authority":"test","identity":"diagnostics"},"entries":[]},
         }));
-        let terms = wire
-            .semantic_graph
-            .nodes
-            .iter()
-            .map(|node| node.body.clone())
-            .collect();
         let kinds = wire
             .semantic_graph
             .nodes
@@ -4563,15 +4556,15 @@ mod tests {
             source_index: std::sync::Arc::new(super::super::retained_source_index(&wire)),
             lowering_facts: Vec::new(),
             wire: std::sync::Arc::new(wire),
-            terms: std::sync::Arc::new(terms),
             kinds: std::sync::Arc::new(kinds),
             bytes: 1 << 20,
             models: std::sync::Arc::new(RetainedModels::default()),
             selected_documents: std::sync::Arc::new(Vec::new()),
             direct_dependencies: Vec::new(),
             closure_index: Default::default(),
-            catalog: crate::checked_package::v2::operation_catalog::operation_catalog(),
+            catalog: crate::checked_package::v2::operation_catalog::owned_operation_catalog(),
             admission_binding: Default::default(),
+            body_documents: Vec::new(),
         }
         .retain_original_admission()
     }

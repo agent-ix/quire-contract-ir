@@ -408,7 +408,7 @@ fn replace(nodes: &mut [Value], name: &str, with: Value) {
 }
 
 fn read(package: &Value) -> CheckedPackageV2ReadResult {
-    CheckedPackageV2::read(
+    crate::read_and_account(
         &canonical(package),
         CheckedPackageReadLimits::bounded(),
         &evidence_for(package),

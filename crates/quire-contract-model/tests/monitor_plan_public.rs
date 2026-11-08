@@ -74,6 +74,16 @@ fn package(package: &CheckedPackageV2) {
     plans(package.monitor_plans());
 }
 
+// This public model-test target uses the shared fixture builder without the
+// separate whole-read proof binary's allocator backend.
+fn fixture_read(
+    bytes: &[u8],
+    limits: quire_contract_model::CheckedPackageReadLimits,
+    evidence: &quire_contract_model::CheckedPackageEvidence,
+) -> quire_contract_model::CheckedPackageV2ReadResult {
+    quire_contract_model::CheckedPackageV2::read(bytes, limits, evidence)
+}
+
 #[path = "../../../tests/it/support/checked_package.rs"]
 mod fixture_support;
 #[path = "../../../tests/it/support/monitor_plan.rs"]
