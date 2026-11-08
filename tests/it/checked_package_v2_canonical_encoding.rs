@@ -458,7 +458,7 @@ trait Carrier: Encode + Serialize + Clone + Send + 'static {
     fn shallow() -> Self;
     /// Puts `body` where the `Value` is.
     fn place(&mut self, body: Value) -> Result<(), Error>;
-    /// Takes the `Value` back out, so it can be dropped without recursion.
+    /// Releases the payload, returning any recursive `Value` for iterative drop.
     fn take(&mut self) -> Value;
     /// The text around the `Value` in the `serde_json` text of
     /// [`Carrier::shallow`].
