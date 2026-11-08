@@ -57,7 +57,7 @@ pub(crate) fn assert_read<C: Counter>(
             CheckedPackageV2ReadResult::Admitted(left),
             CheckedPackageV2BudgetedReadResult::Admitted(right),
             Expected::Admitted,
-        ) => assert_eq!(left, right, "{label}: full admitted value"),
+        ) => crate::qspec_read_proof::assert_admitted_views_equal(left, right, label),
         (
             CheckedPackageV2ReadResult::Refused(left),
             CheckedPackageV2BudgetedReadResult::Refused(right),
@@ -75,7 +75,7 @@ pub(crate) fn assert_read<C: Counter>(
                 (
                     CheckedPackageV2ReadResult::Admitted(a),
                     CheckedPackageV2BudgetedReadResult::Admitted(b),
-                ) => assert_eq!(a, b, "{label}: original admitted full value"),
+                ) => crate::qspec_read_proof::assert_admitted_views_equal(a, b, label),
                 (
                     CheckedPackageV2ReadResult::Refused(a),
                     CheckedPackageV2BudgetedReadResult::Refused(b),
@@ -104,9 +104,10 @@ pub(crate) fn assert_read<C: Counter>(
         (u64::MAX, u64::MAX),
     ] {
         let exact = measure_at::<C>(bytes, evidence, limits, work_limit, storage_limit);
-        assert_eq!(
-            exact.result, reference.result,
-            "{label}: repeated/exact full value"
+        crate::qspec_read_proof::assert_budgeted_results_equal(
+            &exact.result,
+            &reference.result,
+            label,
         );
         assert_eq!(
             exact.budget.consumed(),

@@ -10,6 +10,7 @@ use super::{
     RawSemanticNodeV2 as CheckedSemanticNodeV2, TermItems, TermNode, TermView, WorkMeter,
 };
 use crate::checked_package::common::{node_pointer, ValidationFailure};
+use crate::checked_package::shared::CheckedOperandEntry;
 use crate::checked_package::shared::{
     CheckedOccurrenceRole, CheckedPackageRefusalCause, CheckedPackageRefusalCode, JsonPointer,
 };
@@ -166,7 +167,7 @@ fn owner_site(index: usize) -> Site {
 /// or its target is no valid ID. The ID is charged before it is allocated.
 fn reference_target<'d>(
     term: TermNode<'d>,
-    row: &[super::CheckedOperandEntry],
+    row: &[CheckedOperandEntry],
     budget: &mut NativeJoinBudget,
     site: Site,
 ) -> Result<Option<super::CheckedNodeId>, ValidationFailure> {
@@ -202,7 +203,7 @@ fn aggregate<'d>(term: TermNode<'d>) -> Option<TermItems<'d>> {
 fn entry_candidates(
     nodes: &[CheckedSemanticNodeV2],
     bodies: &[CheckedJson],
-    rows: &[Vec<super::CheckedOperandEntry>],
+    rows: &[Vec<CheckedOperandEntry>],
     budget: &mut NativeJoinBudget,
 ) -> Result<Vec<super::CheckedNodeId>, ValidationFailure> {
     let mut candidates = Vec::new();
@@ -254,7 +255,7 @@ impl<'a> AnonymousNodes<'a> {
 fn anonymous_function_nodes<'a>(
     nodes: &'a [CheckedSemanticNodeV2],
     bodies: &[CheckedJson],
-    rows: &[Vec<super::CheckedOperandEntry>],
+    rows: &[Vec<CheckedOperandEntry>],
     monitor_entries: &[super::CheckedNodeId],
     budget: &mut NativeJoinBudget,
 ) -> Result<AnonymousNodes<'a>, ValidationFailure> {
@@ -317,7 +318,7 @@ fn anonymous_function_nodes<'a>(
 /// The ordinary executable body, independent of owner/model clause descriptors.
 fn anonymous_body_shape(
     body: TermNode<'_>,
-    row: &[super::CheckedOperandEntry],
+    row: &[CheckedOperandEntry],
     nodes: &AnonymousNodes<'_>,
     budget: &mut NativeJoinBudget,
     site: Site,

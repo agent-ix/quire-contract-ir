@@ -51,7 +51,6 @@ use crate::checked_package::shared::{
     CheckedNodeId, CheckedNodePathSegment, CheckedPackageRefusalCause, CheckedPackageRefusalCode,
     ForeignNodeKey, JsonPointer, NodeKeyProbe,
 };
-use std::collections::BTreeMap;
 
 /// The form of every request the dependency checks make.
 const F: &str = "dependencies";
@@ -72,23 +71,9 @@ pub(super) struct SuppliedDependency<'e> {
 impl SuppliedDependency<'_> {
     /// The position of the graph node with this id.
     fn position(&self, id: &CheckedNodeId) -> Option<usize> {
-        if id.path.iter().any(|segment| match segment {
-            CheckedNodePathSegment::Dependency { package, .. } => {
-                package.as_ref() != self.identity
-            }
-            CheckedNodePathSegment::Index(_) => true,
-            _ => false,
-        }) {
-            return None;
-        }
-        let key = ForeignNodeKey::new(id, self.identity);
-        let after = self.index.partition_point(|row| {
-            let row_key = ForeignNodeKey::new(row.0, self.identity);
-            (&row_key as &dyn NodeKeyProbe).cmp(&key) != std::cmp::Ordering::Greater
-        });
+        let after = self.index.partition_point(|row| row.0 <= id);
         let row = self.index.get(after.checked_sub(1)?)?;
-        let row_key = ForeignNodeKey::new(row.0, self.identity);
-        ((&row_key as &dyn NodeKeyProbe) == (&key as &dyn NodeKeyProbe)).then_some(row.1)
+        (row.0 == id).then_some(row.1)
     }
 }
 
@@ -107,14 +92,35 @@ fn fill_table<'e>(
             .enumerate()
             .map(|(position, node)| (&node.node_id, position)),
     );
-    table.sort_unstable_by(|a, b| {
-        let left = ForeignNodeKey::new(a.0, package.name());
-        let right = ForeignNodeKey::new(b.0, package.name());
-        (&left as &dyn NodeKeyProbe)
-            .cmp(&right as &dyn NodeKeyProbe)
-            .then(a.1.cmp(&b.1))
-    });
+    table.sort_unstable_by(|a, b| a.0.cmp(b.0).then(a.1.cmp(&b.1)));
     table
+}
+
+impl SuppliedDependency<'_> {
+    /// The position of the node `id` names in this dependency's graph. The
+    /// dependency's own ids hold index segments of its graph; an importing
+    /// document names those as `{package, node}` dependency positions of this
+    /// dependency, and a local index segment names no node here.
+    fn position_of(&self, id: &CheckedNodeId) -> Option<usize> {
+        // A local index segment, or a position of another dependency, names
+        // no node here. The lookup reads the rest in place.
+        if id.path.iter().any(|segment| match segment {
+            CheckedNodePathSegment::Dependency { package, .. } => package.as_ref() != self.identity,
+            CheckedNodePathSegment::Index(_) => true,
+            _ => false,
+        }) {
+            return None;
+        }
+        let key = ForeignNodeKey::new(id, self.identity);
+        let probe = &key as &dyn NodeKeyProbe;
+        let first = self
+            .index
+            .partition_point(|row| (row.0 as &dyn NodeKeyProbe).cmp(probe).is_lt());
+        self.index
+            .get(first)
+            .filter(|row| (row.0 as &dyn NodeKeyProbe).cmp(probe).is_eq())
+            .map(|row| row.1)
+    }
 }
 
 /// The dependency packages the caller supplied, one per
@@ -168,7 +174,7 @@ impl<'e> SuppliedDependencies<'e> {
     pub(super) fn holds_node(&self, id: &CheckedNodeId) -> bool {
         self.packages
             .iter()
-            .any(|supplied| supplied.position(id).is_some())
+            .any(|supplied| supplied.position_of(id).is_some())
     }
 
     /// The node `id` of the directly selected package `package`: the package
@@ -179,7 +185,7 @@ impl<'e> SuppliedDependencies<'e> {
         id: &CheckedNodeId,
     ) -> Option<(&'e CheckedPackageV2, usize)> {
         let supplied = self.resolve(package)?;
-        Some((supplied.package, supplied.position(id)?))
+        Some((supplied.package, supplied.position_of(id)?))
     }
 
     /// The admitted directly selected package with this exact identity.
@@ -237,11 +243,11 @@ impl<'e> SuppliedDependencies<'e> {
     /// reader that shares FR-322 dependency-reference semantics.
     pub(super) fn from_admitted(
         selections: &'e [CheckedDependencySelection],
-        admitted: &BTreeMap<&str, &'e CheckedPackageV2>,
+        admitted: impl Fn(&str) -> Option<&'e CheckedPackageV2>,
     ) -> Result<Self, usize> {
         let mut packages = Vec::with_capacity(selections.len());
         for (position, selection) in selections.iter().enumerate() {
-            let Some(package) = admitted.get(selection.identity.as_ref()).copied() else {
+            let Some(package) = admitted(selection.identity.as_ref()) else {
                 return Err(position);
             };
             let index = fill_table(

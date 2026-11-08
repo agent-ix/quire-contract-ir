@@ -23,6 +23,7 @@ import coverage_census as census
 LOCKED = ["flock", "--no-fork", "/tmp/titan-cargo.lock", "nice", "-n", "10", "ionice", "-c", "3"]
 CONTROL_CASES = {
     "wrapped_function_item_has_no_unaccounted_entry": True,
+    "qspec_read_proof::provider_scope_tests::provider_designated_read_preserves_the_original_scalar_refusal": True,
     "qspec_read_proof::caller_budget_tests::caller_budget_observation_preserves_prior_charges_and_outer_capture": True,
     "unwrapped_type_alias_before_trusted_read_must_fail_census": False,
     "unwrapped_function_item_after_trusted_read_must_fail_census": False,
@@ -203,10 +204,25 @@ def select_original_tests(compiled, selectors, controls=False, class_controls=Fa
     return [name for name in compiled if name in set(selectors)]
 
 
+def select_control_tests(compiled, selectors):
+    if len(set(selectors)) != len(selectors) or set(selectors) - set(CONTROL_CASES):
+        raise RunError("unknown or duplicate exact entry-control selector")
+    selected = selectors or list(CONTROL_CASES)
+    if set(selected) - set(compiled):
+        raise RunError("selected entry control is absent from the actual compiled inventory")
+    return selected
+
+
 def selection_metadata(args):
     selected = bool(getattr(args, "original_test", []))
-    return {"scope": "selected-only original tests" if selected else "declared original corpus",
-            "full_corpus": not selected and not getattr(args,"controls",False) and not getattr(args,"class_controls",False)}
+    scope = ("selected-only original tests" if selected else
+             "minimal canonical class-denial controls only" if getattr(args, "class_controls", False) else
+             "selected-only reader entry controls" if getattr(args, "control_test", []) else
+             "executed malformed-input reader entry controls only" if getattr(args, "controls", False) else
+             "declared original corpus")
+    return {"scope": scope,
+            "full_corpus": False,
+            "complete_declared_inventory": not selected and not getattr(args,"controls",False) and not getattr(args,"class_controls",False)}
 
 
 def select_tc048(args, compiled):
@@ -362,15 +378,16 @@ def execute_one(args, binary, config, env, name, index, *, preserve_failure=Fals
 
 
 def run_controls(args, binary, config, env, compiled_tests):
-    missing = set(CONTROL_CASES) - set(compiled_tests)
-    if missing:
-        raise RunError(f"missing actual compiled counterexamples: {sorted(missing)}")
+    selected = select_control_tests(compiled_tests, getattr(args, "control_test", []))
     results = []
-    for index, (name, should_pass) in enumerate(CONTROL_CASES.items()):
+    for index, name in enumerate(selected):
+        should_pass = CONTROL_CASES[name]
         output, report, profiles, records = execute_one(args, binary, config, env, name, index)
         evidence = merge_export(args, output, profiles, binary, env)
         try:
             result = census.check(evidence, args.repo)
+            if name == "qspec_read_proof::provider_scope_tests::provider_designated_read_preserves_the_original_scalar_refusal":
+                census.validate_provenance(evidence, args.repo, {name}, records)
         except census.CensusError as error:
             if should_pass or not str(error).startswith("unaccounted "):
                 raise RunError(f"control failed for the wrong reason: {error}") from error
@@ -527,7 +544,67 @@ def run_class_controls(args,binary,config,env,compiled_tests):
     return [result]
 
 
+def complete_full_manifest(manifest_path):
+    """Revalidate retained compiler evidence; never trust a manifest's pass flags."""
+    manifest = json.loads(manifest_path.read_text())
+    if manifest.get("schema") != "ac511-full-completion/v1":
+        raise RunError("missing full-completion manifest schema")
+    if not isinstance(manifest.get("runs"), list) or len(manifest["runs"]) != 2:
+        raise RunError("full completion requires exactly two retained original corpus runs")
+    repo = Path(manifest["repo"]).resolve()
+    bundle = {"schema": manifest["schema"], "runs": []}
+    for directory in manifest.get("runs", []):
+        directory = Path(directory).resolve()
+        config = json.loads((directory / "config.json").read_text())
+        report = json.loads((directory / "test-report.json").read_text())
+        records = [json.loads(line) for line in (directory / "driver-sites.jsonl").read_text().splitlines() if line.strip()]
+        repo = Path(manifest["repo"]).resolve()
+        if git(repo, "rev-parse", "HEAD") != config.get("source_head") or git(repo, "status", "--porcelain"):
+            raise RunError("completion requires the same clean frozen source for compiler/source joins")
+        export_path = directory / "coverage.json"
+        opener = export_path.open if export_path.exists() else (directory / "coverage.json.gz").open
+        if export_path.exists():
+            with opener("r") as source: export = json.load(source)
+        else:
+            with gzip.open(directory / "coverage.json.gz", "rt") as source: export = json.load(source)
+        result = census.check_run(export, repo, report, records, config.get("mode"))
+        declared = (config.get("compiled_test_inventory") if config.get("corpus") == "qspec" else
+                    list(json.loads((directory / "tc048-selected-tests.json").read_text())))
+        bundle["runs"].append({"config": config, "report": report, "records": records,
+                               "census": result, "declared_inventory": declared})
+    class_dir = Path(manifest["canonical_classes"]).resolve()
+    bundle["canonical_classes"] = json.loads((class_dir / "class-proof.json").read_text())
+    bundle["canonical_config"] = json.loads((class_dir / "config.json").read_text())
+    source = (repo / "crates/quire-contract-model/src/checked_package/shared.rs").read_text()
+    body = source.split("pub enum CheckedPackageRefusalCode {", 1)[1].split("}", 1)[0]
+    variants = []
+    for line in body.splitlines():
+        line = line.strip()
+        if not line or line.startswith("//"):
+            continue
+        if not re.fullmatch(r"[A-Za-z][A-Za-z0-9_]*,", line):
+            raise RunError("refusal-code inventory needs explicit support for changed source enum grammar")
+        variants.append(line[:-1])
+    bundle["expected_refusal_codes"] = variants
+    return census.validate_full_completion(bundle)
+
+
 def main():
+    if sys.argv[1:2] == ["complete-full"]:
+        completion = argparse.ArgumentParser(description="Revalidate the exact two full corpus runs and class proof")
+        completion.add_argument("manifest", type=Path)
+        completion.add_argument("--out", type=Path, required=True)
+        selected = completion.parse_args(sys.argv[2:])
+        if selected.out.exists():
+            raise SystemExit("completion output already exists; preserve prior evidence")
+        try:
+            result = complete_full_manifest(selected.manifest)
+        except (RunError, census.CensusError, OSError, ValueError, KeyError) as error:
+            write_json(selected.out, {"passed": False, "full_corpus": False,
+                       "normative_boundary_proof": False, "error": str(error)})
+            raise SystemExit(str(error)) from error
+        write_json(selected.out, {"passed": True, **result})
+        return
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--repo", type=Path, required=True)
     parser.add_argument("--out", type=Path, required=True)
@@ -537,6 +614,7 @@ def main():
     parser.add_argument("--mode", choices=["sample", "full"], default="sample")
     parser.add_argument("--original-test", action="append", default=[], help="repeatable exact compiled original test symbol; selected-only evidence")
     parser.add_argument("--controls", action="store_true")
+    parser.add_argument("--control-test", action="append", default=[], help="exact entry-control symbol; requires --controls, selected-only evidence")
     parser.add_argument("--class-controls",action="store_true")
     parser.add_argument("--reuse-class-kernel",type=Path)
     parser.add_argument("--corpus", choices=["qspec", "tc048"], default="qspec")
@@ -545,6 +623,8 @@ def main():
     parser.add_argument("--test-timeout-seconds", type=float,
                         help="per original process; sample defaults to120s, full requires an adequate explicit value")
     args = parser.parse_args()
+    if args.control_test and (not args.controls or args.class_controls or args.original_test):
+        parser.error("--control-test requires only the entry-control mode")
     if args.original_test and (args.controls or args.class_controls):
         parser.error("--original-test cannot mix with entry or class controls")
     if args.test_timeout_seconds is None:
@@ -588,7 +668,7 @@ def main():
         env["PATH"] = str(args.toolchain_bin) + os.pathsep + env["PATH"]
         config = {"source_head": git(args.repo, "rev-parse", "HEAD"), "rustc": rustc, "llvm": llvm,
                   "mode": args.mode, "controls": args.controls, "class_controls":args.class_controls, "corpus": args.corpus, "features": args.features,
-                  "test_timeout_seconds":args.test_timeout_seconds, "original_tests":args.original_test,
+                  "test_timeout_seconds":args.test_timeout_seconds, "original_tests":args.original_test, "control_tests":args.control_test,
                   **selection_metadata(args),
                   "qspec": {"path": str(args.qspec_dir), "head": git(args.qspec_dir, "rev-parse", "HEAD")},
                   "environment": safe_environment(env)}
@@ -600,13 +680,21 @@ def main():
         if not args.controls and args.corpus == "tc048":
             intended = select_tc048(args, intended)
         intended = select_original_tests(intended, args.original_test, args.controls, args.class_controls)
+        if args.controls:
+            intended = select_control_tests(intended, args.control_test)
         config["intended_tests"] = intended
+        # This is the actual compiled proof-harness module namespace. These
+        # tests still execute and every public entry remains in the arithmetic;
+        # they are not original consumer fixtures or provider-role evidence.
+        config["auxiliary_tests"] = [name for name in intended if name.startswith("qspec_read_proof::")]
+        config["original_driver_tests"] = [name for name in intended if name not in config["auxiliary_tests"]]
         write_json(args.out / "config.json", config)
         results = (run_class_controls(args,binary,config,env,intended) if args.class_controls else
                    run_controls(args, binary, config, env, intended) if args.controls
                    else run_original_corpus(args, binary, config, env, intended))
         write_json(args.out / "result.json", {"passed": True, "results": results, **selection_metadata(args),
-                   "normative_boundary_proof": args.mode == "full" and not args.controls and not args.class_controls and not args.original_test,
+                   "normative_boundaries_verified": args.mode == "full" and not args.controls and not args.class_controls,
+                   "normative_boundary_proof": False,
                    "static_ac513_proven": False})
     except (RunError, census.CensusError, OSError, ValueError, subprocess.CalledProcessError) as error:
         write_json(args.out / "result.json", {"passed": False, "error": str(error), **selection_metadata(args)})

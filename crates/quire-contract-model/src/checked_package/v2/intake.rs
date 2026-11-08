@@ -349,6 +349,19 @@ fn classify_wire_fault(
         })
         .next_back()
         .unwrap_or(0);
+    if matches!(
+        original,
+        [
+            Step::Key("semantic_graph"),
+            Step::Key("operand_rows"),
+            Step::Index(_),
+            Step::Index(_),
+            ..
+        ]
+    ) {
+        code = MalformedWire;
+        length = 4;
+    }
     if code == UnknownMember {
         match original {
             [Step::Key("temporal_clause_names" | "schedulability_claims"), Step::Index(_), ..] => {

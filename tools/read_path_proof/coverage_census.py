@@ -10,6 +10,7 @@ The trusted test helpers retain their original source and semantic oracles.
 """
 
 import argparse
+from functools import lru_cache
 import json
 from pathlib import Path
 import re
@@ -64,7 +65,13 @@ def tally(export, root):
         raise CensusError("expected the compiler's full llvm-cov JSON export")
     if not export.get("data"):
         raise CensusError("empty compiler coverage export")
+    root = root.resolve()
+    @lru_cache(maxsize=None)
+    def source_identity(filename):
+        path = Path(filename)
+        return (path if path.is_absolute() else root / path).resolve()
     wanted = {**BOUNDARIES, **PRODUCTION}
+    source_paths = {key: source_identity(key[0]) for key in wanted}
     result = {key: 0 for key in wanted}
     definitions = {key: function_line((root / key[0]).read_text(), key[1])
                    for key in wanted}
@@ -83,11 +90,11 @@ def tally(export, root):
                 continue
             for key in wanted:
                 file, source_name = key
+                if not symbol_mentions(name, source_name):
+                    continue
                 files = function.get("filenames", [])
-                matching = [i for i, filename in enumerate(files)
-                            if (Path(filename) if Path(filename).is_absolute() else root / filename).resolve()
-                            == (root / file).resolve()]
-                if not matching or not symbol_mentions(name, source_name):
+                matching = [i for i, filename in enumerate(files) if source_identity(filename) == source_paths[key]]
+                if not matching:
                     continue
                 # Region file ids are compiler supplied. Require this exact
                 # source definition, not an equally named function elsewhere.
@@ -154,7 +161,7 @@ def validate_provenance(export, root, intended, records):
         if line > len(source):
             raise CensusError("captured callsite is outside the frozen source")
         spelling = source[line - 1]
-        names = ("read_budget_and_account",) if record.get("entry") == "caller-budget" else ("read_and_account", "fixture_read")
+        names = ("read_budget_and_account",) if record.get("entry") == "caller-budget" else ("read_and_account", "read_designated_and_account", "fixture_read")
         if re.search(r"\bfn\s+", spelling) or not any(re.search(r"\b" + name + r"\s*\(", spelling) for name in names):
             raise CensusError("captured location is not an actual instrumented invocation (function-item shim is unresolved)")
         executed = False
@@ -170,12 +177,29 @@ def validate_provenance(export, root, intended, records):
             raise CensusError("runtime callsite has no executed compiler source region")
 
 
+def native_amount(value):
+    """Rust emits u64 JSON numbers and overflow u128 canonical decimal strings."""
+    if type(value) is int and 0 <= value < 2**64:
+        return value
+    if isinstance(value, str) and re.fullmatch(r"[1-9][0-9]*", value):
+        # Bound the decimal length before conversion as well as the value.
+        if len(value) <= 39:
+            amount = int(value, 10)
+            if 2**64 <= amount < 2**128:
+                return amount
+    raise CensusError("native amount is not an exact canonical u64/u128 representation")
+
+
 def validate_normative_boundaries(record):
     events = record.get("native_budget_events")
     results = record.get("boundary_results")
     if (record.get("proof_schema") != "native-budget-events/v1"
             or not isinstance(events, list) or not isinstance(results, list)):
         raise CensusError("full proof requires actual passive-event normative boundary results")
+    events = [dict(event, amount=native_amount(event.get("amount"))) for event in events]
+    results = [dict(result, amount=native_amount(result.get("amount")),
+                    denial=dict(result.get("denial", {}), amount=native_amount(result.get("denial", {}).get("amount"))))
+               for result in results]
     complete=record.get("complete_reference",{})
     counters=("prior_work","prior_read_storage","work","read_storage","requested")
     if (complete.get("native_budget")!="unlimited"
@@ -183,10 +207,10 @@ def validate_normative_boundaries(record):
             or any(type(complete.get(key)) is not int or complete[key]<0 for key in counters)
             or complete.get("logical_storage_delta")!=0
             or not complete.get("exact_outcome_equal") or not complete.get("exact_counts_equal")
-            or not complete.get("complete_repeat_equal")):
+            or not complete.get("complete_repeat_equal")
+            or not complete.get("above_outcome_equal") or not complete.get("above_counts_equal")
+            or not complete.get("above_budget_equal")):
         raise CensusError("full proof lacks measured unlimited complete-reference/exact-repeat evidence")
-    if any(type(event.get("amount")) is not int or not 0 <= event["amount"] < 2**128 for event in events):
-        raise CensusError("invalid full native event amount")
     if any(not event.get("admitted") for event in events):
         raise CensusError("complete-reference events contain an early native-budget denial")
     work=sum(event["amount"] for event in events if event.get("resource")=="Work")
@@ -195,7 +219,9 @@ def validate_normative_boundaries(record):
             or complete["read_storage"]!=complete["prior_read_storage"]+storage
             or complete["requested"]!=storage
             or complete.get("exact_work_limit")!=complete["work"]
-            or complete.get("exact_read_storage_limit")!=complete["read_storage"]):
+            or complete.get("exact_read_storage_limit")!=complete["read_storage"]
+            or complete.get("above_work_limit")!=complete["work"]+1
+            or complete.get("above_read_storage_limit")!=complete["read_storage"]+1):
         raise CensusError("unlimited complete-reference totals disagree with actual native events")
     selected = set()
     stage_last, class_first, class_last = {}, {}, {}
@@ -206,6 +232,7 @@ def validate_normative_boundaries(record):
                 or designated.get("driver") != record.get("driver")
                 or designated.get("line") != record.get("line")
                 or not designated.get("provider")
+                or designated.get("input_binding") != "exact-borrowed-input-evidence-and-callsite"
                 or not isinstance(designated.get("classes"), dict)):
             raise CensusError("designated growth case lacks exact original-provider provenance")
         requested = designated.get("requested_classes", designated["classes"])
@@ -233,8 +260,8 @@ def validate_normative_boundaries(record):
         if not match or not locus.get("form"):
             raise CensusError("native event lacks a genuine package-read stage/form")
         allocation_class = event.get("allocation_class")
-        if resource == "ReadStorage" and not allocation_class:
-            raise CensusError("native reservation has no source-derived allocation class")
+        # Unknown remains unknown. Canonical class proof is independently
+        # required at full completion, not inferred from these byte amounts.
         if resource == "ReadStorage" and allocation_class in exhaustive:
             selected.add(index)
             seen_exhaustive.add(allocation_class)
@@ -257,7 +284,14 @@ def validate_normative_boundaries(record):
         observed.add(index)
         event = events[index]
         next_bound = event["consumed_before"] + event["amount"]
+        denial = result.get("denial", {})
+        if (denial.get("outcome") not in {"budget-incomplete", "exhausted"}
+                or denial.get("resource") != event["resource"] or denial.get("amount") != event["amount"]
+                or denial.get("configured_bound") != next_bound - 1 or denial.get("locus") != event["locus"]
+                or denial.get("entire_repeat_budget_equal") is not True):
+            raise CensusError("normative one-below lacks exact typed first-denial outcome/state")
         if (result.get("exact_bound") != next_bound or result.get("one_below_bound") != next_bound - 1
+                or result.get("above_bound") != next_bound + 1 or not result.get("above_event_admitted")
                 or not result.get("exact_event_admitted") or not result.get("one_below_event_denied")
                 or not result.get("full_repeat_equal") or not result.get("accounting_equal")
                 or result.get("amount") != event["amount"] or result.get("locus") != event["locus"]
@@ -301,8 +335,131 @@ def check_run(export, root, report, records, mode):
         if not requested_roles <= reached_roles:
             raise CensusError("a designated source growth role was never reached by any original input")
     result.update({"original_tests_passed": len(passed), "mode": mode,
-                   "normative_boundary_proof": mode == "full"})
+                   "normative_boundaries_verified": mode == "full",
+                   "normative_boundary_proof": False})
     return result
+
+
+# These names denote normative obligations, not invented fixture identities.
+# Input-shape facts must be computed by the original provider, whose source and
+# compiler-executed callsite are retained in the original invocation record.
+REQUIRED_PROVIDER_FACTS = {
+    "reference_chain": ("reference_chain_nodes", 100000),
+    "flat_graph": ("flat_graph_nodes", 10000),
+    "node_dependencies": ("maximum_node_dependencies", 10000),
+    "string_member": ("string_member_utf8_bytes", 1048576),
+    "source_maps": ("source_map_entries", 10000),
+    "diagnostic_details": ("diagnostics_with_detail_terms", 10000),
+    "direct_dependencies": ("direct_dependencies", 64),
+    "selected_models": ("selected_model_documents_at_least_524288_bytes", 2),
+    "term_walk_multigrowth": ("same_term_walk_stack_growth_requests", 3),
+    "canonical_rational_multilimb": ("canonical_rational_max_bits", 129),
+    "dimension_exponent_multilimb": ("dimension_exponent_max_bits", 129),
+    "timed_magnitude_multilimb": ("timed_magnitude_max_bits", 129),
+    "schedulability_bound_multilimb": ("schedulability_bound_max_bits", 129),
+}
+COHORT_FIELDS = ("source_head", "rustc", "llvm", "features", "environment", "qspec")
+
+
+def validate_full_completion(bundle):
+    """Combine actual full runs; presence of a full mode flag alone proves nothing.
+
+    The runner loads the referenced original artifacts without rewriting them.
+    Missing provider facts remain blockers, never empty-set success.
+    """
+    if bundle.get("schema") != "ac511-full-completion/v1":
+        raise CensusError("missing full-completion artifact schema")
+    runs = bundle.get("runs", [])
+    if len(runs) != 2 or {run.get("config", {}).get("corpus") for run in runs} != {"qspec", "tc048"}:
+        raise CensusError("full completion requires exactly QSpec and TC048 original inventories")
+    baseline = runs[0]["config"]
+    if any(not baseline.get(key) for key in COHORT_FIELDS):
+        raise CensusError("incomplete frozen source/tool/input cohort")
+    records = []
+    for run in runs:
+        config, report, result = run["config"], run["report"], run["census"]
+        if any(config.get(key) != baseline[key] for key in COHORT_FIELDS):
+            raise CensusError("full corpus artifacts mix source/tool/input cohorts")
+        if (config.get("original_tests") or config.get("controls") or config.get("class_controls")
+                or config.get("mode") != "full" or config.get("complete_declared_inventory") is not True
+                or result.get("normative_boundaries_verified") is not True):
+            raise CensusError("selected-only, partial or core-only artifacts cannot complete full corpus")
+        inventory = run.get("declared_inventory")
+        intended = config.get("intended_tests")
+        if (not inventory or len(set(inventory)) != len(inventory)
+                or not intended or set(inventory) != set(intended)
+                or len(intended) != len(inventory)
+                or report.get("intended_tests") != intended
+                or report.get("exit_code") != 0 or report.get("failed_tests") or report.get("ignored_tests")
+                or sorted(report.get("passed_tests", [])) != sorted(intended)
+                or result.get("original_tests_passed") != len(intended)):
+            raise CensusError("full completion lacks exact successful declared original inventories")
+        auxiliary = config.get("auxiliary_tests", [])
+        originals = config.get("original_driver_tests", [])
+        if (not originals or len(set(auxiliary + originals)) != len(auxiliary + originals)
+                or set(auxiliary + originals) != set(intended)
+                or any(not name.startswith("qspec_read_proof::") for name in auxiliary)):
+            raise CensusError("original and auxiliary executed-test scopes are missing or overlap")
+        rows = run.get("records", [])
+        if not rows or any(row.get("test") not in intended for row in rows):
+            raise CensusError("full completion lacks original invocation records")
+        if (sum(row.get("entry", "plain") == "plain" for row in rows) != result.get("measured_plain")
+                or sum(row.get("entry") == "caller-budget" for row in rows) != result.get("caller_budget")):
+            raise CensusError("completion invocation rows do not match compiler boundary counts")
+        for row in rows:
+            validate_normative_boundaries(row)
+        records.extend(rows)
+    classes = bundle.get("canonical_classes", {})
+    class_config = bundle.get("canonical_config", {})
+    if (any(class_config.get(key) != baseline[key] for key in COHORT_FIELDS)
+            or classes.get("qualified") is not True
+            or not canonical_classes_complete(classes.get("classes", []), classes.get("negative_controls", []))):
+        raise CensusError("missing qualified same-cohort five-class denial proof")
+    reached = set()
+    for row in records:
+        for evidence in row.get("provider_obligation_evidence", []):
+            if row.get("test", "").startswith("qspec_read_proof::"):
+                raise CensusError("auxiliary proof controls cannot supply original provider roles")
+            role = evidence.get("role")
+            if role not in REQUIRED_PROVIDER_FACTS:
+                raise CensusError("unknown provider obligation role")
+            field, minimum = REQUIRED_PROVIDER_FACTS[role]
+            source = evidence.get("source", {})
+            fact = evidence.get("input_facts", {}).get(field)
+            if (evidence.get("input_binding") != "exact-borrowed-input-evidence-and-callsite"
+                    or not evidence.get("fact_source")
+                    or type(fact) is not int or fact < minimum or not source.get("symbol")
+                    or source.get("file") != row.get("driver") or source.get("line") != row.get("line")):
+                raise CensusError("provider obligation lacks source-bound measured input facts")
+            # Growth obligations need actual event-selected requests, not input
+            # size guesses. The provider must prove one walk instance separately.
+            if role.endswith("multilimb") or role == "term_walk_multigrowth":
+                kind = "walker_growth" if role == "term_walk_multigrowth" else "exact_reservation"
+                events = row["native_budget_events"]
+                selected = {item["event_index"] for item in row["boundary_results"]}
+                indices = evidence.get("request_event_indices", [])
+                if (len(indices) < (3 if kind == "walker_growth" else 1)
+                        or len(set(indices)) != len(indices)
+                        or any(type(i) is not int or i < 0 or i >= len(events) or i not in selected
+                               or events[i].get("allocation_class") != kind
+                               or events[i].get("locus") != evidence.get("reservation_locus") for i in indices)
+                        or not evidence.get("reservation_source")
+                        or (kind == "walker_growth" and not evidence.get("same_walk_instance_source"))):
+                    raise CensusError("growth obligation lacks actual selected source-bound reservations")
+            reached.add(role)
+    missing = set(REQUIRED_PROVIDER_FACTS) - reached
+    if missing:
+        raise CensusError(f"missing real adverse/growth provider obligations: {sorted(missing)}")
+    expected_refusals = bundle.get("expected_refusal_codes")
+    if not expected_refusals or len(set(expected_refusals)) != len(expected_refusals):
+        raise CensusError("missing source-derived refusal-code inventory")
+    actual_refusals = {row.get("complete_reference", {}).get("refusal_code") for row in records
+                       if row.get("complete_reference", {}).get("outcome") == "refused"}
+    if not set(expected_refusals) <= actual_refusals:
+        raise CensusError("not every source refusal code has a measured complete-reference refusal")
+    return {"schema": "ac511-full-completion/v1", "full_corpus": True,
+            "normative_boundary_proof": True, "static_ac513_proven": False,
+            "provider_roles": sorted(reached), "source_head": baseline["source_head"]}
 
 
 def main():

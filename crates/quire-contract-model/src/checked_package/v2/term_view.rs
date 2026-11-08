@@ -22,9 +22,10 @@ use super::read_charge::{Denied, ReadStorage, Site};
 use super::typed_terms::TermConversionCause;
 use super::{
     ApplicationOperator, BodyTerm, CheckedNodeId, CheckedNodePathSegment,
-    CheckedOperandEntry, CheckedOperationAnchorBody, CheckedTerm, LiteralKind,
+    CheckedOperationAnchorBody, CheckedTerm, LiteralKind,
 };
 use crate::checked_package::common::{TermField, TermTag, ValidationFailure};
+use crate::checked_package::shared::CheckedOperandEntry;
 use crate::identity::ExecutionPoint;
 use quire_canonical::{Document, Items, Members, Node, NodeRef};
 use serde::Deserialize;
@@ -323,10 +324,11 @@ impl<'d> TermNode<'d> {
         for segment in path.clone() {
             let valid = match segment.segment_form() {
                 Some(SegmentForm::Name(_)) => true,
-                Some(SegmentForm::Node(index) | SegmentForm::Operand(index)) => index <= MAXIMUM,
-                Some(SegmentForm::Dependency(package, node)) => {
-                    !package.is_empty() && node <= MAXIMUM
-                }
+                Some(
+                    SegmentForm::Node(index)
+                    | SegmentForm::Operand(index)
+                    | SegmentForm::Dependency(_, index),
+                ) => index <= MAXIMUM,
                 None => false,
             };
             if !valid {
@@ -353,9 +355,7 @@ impl<'d> TermNode<'d> {
                     .ok()
                     .and_then(|slot| row.get(slot))
                 {
-                    Some(CheckedOperandEntry::Node(index)) => {
-                        CheckedNodePathSegment::Index(*index)
-                    }
+                    Some(CheckedOperandEntry::Node(index)) => CheckedNodePathSegment::Index(*index),
                     Some(CheckedOperandEntry::Dependency(operand)) => {
                         sink.reserve(operand.package.len() as u128, site)?;
                         CheckedNodePathSegment::Dependency {
@@ -1568,7 +1568,7 @@ mod tests {
         use crate::checked_package::v2::node_index::resolve_value_slots;
         use crate::checked_package::v2::read_charge::Site;
         let site = Site::new(PackageReadStage::WireChecks, 0, "owner_schema");
-        let row = [5u64, 7];
+        let row = [5u64, 7].map(crate::CheckedOperandEntry::Node);
         let id =
             |slot: u64| json!({"package": "p", "path": ["x", {"operand": slot}], "ordinal": 0});
         let leaf = json!({"term": "reference", "target": id(1)});
