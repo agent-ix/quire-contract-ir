@@ -3836,20 +3836,52 @@ fn compare_abstract_classes(
     Ok(())
 }
 
-fn add_key(targets: &mut BTreeSet<CheckedNodeId>, key: &RefinementKey) {
+fn add_key(
+    targets: &mut Vec<CheckedNodeId>,
+    key: &RefinementKey,
+    meter: &mut super::WorkMeter,
+) -> Result<(), ValidationFailure> {
     if let Some(local) = key.local() {
-        targets.insert(local.clone());
+        meter.insert_id(targets, local)?;
     }
+    Ok(())
 }
 
-fn add_term(targets: &mut BTreeSet<CheckedNodeId>, term: &CheckedTerm) {
-    targets.extend(term.reference_targets().into_iter().cloned());
-    if let Some(application) = super::structural::application_dependencies(term) {
-        targets.extend(application);
+fn add_term(
+    targets: &mut Vec<CheckedNodeId>,
+    term: &CheckedTerm,
+    meter: &mut super::WorkMeter,
+) -> Result<(), ValidationFailure> {
+    let mut failure = None;
+    let mut found: Vec<&CheckedNodeId> = Vec::new();
+    // The targets are borrowed from the term; the walk allocates nothing
+    // itself, so the borrowed list is charged as it grows.
+    term.visit_reference_targets(&mut |target| {
+        if failure.is_none() {
+            if let Err(refusal) = meter.push(&mut found, target) {
+                failure = Some(refusal);
+            }
+        }
+    });
+    if let Some(refusal) = failure {
+        return Err(refusal);
     }
+    for target in found {
+        meter.insert_id(targets, target)?;
+    }
+    let mut application = Vec::new();
+    if super::structural::collect_application_dependencies(term, &mut application, meter)? {
+        for id in application {
+            meter.insert_owned_id(targets, id)?;
+        }
+    }
+    Ok(())
 }
 
-fn local_dependencies(body: &CheckedTerm) -> Option<Vec<CheckedNodeId>> {
+fn local_dependencies(
+    body: &CheckedTerm,
+    meter: &mut super::WorkMeter,
+) -> Result<Option<Vec<CheckedNodeId>>, ValidationFailure> {
     let CheckedTerm::Refinement {
         abstract_key,
         protocol,
@@ -3863,27 +3895,27 @@ fn local_dependencies(body: &CheckedTerm) -> Option<Vec<CheckedNodeId>> {
         ..
     } = body
     else {
-        return None;
+        return Ok(None);
     };
-    let mut targets = BTreeSet::new();
-    add_key(&mut targets, abstract_key);
+    let mut targets: Vec<CheckedNodeId> = Vec::new();
+    add_key(&mut targets, abstract_key, meter)?;
     if let Some(protocol) = protocol {
-        add_key(&mut targets, protocol);
+        add_key(&mut targets, protocol, meter)?;
     }
     for row in populations {
-        add_key(&mut targets, &row.r#abstract);
-        targets.insert(row.concrete.clone());
+        add_key(&mut targets, &row.r#abstract, meter)?;
+        meter.insert_id(&mut targets, &row.concrete)?;
     }
     for row in objects {
-        add_key(&mut targets, &row.abstract_type);
-        targets.insert(row.concrete_type.clone());
+        add_key(&mut targets, &row.abstract_type, meter)?;
+        meter.insert_id(&mut targets, &row.concrete_type)?;
         for field in &row.fields {
-            add_term(&mut targets, &field.expression);
+            add_term(&mut targets, &field.expression, meter)?;
         }
     }
     for row in steps {
         if let Some(node) = &row.source_node {
-            targets.insert(node.clone());
+            meter.insert_id(&mut targets, &node)?;
         }
         match &row.target {
             RefinementStepTarget::Operation {
@@ -3891,11 +3923,11 @@ fn local_dependencies(body: &CheckedTerm) -> Option<Vec<CheckedNodeId>> {
                 receiver,
                 arguments,
             } => {
-                add_key(&mut targets, operation);
-                add_term(&mut targets, receiver);
+                add_key(&mut targets, operation, meter)?;
+                add_term(&mut targets, receiver, meter)?;
                 for argument in arguments {
                     if let RefinementStepArgument::Term(term) = argument {
-                        add_term(&mut targets, term);
+                        add_term(&mut targets, term, meter)?;
                     }
                 }
             }
@@ -3903,11 +3935,11 @@ fn local_dependencies(body: &CheckedTerm) -> Option<Vec<CheckedNodeId>> {
                 node, arguments, ..
             } => {
                 if let Some(node) = node {
-                    add_key(&mut targets, node);
+                    add_key(&mut targets, node, meter)?;
                 }
                 for argument in arguments {
                     if let RefinementStepArgument::Term(term) = argument {
-                        add_term(&mut targets, term);
+                        add_term(&mut targets, term, meter)?;
                     }
                 }
             }
@@ -3915,19 +3947,19 @@ fn local_dependencies(body: &CheckedTerm) -> Option<Vec<CheckedNodeId>> {
         }
     }
     for row in histories {
-        targets.insert(row.concrete_type.clone());
-        targets.insert(row.type_id.clone());
-        add_term(&mut targets, &row.initial);
+        meter.insert_id(&mut targets, &row.concrete_type)?;
+        meter.insert_id(&mut targets, &row.type_id)?;
+        add_term(&mut targets, &row.initial, meter)?;
         for update in &row.updates {
-            targets.insert(update.operation.clone());
-            add_term(&mut targets, &update.expression);
+            meter.insert_id(&mut targets, &update.operation)?;
+            add_term(&mut targets, &update.expression, meter)?;
         }
     }
     for row in assume {
-        targets.insert(row.operation.clone());
+        meter.insert_id(&mut targets, &row.operation)?;
     }
     for row in ensure {
-        add_key(&mut targets, &row.operation);
+        add_key(&mut targets, &row.operation, meter)?;
     }
     if let Some(catalog) = class_catalog {
         for entry in &catalog.concrete {
@@ -3935,8 +3967,10 @@ fn local_dependencies(body: &CheckedTerm) -> Option<Vec<CheckedNodeId>> {
                 node, binder_types, ..
             } = entry
             {
-                targets.insert(node.clone());
-                targets.extend(binder_types.iter().cloned());
+                meter.insert_id(&mut targets, &node)?;
+                for binder in binder_types {
+                    meter.insert_id(&mut targets, binder)?;
+                }
             }
         }
         for entry in &catalog.r#abstract {
@@ -3944,14 +3978,14 @@ fn local_dependencies(body: &CheckedTerm) -> Option<Vec<CheckedNodeId>> {
                 node, binder_types, ..
             } = entry
             {
-                add_key(&mut targets, node);
+                add_key(&mut targets, node, meter)?;
                 for binder in binder_types {
-                    add_key(&mut targets, binder);
+                    add_key(&mut targets, binder, meter)?;
                 }
             }
         }
     }
-    Some(targets.into_iter().collect())
+    Ok(Some(targets))
 }
 
 /// Check the exact local dependency vector at the graph-shape stage.
@@ -3968,7 +4002,11 @@ pub(super) fn validate_dependencies(
             continue;
         }
         meter.at_node(position, super::graph_storage::node_form(&node.node_tag));
-        let expected = term.as_ref().and_then(local_dependencies).ok_or_else(|| {
+        let expected = match term {
+            Some(term) => local_dependencies(term, meter)?,
+            None => None,
+        }
+        .ok_or_else(|| {
             ValidationFailure::refused(
                 CheckedPackageRefusalCode::InvalidSemanticGraph,
                 crate::checked_package::common::node_pointer(position).key("body"),

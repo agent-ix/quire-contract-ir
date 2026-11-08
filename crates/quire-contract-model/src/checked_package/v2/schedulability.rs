@@ -3,7 +3,7 @@
 
 //! Authenticated schedulability claim carrier and FR-482 body admission.
 
-use super::graph_storage::{GraphIndex, ResolvedKey};
+use super::graph_storage::{GraphIndex, ResolvedKey, SortedTable};
 use super::{
     CheckedLiteralRead, CheckedLiteralValue, CheckedNodeId, CheckedNodeKind, CheckedPackageV2,
     CheckedTerm, ClaimForm, LiteralKind, RawSemanticNodeV2, ScalarTypeForm, WorkMeter,
@@ -500,10 +500,13 @@ pub(super) fn validate_bodies(
     models: &[super::model_members::DomainModel],
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
-    let models: std::collections::BTreeMap<&str, &super::model_members::DomainModel> = models
-        .iter()
-        .map(|model| (model.identity.as_ref(), model))
-        .collect();
+    // Of two models with one identity the later one is kept, as a map built
+    // by insertion would hold; the slice address orders them.
+    let mut identified = meter.vec::<(&str, &super::model_members::DomainModel)>(models.len())?;
+    identified.extend(models.iter().map(|model| (model.identity.as_ref(), model)));
+    let models = SortedTable::from_vec(identified, |left, right| {
+        std::ptr::from_ref(*right).cmp(&std::ptr::from_ref(*left))
+    });
     let claims = index.values().filter(|&&p| claim(kinds[p])).count();
     let mut order: Vec<usize> = meter.vec(claims)?;
     order.extend(index.values().copied().filter(|&p| claim(kinds[p])));

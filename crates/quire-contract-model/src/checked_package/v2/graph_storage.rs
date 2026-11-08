@@ -224,12 +224,69 @@ impl<'b> WorkMeter<'b> {
         left.cmp_growing(right, &mut |bytes| self.reserve(bytes))
     }
 
+    /// Where `id` belongs in `items`, sorted by `CheckedNodeId::cmp`: `Ok`
+    /// the place of an equal entry, `Err` the insertion slot. Each
+    /// comparison is charged, so a nested key's frame list is asked for first.
+    pub(super) fn search_ids(
+        &mut self,
+        items: &[CheckedNodeId],
+        id: &CheckedNodeId,
+    ) -> Result<Result<usize, usize>, ValidationFailure> {
+        let (mut low, mut high) = (0, items.len());
+        while low < high {
+            let middle = low + (high - low) / 2;
+            match self.compare_ids(&items[middle], id)? {
+                Ordering::Less => low = middle + 1,
+                Ordering::Greater => high = middle,
+                Ordering::Equal => return Ok(Ok(middle)),
+            }
+        }
+        Ok(Err(low))
+    }
+
+    /// Inserts a copy of `id` into the sorted `items` unless one is there;
+    /// the copy and the room for it are charged before they are made.
+    pub(super) fn insert_id(
+        &mut self,
+        items: &mut Vec<CheckedNodeId>,
+        id: &CheckedNodeId,
+    ) -> Result<bool, ValidationFailure> {
+        let Err(at) = self.search_ids(items, id)? else {
+            return Ok(false);
+        };
+        self.room(items, 1)?;
+        let copy = self.clone_id(id)?;
+        items.insert(at, copy);
+        Ok(true)
+    }
+
+    /// Inserts an `id` the caller already owns (and charged) into the sorted
+    /// `items` unless one is there; the room for it is charged first.
+    pub(super) fn insert_owned_id(
+        &mut self,
+        items: &mut Vec<CheckedNodeId>,
+        id: CheckedNodeId,
+    ) -> Result<bool, ValidationFailure> {
+        let Err(at) = self.search_ids(items, &id)? else {
+            return Ok(false);
+        };
+        self.room(items, 1)?;
+        items.insert(at, id);
+        Ok(true)
+    }
+
     /// A copy of `id` (its path list and the name and package text it holds;
     /// nested nodes are shared), charged first.
     pub(super) fn clone_id(
         &mut self,
         id: &CheckedNodeId,
     ) -> Result<CheckedNodeId, ValidationFailure> {
+        self.charge_id_memory(id)?;
+        Ok(id.clone())
+    }
+
+    /// Charges the memory `id` holds (as a copy of it would).
+    pub(super) fn charge_id_memory(&mut self, id: &CheckedNodeId) -> Result<(), ValidationFailure> {
         use crate::checked_package::shared::CheckedNodePathSegment as Segment;
         let mut bytes = id
             .path
@@ -241,8 +298,7 @@ impl<'b> WorkMeter<'b> {
                 bytes = bytes.saturating_add(name.len());
             }
         }
-        self.reserve(bytes)?;
-        Ok(id.clone())
+        self.reserve(bytes)
     }
 
     /// A vector of `count` copies of `value`, charged first.

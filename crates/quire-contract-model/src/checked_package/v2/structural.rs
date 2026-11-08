@@ -81,7 +81,6 @@ use crate::checked_package::shared::{
 use quire_exact::TextProfile;
 use serde_json::Value;
 use std::cmp::Ordering;
-use std::collections::BTreeSet;
 
 /// The member of one node a structural defect is about.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -758,8 +757,11 @@ pub(super) fn validate_structural_nodes_with_keys(
                 if !ordered || !node.dependencies.contains(owner_model) {
                     return Err(refuse(Defect::Dependencies));
                 }
-                if let Some(mut expected) = term.and_then(application_dependencies) {
-                    expected.insert(owner_model.clone());
+                if let Some(mut expected) = match term {
+                    Some(term) => application_dependencies(term, meter)?,
+                    None => None,
+                } {
+                    meter.insert_id(&mut expected, owner_model)?;
                     let mut listed: Vec<&CheckedNodeId> = meter.vec(expected.len())?;
                     listed.extend(expected.iter());
                     if !dependency_order.matches(
@@ -775,7 +777,10 @@ pub(super) fn validate_structural_nodes_with_keys(
             }
             continue;
         }
-        if let Some(expected) = term.and_then(application_dependencies) {
+        if let Some(expected) = match term {
+            Some(term) => application_dependencies(term, meter)?,
+            None => None,
+        } {
             let mut listed: Vec<&CheckedNodeId> = meter.vec(expected.len())?;
             listed.extend(expected.iter());
             if !dependency_order.matches(
@@ -1967,15 +1972,29 @@ pub(super) fn typed_union_value_body(
 /// owns that refusal and its path.
 pub(super) fn application_dependencies(
     body: &super::CheckedTerm,
-) -> Option<BTreeSet<CheckedNodeId>> {
+    meter: &mut WorkMeter,
+) -> Result<Option<Vec<CheckedNodeId>>, ValidationFailure> {
+    let mut join = Vec::new();
+    Ok(collect_application_dependencies(body, &mut join, meter)?.then_some(join))
+}
+
+/// Adds the join of [`application_dependencies`] to the sorted `join` and
+/// says whether `body` holds an application. Every table is charged before
+/// it is made; an ID read out of an operation member is charged as soon as it
+/// is parsed (the parse itself is the document-value bridge).
+pub(super) fn collect_application_dependencies(
+    body: &super::CheckedTerm,
+    join: &mut Vec<CheckedNodeId>,
+    meter: &mut WorkMeter,
+) -> Result<bool, ValidationFailure> {
     use super::CheckedTerm;
     let mut contains_application = false;
-    let mut join = BTreeSet::new();
-    let mut pending = vec![body];
+    let mut pending: Vec<&super::CheckedTerm> = meter.vec(1)?;
+    pending.push(body);
     while let Some(term) = pending.pop() {
         match term {
             CheckedTerm::Reference { target } => {
-                join.insert(target.clone());
+                meter.insert_id(join, target)?;
             }
             CheckedTerm::Application {
                 operation,
@@ -1983,6 +2002,7 @@ pub(super) fn application_dependencies(
                 ..
             } => {
                 contains_application = true;
+                meter.room(&mut pending, arguments.len())?;
                 pending.extend(arguments);
                 let member = operation.get("member");
                 let member_id = |key: &str| {
@@ -1990,11 +2010,18 @@ pub(super) fn application_dependencies(
                         .and_then(|member| member.get(key))
                         .and_then(CheckedNodeId::from_value)
                 };
-                join.extend(member_id("declaration"));
+                if let Some(id) = member_id("declaration") {
+                    let id = charged_parse(id, meter)?;
+                    meter.insert_owned_id(join, id)?;
+                }
                 if member.and_then(|m| m.get("kind")).and_then(Value::as_str) == Some("fairness") {
                     if let Some(target) = member.and_then(|m| m.get("target")) {
                         for field in ["declaration", "node", "parallel"] {
-                            join.extend(target.get(field).and_then(CheckedNodeId::from_value));
+                            if let Some(id) = target.get(field).and_then(CheckedNodeId::from_value)
+                            {
+                                let id = charged_parse(id, meter)?;
+                                meter.insert_owned_id(join, id)?;
+                            }
                         }
                     }
                 }
@@ -2012,12 +2039,21 @@ pub(super) fn application_dependencies(
                         )
                     });
                 if relationship {
-                    join.extend(member_id("population"));
+                    if let Some(id) = member_id("population") {
+                        let id = charged_parse(id, meter)?;
+                        meter.insert_owned_id(join, id)?;
+                    }
                 }
             }
-            CheckedTerm::Aggregate { members } => pending.extend(members),
-            CheckedTerm::OperationAnchorBody(body) => pending.extend(&body.members),
-            CheckedTerm::Binding { value, .. } => pending.push(value),
+            CheckedTerm::Aggregate { members } => {
+                meter.room(&mut pending, members.len())?;
+                pending.extend(members);
+            }
+            CheckedTerm::OperationAnchorBody(body) => {
+                meter.room(&mut pending, body.members.len())?;
+                pending.extend(&body.members);
+            }
+            CheckedTerm::Binding { value, .. } => meter.push(&mut pending, value.as_ref())?,
             // These bodies do not contribute local application dependencies.
             CheckedTerm::Literal { .. }
             | CheckedTerm::DependencyReference { .. }
@@ -2028,7 +2064,18 @@ pub(super) fn application_dependencies(
             | CheckedTerm::NominalBody(_) => {}
         }
     }
-    contains_application.then_some(join)
+    Ok(contains_application)
+}
+
+/// Charges the memory of an ID just read out of a document value. The value
+/// read itself is the bridge the wire migration removes; this makes the
+/// copy the join keeps visible to the budget.
+fn charged_parse(
+    id: CheckedNodeId,
+    meter: &mut WorkMeter,
+) -> Result<CheckedNodeId, ValidationFailure> {
+    meter.charge_id_memory(&id)?;
+    Ok(id)
 }
 
 /// An `aggregate` term's members.
@@ -2087,6 +2134,7 @@ mod tests {
     use crate::checked_package::shared::checked_node_comparisons;
     use ix_trace_rs::trace;
     use serde_json::json;
+    use std::collections::BTreeSet;
 
     #[trace("TC-048", "FR-038-AC-380")]
     #[test]
@@ -2248,30 +2296,58 @@ mod tests {
             ],
         });
         let term = super::super::CheckedTerm::decode_admitted(&body).expect("closed application");
-        let join = application_dependencies(&term).expect("the body holds an application");
-        let expected: BTreeSet<CheckedNodeId> = ['a', 'b', 'c']
+        let mut meter = WorkMeter::new(u64::MAX);
+        let join = application_dependencies(&term, &mut meter)
+            .ok()
+            .flatten()
+            .expect("the body holds an application");
+        let expected: Vec<CheckedNodeId> = ['a', 'b', 'c']
             .into_iter()
             .map(|fill| CheckedNodeId::from_value(&id(fill)).expect("node id"))
+            .collect::<BTreeSet<_>>()
+            .into_iter()
             .collect();
         assert_eq!(join, expected);
+        // The join's blocks are requested before they are made: the measured
+        // requirement admits and one byte below is denied.
+        let measure = |limit: u64| {
+            let mut budget =
+                crate::NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
+            let mut meter = WorkMeter::over(&mut budget);
+            let joined = application_dependencies(&term, &mut meter);
+            drop(meter);
+            (joined.ok(), budget.read_storage_consumed())
+        };
+        let (found, spent) = measure(u64::MAX);
+        assert_eq!(found, Some(Some(expected.clone())));
+        assert!(spent > 0);
+        assert_eq!(measure(spent).0, found, "the measured limit admits");
+        assert_eq!(measure(spent - 1).0, None, "one byte short is denied");
         assert_eq!(
             application_dependencies(
                 &super::super::CheckedTerm::decode_admitted(
                     &json!({"term": "reference", "target": id('a')}),
                 )
                 .expect("closed reference"),
-            ),
-            None
+                &mut meter,
+            )
+            .ok(),
+            Some(None)
         );
         // An unparseable member declaration is left to the operation stage.
         let mut malformed = body.clone();
         malformed["operation"]["member"]["declaration"] = json!("not a node key");
-        let expected: BTreeSet<CheckedNodeId> = ['a', 'b']
+        let expected: Vec<CheckedNodeId> = ['a', 'b']
             .into_iter()
             .map(|fill| CheckedNodeId::from_value(&id(fill)).expect("node id"))
+            .collect::<BTreeSet<_>>()
+            .into_iter()
             .collect();
         let malformed =
             super::super::CheckedTerm::decode_admitted(&malformed).expect("closed application");
-        assert_eq!(application_dependencies(&malformed), Some(expected));
+        assert_eq!(
+            application_dependencies(&malformed, &mut meter).ok(),
+            Some(Some(expected))
+        );
     }
 }
