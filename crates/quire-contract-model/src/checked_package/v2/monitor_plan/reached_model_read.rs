@@ -1149,7 +1149,10 @@ mod tests {
             wire["semantic_graph"]["nodes"][clause_at]["body"]["arguments"][0]["target"].clone();
         let parameter_at = monitor_plan_fixtures::position(wire, &parameter);
         let subject_type = monitor_plan_fixtures::type_node(
-            wire, "reference", aggregate(vec![reference(&model)]), "MonitorSubject",
+            wire,
+            "reference",
+            aggregate(vec![reference(&model)]),
+            "MonitorSubject",
         );
         let subject_type_at = monitor_plan_fixtures::position(wire, &subject_type);
         wire["semantic_graph"]["nodes"][parameter_at]["semantic_type"] = subject_type;
