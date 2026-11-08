@@ -1840,7 +1840,15 @@ pub(super) fn validate_nominal_nodes<B>(
             }
             _ => return Err(invalid(site.nominal_member(&[]))),
         };
-        meter.charge(1, || site.nominal_member(&[]))?;
+        let at = super::natural::site(
+            meter,
+            super::stage_storage::Path::root()
+                .key("semantic_graph")
+                .key("nodes")
+                .index(position)
+                .key("body"),
+        );
+        super::natural::work_at(meter, at, 1)?;
         match record {
             NominalRecord::EnumDeclaration(declaration) => {
                 validate_enum_declaration(declaration, &site, &graph, lock, meter)?;

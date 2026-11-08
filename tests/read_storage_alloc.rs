@@ -12,7 +12,7 @@
 #[path = "it/support/checked_package.rs"]
 mod checked_package;
 
-use checked_package::{canonical, evidence_for, v2_all_families};
+use checked_package::{canonical, evidence_for, v2_all_families, v2_nominal};
 use ix_trace_rs::trace;
 use quire_contract_model::{
     initialize_operation_catalog, CheckedPackageEvidence, CheckedPackageV2,
@@ -565,3 +565,82 @@ fn original_dedicated_counter_observes_only_its_original_read() {
 #[cfg(feature = "test-support")]
 #[path = "it/support/canonical_class_denial.rs"]
 mod canonical_class_denial;
+
+#[trace("TC-472", "FR-038-AC-511")]
+#[test]
+fn nominal_validation_work_denial_prepays_its_original_body_pointer() {
+    use quire_contract_model::{
+        NativeJoinChargeKind, NativeJoinLocus, NativeJoinLocusSource, PackageReadResource,
+        PackageReadStage,
+    };
+    let wire = v2_nominal();
+    let bytes = canonical(&wire);
+    let evidence = evidence_for(&wire);
+    let limits = generous_limits();
+    let ample =
+        read_allocation_proof::measure_at::<ThreadCounter>(&bytes, &evidence, limits, 13, u64::MAX);
+    let CheckedPackageV2BudgetedReadResult::BudgetIncomplete(outcome) = &ample.result else {
+        panic!(
+            "the original Work13 control must return its affordable diagnostic: {:?}",
+            ample.result
+        );
+    };
+    assert_eq!(outcome.denied.resource, PackageReadResource::Work);
+    assert_eq!(outcome.denied.amount, 1);
+    assert_eq!(outcome.limit, 13);
+    assert_eq!(outcome.consumed, 14);
+    let path = outcome.path.as_ref().expect("original body pointer");
+    assert_eq!(path.as_str(), "/semantic_graph/nodes/2/body");
+    let locus = NativeJoinLocus {
+        source: NativeJoinLocusSource::PackageRead(PackageReadStage::Graph, 0),
+        form: "dependency_order",
+    };
+    assert_eq!(
+        ample.budget.first_unpaid_locus(),
+        Some(locus),
+        "preserve the caller's inherited first-denial locus"
+    );
+    let denied = ample.budget.first_unpaid().expect("first unpaid Work");
+    assert_eq!(denied.kind, NativeJoinChargeKind::Work);
+    assert_eq!(denied.amount, 1);
+    assert!(ample.budget.first_unpaid_read_storage().is_none());
+    let paid = ample.budget.read_storage_consumed();
+    let pointer_bytes = u64::try_from(path.as_str().len()).expect("bounded pointer");
+    let prefix = paid
+        .checked_sub(pointer_bytes)
+        .expect("actual prefix before the only outcome pointer");
+    let exact =
+        read_allocation_proof::measure_at::<ThreadCounter>(&bytes, &evidence, limits, 13, paid);
+    assert_eq!(exact.result, ample.result);
+    assert_eq!(exact.requested, ample.requested);
+    let short =
+        read_allocation_proof::measure_at::<ThreadCounter>(&bytes, &evidence, limits, 13, paid - 1);
+    let CheckedPackageV2BudgetedReadResult::Exhausted(exhausted) = &short.result else {
+        panic!(
+            "one below the actual diagnostic request must exhaust: {:?}",
+            short.result
+        );
+    };
+    assert_eq!(exhausted.denied, outcome.denied);
+    assert_eq!(exhausted.configured_bound, 13);
+    assert_eq!(exhausted.locus, locus);
+    assert!(exhausted.pending.is_none());
+    assert_eq!(short.budget.first_unpaid(), Some(denied));
+    assert!(
+        short.budget.first_unpaid_read_storage().is_none(),
+        "the original Work denial remains first when its diagnostic storage is denied"
+    );
+    assert_eq!(
+        short.requested, prefix,
+        "the denied pointer makes no allocation request"
+    );
+    assert_eq!(short.budget.read_storage_consumed(), prefix);
+    let repeated =
+        read_allocation_proof::measure_at::<ThreadCounter>(&bytes, &evidence, limits, 13, paid - 1);
+    assert_eq!(repeated.result, short.result);
+    assert_eq!(repeated.budget, short.budget);
+    assert_eq!(repeated.requested, short.requested);
+    for observation in [ample, exact, short, repeated] {
+        drop_without_request::<ThreadCounter>(observation);
+    }
+}
