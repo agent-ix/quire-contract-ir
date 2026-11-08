@@ -2403,7 +2403,7 @@ fn map_operation_ids(
 pub(in crate::checked_package) enum CheckedTermView<'a> {
     Application { arguments: &'a [Value] },
     Aggregate { members: &'a [Value] },
-    Binding { value: &'a Value },
+    Binding { _value: &'a Value },
     Reference,
     Literal,
 }
@@ -2487,7 +2487,7 @@ impl CheckedTerm {
                         .is_some() =>
             {
                 Some(CheckedTermView::Binding {
-                    value: wire.field(TermField::Value)?,
+                    _value: wire.field(TermField::Value)?,
                 })
             }
             TermTag::Known(BodyTerm::Reference) if exact_members(object, &["term", "target"]) => {

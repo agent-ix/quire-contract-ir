@@ -1017,6 +1017,7 @@ pub enum ExecutionPoint {
 
 impl ExecutionPoint {
     /// Decode a closed V2 point without authored identifier validation.
+    #[cfg(test)]
     pub(crate) fn from_wire(value: &serde_json::Value) -> Option<Self> {
         Self::deserialize(value).ok()
     }

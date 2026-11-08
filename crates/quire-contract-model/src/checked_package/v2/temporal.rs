@@ -150,6 +150,7 @@ impl IntegerString {
 
     /// The integer `text` spells, outside a budgeted read.
     #[ix_trace_rs::string_edge]
+    #[cfg(test)]
     pub(in crate::checked_package) fn parse(text: &str) -> Option<Self> {
         let (negative, digits) = Self::parts(text)?;
         Some(Self {
@@ -651,11 +652,10 @@ pub(super) fn validate_temporal(
             == Some(&CheckedNodeKind::Temporal(TemporalForm::TemporalClause))
         {
             check_clause(
-                context.catalog,
+                &context,
                 position,
                 &graph,
                 terms,
-                context.lock,
                 clock_units
                     .binary_search_by(|(declaration, _)| {
                         (*declaration).cmp(&graph.nodes[position].node_id)
@@ -1119,16 +1119,17 @@ fn temporal_fault(
 /// missing argument) is skipped here.
 #[ix_trace_rs::string_edge]
 fn check_clause(
-    catalog: &OperationCatalog,
+    context: &TemporalContext<'_>,
     position: usize,
     graph: &StepGraph<'_, '_>,
     terms: &[Option<CheckedTerm>],
-    lock: &CheckedPackageLockV2,
     clock_unit: Option<&str>,
     meter: &mut WorkMeter,
     covered: &mut [bool],
     stamps: &mut Stamps,
 ) -> Result<(), ValidationFailure> {
+    let catalog = context.catalog;
+    let lock = context.lock;
     let node = &graph.nodes[position];
     meter.at_node(position, super::graph_storage::node_form(&node.node_tag));
     let Some(operation) = operation_of(terms.get(position).and_then(Option::as_ref)) else {
@@ -1154,7 +1155,7 @@ fn check_clause(
         .first()
         .and_then(typed_reference)
         .is_some_and(|over| {
-            graph.node(&over).is_some_and(|(parameter, kind)| {
+            graph.node(over).is_some_and(|(parameter, kind)| {
                 kind == CheckedNodeKind::Value(ValueForm::Parameter)
                     && graph
                         .node(&parameter.semantic_type)
@@ -1200,9 +1201,9 @@ fn check_clause(
     // frame entry's refusal is, the target's key as locus; a target that is no
     // node has none, so the clause's key stands.
     if let Some(over) = arguments.first().and_then(typed_reference) {
-        let refusal = match graph.node(&over) {
+        let refusal = match graph.node(over) {
             None => Some((ModelRefusal::missing_name(), &node.node_id)),
-            Some(_) if !node.dependencies.contains(&over) => {
+            Some(_) if !node.dependencies.contains(over) => {
                 Some((ModelRefusal::missing_name(), over))
             }
             Some((_, kind)) if kind != CheckedNodeKind::Value(ValueForm::Parameter) => {
@@ -2006,7 +2007,7 @@ fn fairness_member(
     let Some(target) = typed_reference(entry) else {
         return Ok(None);
     };
-    let Some(&position) = graph.index.get(&target) else {
+    let Some(&position) = graph.index.get(target) else {
         return Ok(None);
     };
     if graph.kinds.get(position) != Some(&CheckedNodeKind::Temporal(TemporalForm::Fairness)) {
@@ -2516,7 +2517,7 @@ fn check_hyper_fairness(
                 _ => None,
             })
         });
-        let alias_package = alias_root.and_then(|root| match graph.node(&root)? {
+        let alias_package = alias_root.and_then(|root| match graph.node(root)? {
             (node, CheckedNodeKind::Model(ModelForm::ModelRoot)) => match node.owner.as_ref()? {
                 super::CheckedNodeOwner::ModelRoot { identity } => Some(identity.clone()),
                 _ => None,
@@ -2589,7 +2590,7 @@ fn formula_intervals(
     let mut pending: Vec<usize> = meter.vec(graph.nodes.len())?;
     if let Some(start) = root
         .and_then(typed_reference)
-        .and_then(|target| graph.index.get(&target).copied())
+        .and_then(|target| graph.index.get(target).copied())
     {
         meter.push(&mut pending, start)?;
     }

@@ -60,6 +60,7 @@ pub(super) struct LoweringNodeFacts {
 /// Assign SCCs from the exact lowering edges. Graph admission also validates
 /// extension-body targets, but lowering does not follow those targets; using
 /// the admission SCCs would add nodes to a lowering closure in that case.
+#[cfg(test)]
 pub(super) fn assign_components(facts: &mut [LoweringNodeFacts]) {
     let mut meter = super::WorkMeter::new(u64::MAX);
     assign_components_charged(facts, &mut meter).expect("unlimited lowering storage");
@@ -71,7 +72,7 @@ pub(super) fn assign_components_charged(
 ) -> Result<(), ValidationFailure> {
     let size = facts.len();
     let mut incoming_counts = meter.filled(size, 0_usize)?;
-    for (source, fact) in facts.iter().enumerate() {
+    for fact in facts.iter() {
         for &(target, _) in &fact.successors {
             if let Some(count) = incoming_counts.get_mut(target) {
                 *count = count.saturating_add(1);
@@ -757,8 +758,7 @@ impl CheckedPackageV2 {
                             let role = match site.member {
                                 ReferenceMember::Type => EdgeRole::Annotation,
                                 ReferenceMember::Target
-                                | ReferenceMember::ResultType
-                                | ReferenceMember::FrameEntry => EdgeRole::Typing,
+                                | ReferenceMember::ResultType => EdgeRole::Typing,
                             };
                             successors.push((resolved, role));
                         }

@@ -1079,11 +1079,11 @@ fn check_quantity_conversion(
     let Some(source_type) = source_type else {
         return Some(ineligible());
     };
-    let source_unit = carried_unit_and_mode(&source_type, graph)
+    let source_unit = carried_unit_and_mode(source_type, graph)
         .map(|(unit, _)| unit)
-        .or_else(|| bounded_unit(&source_type, graph))
+        .or_else(|| bounded_unit(source_type, graph))
         .or_else(|| {
-            let position = *graph.index.get(&source_type)?;
+            let position = *graph.index.get(source_type)?;
             (graph.kinds.get(position) == Some(&CheckedNodeKind::ScalarType(ScalarTypeForm::Unit)))
                 .then(|| &graph.nodes[position].node_id)
         });
@@ -1595,7 +1595,7 @@ fn operation_defect(
         .and_then(|argument| {
             operand_type_node_typed(argument, graph.nodes, graph.kinds, graph.index)
         })
-        .and_then(|type_id| owners.variant_family(&type_id));
+        .and_then(|type_id| owners.variant_family(type_id));
     if matches!(
         (operation.identity.as_ref(), selected_variant_family),
         ("quire.op.enum.eq" | "quire.op.enum.ne", Some("union"))
@@ -1851,10 +1851,10 @@ fn argument_family(
             let type_node =
                 operand_type_node_typed_with_lookup(argument, nodes, kinds, index, fast_index)?;
             owners.map_or_else(
-                || resolve_family_with_lookup(&type_node, nodes, kinds, index, fast_index),
+                || resolve_family_with_lookup(type_node, nodes, kinds, index, fast_index),
                 |owners| {
                     resolve_family_from_selected_with_lookup(
-                        &type_node, nodes, kinds, index, fast_index, owners,
+                        type_node, nodes, kinds, index, fast_index, owners,
                     )
                 },
             )
@@ -2948,7 +2948,7 @@ fn union_arms_hold(
         return Ok(false);
     };
     let Some(members) = union_type(
-        &type_id,
+        type_id,
         graph,
         owners,
         meter,
@@ -3047,7 +3047,7 @@ fn binder_matches_payload(
     meter: &mut WorkMeter,
 ) -> Result<bool, ValidationFailure> {
     let Some(position) =
-        referenced_type(binder).and_then(|target| graph.index.get(&target).copied())
+        referenced_type(binder).and_then(|target| graph.index.get(target).copied())
     else {
         return Ok(false);
     };
@@ -3346,7 +3346,7 @@ fn body_root_defect(
     let Some(root_type) = root_type else {
         return Ok(None);
     };
-    if conforms_to_type(&node.semantic_type, Some(&root_type), graph, owners, meter)? {
+    if conforms_to_type(&node.semantic_type, Some(root_type), graph, owners, meter)? {
         return Ok(None);
     }
     Ok(Some(ValidationFailure::refused_at(
@@ -3386,7 +3386,7 @@ fn check_function_call(
     let Some(callee) = arguments.first().and_then(referenced_type) else {
         return Ok(None);
     };
-    let Some(&callee) = index.get(&callee) else {
+    let Some(callee) = index.get(callee) else {
         return Ok(None);
     };
     if kinds[callee].tag() != CheckedNodeTag::Function {
@@ -3477,7 +3477,7 @@ fn check_reference_edge(
             graph.kinds,
             graph.index,
         )?;
-        reference_target(&type_id, graph)
+        reference_target(type_id, graph)
     };
     let declaring = member_declaration(operation)
         .and_then(|declaration| graph.index.get(declaration).copied())
@@ -3563,7 +3563,7 @@ fn check_reference_edge(
     let Some(end) = reference_operand(target) else {
         return ineligible(argument_at(target));
     };
-    let Some(end_position) = graph.index.get(&end).copied() else {
+    let Some(end_position) = graph.index.get(end).copied() else {
         return ineligible(argument_at(target));
     };
     let end_node = &graph.nodes[end_position];
@@ -3781,10 +3781,10 @@ fn check_relationship_member(
         else {
             return Ok(None);
         };
-        let Some(target) = reference_target(&type_id, graph) else {
+        let Some(target) = reference_target(type_id, graph) else {
             return Ok(None);
         };
-        let Some(&at) = graph.index.get(&target) else {
+        let Some(&at) = graph.index.get(target) else {
             return Ok(None);
         };
         let node = &graph.nodes[at];
@@ -3984,10 +3984,10 @@ fn check_conforming_reference(
         }) else {
             return Ok(None);
         };
-        let Some(target) = reference_target(&type_id, graph) else {
+        let Some(target) = reference_target(type_id, graph) else {
             return ineligible(position);
         };
-        let Some(target_position) = graph.index.get(&target) else {
+        let Some(target_position) = graph.index.get(target) else {
             return Ok(None);
         };
         let target_node = &graph.nodes[*target_position];
@@ -4045,7 +4045,7 @@ fn check_inner_result(
         graph.kinds,
         graph.index,
     )?;
-    let inner = reference_target(&type_id, graph)?;
+    let inner = reference_target(type_id, graph)?;
     let result_type = graph
         .terms
         .get(application.position)
@@ -4055,7 +4055,7 @@ fn check_inner_result(
             _ => None,
         });
     let typed =
-        result_type == Some(&inner) && resolve_selected_family(&inner, graph, owners).is_some();
+        result_type == Some(inner) && resolve_selected_family(inner, graph, owners).is_some();
     (!typed).then(|| {
         application.refuse(
             CheckedPackageRefusalCode::IllTyped,
@@ -4133,7 +4133,7 @@ fn check_place_presence(
             .and_then(|argument| {
                 operand_type_node_typed(argument, graph.nodes, graph.kinds, graph.index)
             })
-            .and_then(|type_id| resolve_selected_family(&type_id, graph, owners))
+            .and_then(|type_id| resolve_selected_family(type_id, graph, owners))
             == Some("option");
         if option {
             return Ok(false);
@@ -4566,7 +4566,7 @@ fn check_mode_type(
                 kinds,
                 index,
             )?;
-            let family = resolve_selected_family(&type_id, graph, owners)?;
+            let family = resolve_selected_family(type_id, graph, owners)?;
             catalog.family_fits(family, expected).then_some(type_id)
         });
     // A conversion is pinned by its result alone. Other operations compare
@@ -4578,10 +4578,10 @@ fn check_mode_type(
             .flatten(),
     );
     for type_id in types {
-        let Some(family) = resolve_selected_family(&type_id, graph, owners) else {
+        let Some(family) = resolve_selected_family(type_id, graph, owners) else {
             continue;
         };
-        let pin = type_pin(&type_id, mode_kind, terms, index).or_else(|| {
+        let pin = type_pin(type_id, mode_kind, terms, index).or_else(|| {
             (mode_kind == OperationModeKind::Rounding
                 && matches!(family, "decimal" | "float32" | "float64" | "quantity"))
             .then_some("exact")
@@ -5678,7 +5678,7 @@ fn check_leaf_count(
                 .and_then(|argument| operand_type_node_typed(argument, nodes, kinds, index))
             {
                 Some(ty) => {
-                    inner_type(&ty, graph, work.meter, work.structural, &operation_at)?.map(Some)
+                    inner_type(ty, graph, work.meter, work.structural, &operation_at)?.map(Some)
                 }
                 None => None,
             }

@@ -593,20 +593,6 @@ pub(super) struct ContractPackageTraversalIndex<'a> {
     accounting: BTreeMap<&'a CheckedNodeId, &'a ContractFeatureRecordV1>,
 }
 
-fn json_value_count(root: &Value) -> Option<u64> {
-    let mut pending = vec![root];
-    let mut count = 0_u64;
-    while let Some(value) = pending.pop() {
-        count = count.checked_add(1)?;
-        match value {
-            Value::Array(values) => pending.extend(values.iter()),
-            Value::Object(values) => pending.extend(values.values()),
-            _ => {}
-        }
-    }
-    Some(count)
-}
-
 fn decode_admitted_body(
     _kind: CheckedNodeKind,
     body: &super::CheckedJson,
@@ -3322,7 +3308,7 @@ impl ContractPackageWireV1 {
     fn validate_references(
         &self,
         dependencies: &ContractDependencies<'_>,
-        limits: CheckedPackageReadLimits,
+        _limits: CheckedPackageReadLimits,
         meter: &mut super::WorkMeter,
         frames: &ContractFrameKeys,
     ) -> Result<Vec<Option<CheckedTerm>>, ValidationFailure> {
@@ -3473,7 +3459,7 @@ impl ContractPackageWireV1 {
         // this reader does not have the originating source or model documents.
         // In particular, a reference type cannot acquire a scalar target just
         // because the scalar key exists in this graph.
-        for (position, (node, kind)) in self.semantic_graph.nodes.iter().zip(&kinds).enumerate() {
+        for (position, (_node, kind)) in self.semantic_graph.nodes.iter().zip(&kinds).enumerate() {
             if *kind == super::CheckedNodeKind::CompositeType(super::CompositeTypeForm::Reference) {
                 let target = terms
                     .get(position)

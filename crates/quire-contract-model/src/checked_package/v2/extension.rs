@@ -685,7 +685,7 @@ mod tests {
                 .enumerate()
                 .map(|(position, node)| (&node.node_id, position))
                 .collect();
-            index.sort_unstable_by(|(left, _), (right, _)| left.cmp(right));
+            index.sort_unstable_by_key(|(left, _)| *left);
             let mut meter = WorkMeter::new(100_000);
             let result = validate(
                 &self.wire,
@@ -711,7 +711,7 @@ mod tests {
                 .enumerate()
                 .map(|(position, node)| (&node.node_id, position))
                 .collect();
-            index.sort_unstable_by(|(left, _), (right, _)| left.cmp(right));
+            index.sort_unstable_by_key(|(left, _)| *left);
             let mut budget = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
             let result = validate(
                 &self.wire,

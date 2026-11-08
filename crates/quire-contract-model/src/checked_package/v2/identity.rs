@@ -1958,7 +1958,7 @@ fn validate_dimension_equivalence(
             CheckedDimensionOperand::Local(_) => {
                 require(
                     id.package == site.node.node_id.package && graph.index.contains_key(id),
-                    &at,
+                    at,
                 )?;
             }
             CheckedDimensionOperand::Package(reference) => {
@@ -1982,7 +1982,7 @@ fn validate_dimension_equivalence(
         }
         require(
             matches!(graph.nominal(id), Some(NominalRecord::Dimension(_))),
-            &at,
+            at,
         )?;
     }
     require(ids[0] < ids[1], || site.pointer())?;

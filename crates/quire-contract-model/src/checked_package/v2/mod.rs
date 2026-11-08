@@ -1349,17 +1349,6 @@ fn refuse(code: CheckedPackageRefusalCode, path: JsonPointer) -> ValidationFailu
     ValidationFailure::refused(code, path)
 }
 
-/// A refusal located at a specific graph node, carrying the cause this stage
-/// determined (if any) and the node key of the offending entry or node.
-fn refuse_at(
-    code: CheckedPackageRefusalCode,
-    path: JsonPointer,
-    cause: Option<CheckedPackageRefusalCause>,
-    locus: CheckedNodeId,
-) -> ValidationFailure {
-    ValidationFailure::refused_at(code, path, cause, locus)
-}
-
 /// The pointer of a fixed member path from the document root.
 fn member_pointer(keys: &[&str]) -> JsonPointer {
     keys.iter()
@@ -4289,8 +4278,7 @@ fn validate_graph(
             let role = match site.member {
                 ReferenceMember::Type => lower::EdgeRole::Annotation,
                 ReferenceMember::Target
-                | ReferenceMember::ResultType
-                | ReferenceMember::FrameEntry => lower::EdgeRole::Typing,
+                | ReferenceMember::ResultType => lower::EdgeRole::Typing,
             };
             // The extension reader uses its targets for graph admission, but
             // the lowering body grammar charges no extension-body reference

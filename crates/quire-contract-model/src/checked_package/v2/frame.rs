@@ -130,6 +130,7 @@ pub(super) struct FrameBody {
 impl FrameBody {
     /// Retains the already validated frame as the public typed term. This
     /// avoids a second generic JSON decode of nested structural node IDs.
+    #[cfg(test)]
     pub(super) fn into_checked_term(
         self,
         meter: &mut WorkMeter,

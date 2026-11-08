@@ -1047,19 +1047,6 @@ impl<K: Ord, V> SortedTable<K, V> {
     }
 }
 
-/// The position of the first of each distinct key of `keys`, as a sorted
-/// exact-capacity table (charged first).
-pub(super) fn first_positions<K: Ord>(
-    keys: impl ExactSizeIterator<Item = K>,
-    meter: &mut WorkMeter,
-) -> Result<SortedTable<K, usize>, ValidationFailure> {
-    let mut entries = meter.vec::<(K, usize)>(keys.len())?;
-    entries.extend(keys.enumerate().map(|(position, key)| (key, position)));
-    Ok(SortedTable::from_vec(entries, |left, right| {
-        left.cmp(right)
-    }))
-}
-
 /// The index of the first key of `keys` equal to an earlier one, found by
 /// sorting an exact-capacity table of the keys (charged first).
 pub(super) fn first_repeat<K: Ord>(
