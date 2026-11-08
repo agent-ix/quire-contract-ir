@@ -373,8 +373,8 @@ pub(in crate::checked_package::v2) fn checked_member_type_bytes(
                 total += boxed;
                 cursor = inner;
             }
-            super::MemberType::Collection { element, .. } => {
-                total += boxed;
+            super::MemberType::Collection { kind, element, .. } => {
+                total += boxed + kind.len();
                 cursor = element;
             }
             super::MemberType::CarriedRational(_, unit) => {
