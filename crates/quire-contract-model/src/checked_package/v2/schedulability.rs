@@ -490,6 +490,53 @@ fn greater(
     )
 }
 
+/// The claim nodes in structural-key order: one exact block, charged before
+/// it is made. Ranks order the keys without a comparison that allocates;
+/// positions are unique, so the unstable sort is deterministic.
+fn claim_order(
+    kinds: &[CheckedNodeKind],
+    index: &GraphIndex<'_>,
+    structural_keys: &[std::sync::Arc<CheckedNodeId>],
+    meter: &mut WorkMeter,
+) -> Result<Vec<usize>, ValidationFailure> {
+    let claims = index.values().filter(|&&p| claim(kinds[p])).count();
+    let mut order: Vec<usize> = meter.vec(claims)?;
+    order.extend(index.values().copied().filter(|&p| claim(kinds[p])));
+    order.sort_unstable_by_key(|&p| index.resolved_at(p, structural_keys));
+    Ok(order)
+}
+
+/// Records a task's integer priority in the sorted set of the claim:
+/// `true` when it is new, `false` when it repeats or is not an integer
+/// literal. The value is read by a parse that charges its limbs, and the set
+/// grows under the meter.
+fn record_priority(
+    term: &CheckedTerm,
+    priorities: &mut Vec<quire_exact::Integer>,
+    meter: &mut WorkMeter,
+) -> Result<bool, ValidationFailure> {
+    let CheckedTerm::Literal {
+        value_kind: LiteralKind::Integer,
+        value,
+        ..
+    } = term
+    else {
+        return Ok(false);
+    };
+    let priority = match value {
+        serde_json::Value::String(text) => meter.exact_integer(text)?,
+        serde_json::Value::Number(number) => number
+            .as_i64()
+            .map(quire_exact::Integer::from)
+            .or_else(|| number.as_u64().map(quire_exact::Integer::from)),
+        _ => None,
+    };
+    match priority {
+        Some(priority) => meter.insert_sorted(priorities, priority),
+        None => Ok(false),
+    }
+}
+
 #[ix_trace_rs::string_edge]
 pub(super) fn validate_bodies(
     nodes: &[RawSemanticNodeV2],
@@ -500,6 +547,9 @@ pub(super) fn validate_bodies(
     models: &[super::model_members::DomainModel],
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
+    // The site is the caller's again once the claims are checked.
+    let caller = meter.site();
+    meter.at_node(0, "claim_order");
     // Of two models with one identity the later one is kept, as a map built
     // by insertion would hold; the slice address orders them.
     let mut identified = meter.vec::<(&str, &super::model_members::DomainModel)>(models.len())?;
@@ -507,14 +557,10 @@ pub(super) fn validate_bodies(
     let models = SortedTable::from_vec(identified, |left, right| {
         std::ptr::from_ref(*right).cmp(&std::ptr::from_ref(*left))
     });
-    let claims = index.values().filter(|&&p| claim(kinds[p])).count();
-    let mut order: Vec<usize> = meter.vec(claims)?;
-    order.extend(index.values().copied().filter(|&p| claim(kinds[p])));
-    // Ranks order the keys without a comparison that allocates; positions
-    // are unique, so the unstable sort is deterministic.
-    order.sort_unstable_by_key(|&p| index.resolved_at(p, structural_keys));
+    let order = claim_order(kinds, index, structural_keys, meter)?;
     for p in order {
         let node = &nodes[p];
+        meter.at_node(p, super::graph_storage::node_form(&node.node_tag));
         if node
             .occurrences
             .iter()
@@ -666,7 +712,7 @@ pub(super) fn validate_bodies(
             }
             common_unit = Some(read.type_id);
         }
-        let mut priorities = Vec::new();
+        let mut priorities: Vec<quire_exact::Integer> = Vec::new();
         for (i, task) in tasks.iter().enumerate() {
             let task_at = task_at.clone().key("value").key("members").index(i);
             let b = |j| admitted_bound(task, j);
@@ -683,12 +729,8 @@ pub(super) fn validate_bodies(
             }
             if policy == "edf" {
                 valid &= zero(b(9)) && zero(b(10));
-            } else if let Some(read) = b(8).literal_read() {
-                if let CheckedLiteralValue::Integer(priority) = read.value {
-                    valid &= meter.insert_sorted(&mut priorities, priority)?;
-                }
             } else {
-                valid = false;
+                valid &= record_priority(b(8), &mut priorities, meter)?;
             }
             if valid && policy == "amc" {
                 valid = !greater(b(3), b(2), meter, &task_at)?;
@@ -702,6 +744,7 @@ pub(super) fn validate_bodies(
             }
         }
     }
+    meter.restore_site(caller);
     Ok(())
 }
 
@@ -905,8 +948,7 @@ mod tests {
     /// copying: for several models, two sharing an identity, the bytes the
     /// allocator is asked for equal the bytes charged, the measured
     /// requirement admits and one byte below is denied (FR-038-AC-504). The
-    /// claim order and priority set are charged the same way and are reached
-    /// by the graph-stage exactness fixtures, not by this model-only call.
+    /// claim order and the priority set have their own oracles below.
     #[trace("TC-472", "FR-038-AC-504")]
     #[test]
     fn model_table_allocates_exactly_what_it_charges() {
@@ -958,5 +1000,159 @@ mod tests {
         assert_eq!(allocated, charged, "allocated == requested");
         assert_eq!(run(charged).0, outcome, "the measured limit admits");
         assert_eq!(run(charged - 1).0, None, "one byte short is denied");
+    }
+
+    /// The claim order is one exact block charged before it is made, at the
+    /// graph locus: the bytes the allocator is asked for equal the bytes
+    /// charged, the measured requirement admits and one byte below is denied
+    /// at `PackageRead(Graph, 0)` (FR-038-AC-504). Claims are listed against
+    /// the key order and mixed with other nodes.
+    #[trace("TC-472", "FR-038-AC-504")]
+    #[test]
+    fn claim_order_allocates_exactly_what_it_charges() {
+        use super::super::native_join_budget::{
+            NativeJoinLocus, NativeJoinLocusSource, PackageReadStage,
+        };
+        let id = |name: &str| CheckedNodeId {
+            package: "example".into(),
+            path: vec![crate::CheckedNodePathSegment::Name(name.into())],
+            ordinal: 0,
+        };
+        let names = ["m", "c", "x", "a", "z", "k", "b"];
+        let ids: Vec<CheckedNodeId> = names.iter().map(|name| id(name)).collect();
+        let kinds: Vec<CheckedNodeKind> = names
+            .iter()
+            .map(|name| {
+                if matches!(*name, "x" | "k") {
+                    CheckedNodeKind::ScalarType(ScalarTypeForm::Boolean)
+                } else {
+                    CheckedNodeKind::Claim(ClaimForm::Schedulability)
+                }
+            })
+            .collect();
+        let index = ids
+            .iter()
+            .enumerate()
+            .map(|(position, id)| (id, position))
+            .collect::<GraphIndex<'_>>();
+        let keys: Vec<std::sync::Arc<CheckedNodeId>> =
+            ids.iter().cloned().map(std::sync::Arc::new).collect();
+        let run = |limit: u64| {
+            let mut budget = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
+            let mut order = None;
+            let measured = allocation_counter::measure(|| {
+                let mut meter = WorkMeter::over(&mut budget);
+                meter.at_node(0, "claim_order");
+                order = Some(claim_order(&kinds, &index, &keys, &mut meter));
+            });
+            (
+                order.expect("ran").ok(),
+                measured.bytes_total,
+                budget.read_storage_consumed(),
+                budget.first_unpaid_locus(),
+            )
+        };
+        let (order, allocated, charged, _) = run(u64::MAX);
+        let names_in_order: Vec<&str> = order
+            .as_ref()
+            .expect("the order")
+            .iter()
+            .map(|&p| names[p])
+            .collect();
+        assert_eq!(names_in_order, ["a", "b", "c", "m", "z"]);
+        assert!(charged > 0);
+        assert_eq!(allocated, charged, "allocated == requested");
+        assert_eq!(run(charged).0, order, "the measured limit admits");
+        let (short, _, _, locus) = run(charged - 1);
+        assert_eq!(short, None, "one byte short is denied");
+        assert_eq!(
+            locus,
+            Some(NativeJoinLocus {
+                source: NativeJoinLocusSource::PackageRead(PackageReadStage::Graph, 0),
+                form: "claim_order",
+            })
+        );
+    }
+
+    /// The priority set grows under the meter and its values are read by a
+    /// parse that charges its limbs: for priorities that repeat, are
+    /// written as JSON numbers, exceed 128 bits or are not integers, the
+    /// bytes the allocator is asked for equal the bytes charged, the
+    /// measured requirement admits and one byte below is denied at the
+    /// claim's graph locus (FR-038-AC-504).
+    #[trace("TC-472", "FR-038-AC-504")]
+    #[test]
+    fn priority_set_allocates_exactly_what_it_charges() {
+        use super::super::native_join_budget::{
+            NativeJoinLocus, NativeJoinLocusSource, PackageReadStage,
+        };
+        let integer = |value: serde_json::Value| CheckedTerm::Literal {
+            type_id: CheckedNodeId {
+                package: "example".into(),
+                path: vec![crate::CheckedNodePathSegment::Name("integer".into())],
+                ordinal: 0,
+            },
+            value_kind: LiteralKind::Integer,
+            value,
+        };
+        let huge = format!("1{}", "0".repeat(60));
+        let mut terms: Vec<CheckedTerm> = (0..40_u64)
+            .map(|n| integer(json!(((n * 7) % 40).to_string())))
+            .collect();
+        terms.push(integer(json!(huge)));
+        terms.push(integer(json!(huge)));
+        terms.push(integer(json!(12345)));
+        terms.push(integer(json!(null)));
+        terms.push(CheckedTerm::Aggregate {
+            members: Vec::new(),
+        });
+        let run = |limit: u64| {
+            let mut budget = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
+            // The record of outcomes is made before the measure starts.
+            let mut outcome = Some(Vec::with_capacity(terms.len()));
+            let mut priorities = Vec::new();
+            let measured = allocation_counter::measure(|| {
+                let mut meter = WorkMeter::over(&mut budget);
+                meter.at_node(3, "claim");
+                for term in &terms {
+                    match record_priority(term, &mut priorities, &mut meter) {
+                        Ok(recorded) => outcome.as_mut().expect("running").push(recorded),
+                        Err(_) => {
+                            outcome = None;
+                            break;
+                        }
+                    }
+                }
+            });
+            let held = priorities.len();
+            drop(priorities);
+            (
+                outcome,
+                held,
+                measured.bytes_total,
+                budget.read_storage_consumed(),
+                budget.first_unpaid_locus(),
+            )
+        };
+        let (outcome, held, allocated, charged, _) = run(u64::MAX);
+        let outcome = outcome.expect("every priority is read");
+        // 40 distinct small values, the huge one and its repeat, a JSON
+        // number, a null and an aggregate.
+        assert_eq!(held, 42);
+        assert!(outcome[..40].iter().all(|&recorded| recorded));
+        assert_eq!(outcome[40..], [true, false, true, false, false]);
+        assert!(charged > 0);
+        assert_eq!(allocated, charged, "allocated == requested");
+        assert!(run(charged).0.is_some(), "the measured limit admits");
+        let (short, _, _, _, locus) = run(charged - 1);
+        assert!(short.is_none(), "one byte short is denied");
+        // The set's growth is charged as the claim; a limb block is charged
+        // as the exact-number library that parses it.
+        let locus = locus.expect("a denied request has a locus");
+        assert_eq!(
+            locus.source,
+            NativeJoinLocusSource::PackageRead(PackageReadStage::Graph, 3)
+        );
+        assert!(matches!(locus.form, "claim" | "exact_number"));
     }
 }

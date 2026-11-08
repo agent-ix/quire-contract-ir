@@ -104,13 +104,11 @@ impl<'b> WorkMeter<'b> {
     }
 
     /// The site now charged.
-    #[allow(dead_code)] // part of the charging toolkit the other read groups fold in
     pub(super) fn site(&self) -> Option<ReadSite> {
         self.site
     }
 
     /// Restores a site returned by [`Self::site`].
-    #[allow(dead_code)] // part of the charging toolkit the other read groups fold in
     pub(super) fn restore_site(&mut self, site: Option<ReadSite>) {
         self.site = site;
     }
