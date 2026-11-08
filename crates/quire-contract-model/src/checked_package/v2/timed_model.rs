@@ -3,25 +3,84 @@
 
 //! Closed timed-model node wire shapes checked before identity validation.
 
-use super::graph_storage::{first_positions, GraphIndex, SortedTable};
+use super::graph_storage::{GraphIndex, SortedTable};
 use super::model_members::{
     Budget, CollectionKind, DomainModel, FieldDecl, MemberKind, ModelFailure, ModelOwners,
     Resolved, SelectedTypeRef,
 };
 use super::native_join_budget::NativeJoinBudget;
 use super::read_charge::{self, Site};
+use super::stage_storage::{self, Refusal};
 use super::TermNode;
 use super::{
     CheckedNodeId, CheckedNodeOwner, CheckedTerm, LiteralKind,
     RawSemanticNodeV2 as CheckedSemanticNodeV2, TimedModelForm,
 };
-use crate::checked_package::common::{node_pointer, ValidationFailure};
+use crate::checked_package::common::{Step, Trail, ValidationFailure};
 use crate::checked_package::shared::{
-    CheckedOccurrenceRole, CheckedPackageRefusalCode, CheckedSourceMapEntry, JsonPointer,
+    CheckedNodeIdOrder, CheckedNodePathSegment, CheckedOccurrenceRole, CheckedPackageRefusalCode,
+    CheckedSourceMapEntry,
 };
 
-fn malformed(at: JsonPointer) -> ValidationFailure {
-    ValidationFailure::refused(CheckedPackageRefusalCode::MalformedWire, at)
+// Timed-model records name at most sixteen closed-schema steps. Arbitrary
+// term depth is inspected by retained handles and never extends these paths.
+#[derive(Clone, Copy)]
+struct Path {
+    steps: [Step<'static>; 18],
+    len: usize,
+    stage: super::PackageReadStage,
+}
+impl Path {
+    fn root() -> Self {
+        Self {
+            steps: [Step::Index(0); 18],
+            len: 0,
+            stage: super::PackageReadStage::Graph,
+        }
+    }
+    fn key(mut self, key: &'static str) -> Self {
+        self.steps[self.len] = Step::Key(key);
+        self.len += 1;
+        self
+    }
+    fn index(mut self, index: usize) -> Self {
+        self.steps[self.len] = Step::Index(index);
+        self.len += 1;
+        self
+    }
+    fn trail(&self) -> Trail<'_> {
+        Trail::Base(&self.steps[..self.len])
+    }
+    fn site(&self) -> stage_storage::Site<'_> {
+        let index = match self.steps[..self.len] {
+            [Step::Key("semantic_graph"), Step::Key("nodes"), Step::Index(index), ..] => index,
+            _ => 0,
+        };
+        stage_storage::Site::new(self.stage, index, "timed_model", self.trail())
+    }
+}
+impl From<&Path> for Path {
+    fn from(path: &Path) -> Self {
+        *path
+    }
+}
+fn node_path(position: usize) -> Path {
+    Path::root()
+        .key("semantic_graph")
+        .key("nodes")
+        .index(position)
+}
+enum WireFailure {
+    Malformed(Path),
+    Storage(ValidationFailure),
+}
+impl From<ValidationFailure> for WireFailure {
+    fn from(failure: ValidationFailure) -> Self {
+        Self::Storage(failure)
+    }
+}
+fn malformed(at: impl Into<Path>) -> WireFailure {
+    WireFailure::Malformed(at.into())
 }
 
 /// The selected model of a package identity.
@@ -71,19 +130,19 @@ pub(super) fn is_base_time_dimension<Body>(
 
 fn aggregate<'a>(
     value: TermNode<'a>,
-    at: &JsonPointer,
+    at: &Path,
     budget: &mut NativeJoinBudget,
     site: Site,
-) -> Result<Vec<TermNode<'a>>, ValidationFailure> {
+) -> Result<Vec<TermNode<'a>>, WireFailure> {
     if !value.exact_members(&["term", "members"])
         || value.kind() != Some(super::BodyTerm::Aggregate)
     {
-        return Err(malformed(at.clone()));
+        return Err(malformed(at));
     }
     let items = value
         .get("members")
         .and_then(TermNode::items)
-        .ok_or_else(|| malformed(at.clone().key("members")))?;
+        .ok_or_else(|| malformed(at.key("members")))?;
     let mut members = Vec::new();
     read_charge::reserve(budget, site, &mut members, items.len())?;
     members.extend(items);
@@ -93,18 +152,18 @@ fn aggregate<'a>(
 fn bindings<'a>(
     value: TermNode<'a>,
     names: &[&str],
-    at: &JsonPointer,
+    at: &Path,
     budget: &mut NativeJoinBudget,
     site: Site,
-) -> Result<Vec<(TermNode<'a>, JsonPointer)>, ValidationFailure> {
+) -> Result<Vec<(TermNode<'a>, Path)>, WireFailure> {
     let members = aggregate(value, at, budget, site)?;
     if members.len() != names.len() {
-        return Err(malformed(at.clone().key("members")));
+        return Err(malformed(at.key("members")));
     }
     let mut result = Vec::new();
     read_charge::reserve(budget, site, &mut result, names.len())?;
     for (index, (member, name)) in members.into_iter().zip(names).enumerate() {
-        let member_at = at.clone().key("members").index(index);
+        let member_at = at.key("members").index(index);
         let binding = match member.view() {
             Some(super::TermView::Binding {
                 name: actual,
@@ -122,45 +181,41 @@ fn possible_binding_value<'a>(value: &TermNode<'a>) -> Option<TermNode<'a>> {
 }
 
 #[ix_trace_rs::string_edge]
-fn reference(value: TermNode<'_>, at: &JsonPointer) -> Result<(), ValidationFailure> {
+fn reference(value: TermNode<'_>, at: &Path) -> Result<(), WireFailure> {
     match value.view() {
         Some(super::TermView::Reference { .. }) => Ok(()),
-        _ => Err(malformed(at.clone())),
+        _ => Err(malformed(at)),
     }
 }
 
-fn literal<'a>(
-    value: TermNode<'a>,
-    kind: &str,
-    at: &JsonPointer,
-) -> Result<TermNode<'a>, ValidationFailure> {
+fn literal<'a>(value: TermNode<'a>, kind: &str, at: &Path) -> Result<TermNode<'a>, WireFailure> {
     match value.view() {
         Some(super::TermView::Literal {
             value_kind, value, ..
         }) if Some(value_kind) == LiteralKind::from_wire(kind) => Ok(value),
-        _ => Err(malformed(at.clone())),
+        _ => Err(malformed(at)),
     }
 }
 
-fn text<'a>(value: TermNode<'a>, at: &JsonPointer) -> Result<&'a str, ValidationFailure> {
+fn text<'a>(value: TermNode<'a>, at: &Path) -> Result<&'a str, WireFailure> {
     literal(value, "text", at)?
         .as_str()
-        .ok_or_else(|| malformed(at.clone().key("value")))
+        .ok_or_else(|| malformed(at.key("value")))
 }
 
-fn word(value: TermNode<'_>, words: &[&str], at: &JsonPointer) -> Result<(), ValidationFailure> {
+fn word(value: TermNode<'_>, words: &[&str], at: &Path) -> Result<(), WireFailure> {
     if words.contains(&text(value, at)?) {
         Ok(())
     } else {
-        Err(malformed(at.clone().key("value")))
+        Err(malformed(at.key("value")))
     }
 }
 
-fn integer(value: TermNode<'_>, at: &JsonPointer) -> Result<(), ValidationFailure> {
+fn integer(value: TermNode<'_>, at: &Path) -> Result<(), WireFailure> {
     if literal(value, "integer", at)?.as_u64().is_some() {
         Ok(())
     } else {
-        Err(malformed(at.clone().key("value")))
+        Err(malformed(at.key("value")))
     }
 }
 
@@ -189,47 +244,47 @@ impl<'a> ExactMagnitude<'a> {
     }
 }
 
-fn magnitude(value: TermNode<'_>, kind: &str, at: &JsonPointer) -> Result<(), ValidationFailure> {
+fn magnitude(value: TermNode<'_>, kind: &str, at: &Path) -> Result<(), WireFailure> {
     let Some(spelling) = literal(value, kind, at)?.as_str() else {
-        return Err(malformed(at.clone().key("value")));
+        return Err(malformed(at.key("value")));
     };
     if ExactMagnitude::from_wire(spelling).is_some() {
         Ok(())
     } else {
-        Err(malformed(at.clone().key("value")))
+        Err(malformed(at.key("value")))
     }
 }
 
 fn references(
     value: TermNode<'_>,
-    at: &JsonPointer,
+    at: &Path,
     budget: &mut NativeJoinBudget,
     site: Site,
-) -> Result<(), ValidationFailure> {
+) -> Result<(), WireFailure> {
     for (index, member) in aggregate(value, at, budget, site)?.into_iter().enumerate() {
-        reference(member, &at.clone().key("members").index(index))?;
+        reference(member, &at.key("members").index(index))?;
     }
     Ok(())
 }
 
 fn path(
     value: TermNode<'_>,
-    at: &JsonPointer,
+    at: &Path,
     budget: &mut NativeJoinBudget,
     site: Site,
-) -> Result<(), ValidationFailure> {
+) -> Result<(), WireFailure> {
     let steps = aggregate(value, at, budget, site)?;
     if steps.len() == 0 {
-        return Err(malformed(at.clone().key("members")));
+        return Err(malformed(at.key("members")));
     }
     for (index, step) in steps.iter().copied().enumerate() {
-        let step_at = at.clone().key("members").index(index);
+        let step_at = at.key("members").index(index);
         let members = aggregate(step, &step_at, budget, site)?;
-        let kind_at = step_at.clone().key("members").index(0).key("value");
+        let kind_at = step_at.key("members").index(0).key("value");
         let kind = members
             .first()
             .and_then(possible_binding_value)
-            .ok_or_else(|| malformed(step_at.clone()))?;
+            .ok_or_else(|| malformed(step_at))?;
         match PathStepKind::from_wire(text(kind, &kind_at)?) {
             Some(PathStepKind::Field) => {
                 let b = bindings(step, &["kind", "name"], &step_at, budget, site)?;
@@ -288,28 +343,45 @@ pub(super) fn check_wire(
     position: usize,
     budget: &mut NativeJoinBudget,
 ) -> Result<(), ValidationFailure> {
+    check_wire_shape(node, form, position, budget).map_err(|failure| match failure {
+        WireFailure::Storage(failure) => failure,
+        WireFailure::Malformed(at) => stage_storage::refuse(
+            &mut WorkMeter::over(budget),
+            &at.site(),
+            Refusal::new(CheckedPackageRefusalCode::MalformedWire, at.trail()),
+        ),
+    })
+}
+
+fn check_wire_shape(
+    node: &CheckedSemanticNodeV2,
+    form: TimedModelForm,
+    position: usize,
+    budget: &mut NativeJoinBudget,
+) -> Result<(), WireFailure> {
     let site = Site::new(super::PackageReadStage::WireChecks, position, "timed_model");
-    let at = node_pointer(position);
+    let mut at = node_path(position);
+    at.stage = super::PackageReadStage::WireChecks;
     if node.recursion_group.is_some() {
-        return Err(malformed(at.clone().key("recursion_group")));
+        return Err(malformed(at.key("recursion_group")));
     }
     let root = form == TimedModelForm::Model;
     if root {
         if node.owner.is_none() || node.declaration.is_none() {
-            return Err(malformed(at.clone()));
+            return Err(malformed(at));
         }
         if node.occurrences.len() != 1 {
-            return Err(malformed(at.clone().key("occurrences")));
+            return Err(malformed(at.key("occurrences")));
         }
     } else {
         if node.owner.is_some() {
-            return Err(malformed(at.clone().key("owner")));
+            return Err(malformed(at.key("owner")));
         }
         if node.declaration.is_some() {
-            return Err(malformed(at.clone().key("declaration")));
+            return Err(malformed(at.key("declaration")));
         }
         if node.occurrences.is_empty() {
-            return Err(malformed(at.clone().key("occurrences")));
+            return Err(malformed(at.key("occurrences")));
         }
     }
     let role = if root {
@@ -319,9 +391,7 @@ pub(super) fn check_wire(
     };
     for (index, occurrence) in node.occurrences.iter().enumerate() {
         if occurrence.role != role {
-            return Err(malformed(
-                at.clone().key("occurrences").index(index).key("role"),
-            ));
+            return Err(malformed(at.key("occurrences").index(index).key("role")));
         }
     }
     let body_at = at.key("body");
@@ -354,11 +424,11 @@ pub(super) fn check_wire(
         }
         TimedModelForm::Source => {
             let members = aggregate(body, &body_at, budget, site)?;
-            let kind_at = body_at.clone().key("members").index(0).key("value");
+            let kind_at = body_at.key("members").index(0).key("value");
             let kind = members
                 .first()
                 .and_then(possible_binding_value)
-                .ok_or_else(|| malformed(body_at.clone()))?;
+                .ok_or_else(|| malformed(body_at))?;
             match TimeSourceKind::from_wire(text(kind, &kind_at)?) {
                 Some(TimeSourceKind::Dense) => {
                     let b = bindings(body, &["kind", "unit"], &body_at, budget, site)?;
@@ -388,12 +458,15 @@ pub(super) fn check_wire(
                 budget,
                 site,
             )
-            .map_err(|_| malformed(body_at.clone()))?;
+            .map_err(|failure| match failure {
+                WireFailure::Malformed(_) => malformed(body_at),
+                other => other,
+            })?;
             reference(b[0].0, &b[0].1)?;
             path(b[1].0, &b[1].1, budget, site)?;
             let rows = aggregate(b[2].0, &b[2].1, budget, site)?;
             for (index, row) in rows.iter().copied().enumerate() {
-                let row_at = b[2].1.clone().key("members").index(index);
+                let row_at = b[2].1.key("members").index(index);
                 let fields = bindings(
                     row,
                     &[
@@ -417,11 +490,11 @@ pub(super) fn check_wire(
         }
         TimedModelForm::Reset => {
             let members = aggregate(body, &body_at, budget, site)?;
-            let kind_at = body_at.clone().key("members").index(0).key("value");
+            let kind_at = body_at.key("members").index(0).key("value");
             let kind = members
                 .first()
                 .and_then(possible_binding_value)
-                .ok_or_else(|| malformed(body_at.clone()))?;
+                .ok_or_else(|| malformed(body_at))?;
             match text(kind, &kind_at)? {
                 "place" => {
                     let b = bindings(
@@ -440,7 +513,10 @@ pub(super) fn check_wire(
                         budget,
                         site,
                     )
-                    .map_err(|_| malformed(body_at.clone()))?;
+                    .map_err(|failure| match failure {
+                        WireFailure::Malformed(_) => malformed(body_at),
+                        other => other,
+                    })?;
                     reference(b[1].0, &b[1].1)?;
                     reference(b[2].0, &b[2].1)?;
                     reference(b[3].0, &b[3].1)?;
@@ -457,7 +533,10 @@ pub(super) fn check_wire(
                         budget,
                         site,
                     )
-                    .map_err(|_| malformed(body_at.clone()))?;
+                    .map_err(|failure| match failure {
+                        WireFailure::Malformed(_) => malformed(body_at),
+                        other => other,
+                    })?;
                     reference(b[1].0, &b[1].1)?;
                     text(b[2].0, &b[2].1)?;
                     magnitude(b[3].0, "quantity", &b[3].1)?;
@@ -473,13 +552,13 @@ pub(super) fn check_wire(
                 return Err(malformed(body_at));
             }
             for (index, part) in parts.iter().enumerate() {
-                let at = b[1].1.clone().key("members").index(index);
+                let at = b[1].1.key("members").index(index);
                 let members = aggregate(*part, &at, budget, site)?;
                 if members.len() < 2 {
                     return Err(malformed(body_at));
                 }
                 // A part starts with its predicate, may bind quantified slots, then names constraints.
-                let first_at = at.clone().key("members").index(0);
+                let first_at = at.key("members").index(0);
                 let predicate = match members[0].view() {
                     Some(super::TermView::Binding {
                         name: "predicate",
@@ -493,7 +572,7 @@ pub(super) fn check_wire(
                         name: "binders",
                         value,
                     }) => {
-                        let binders_at = at.clone().key("members").index(1).key("value");
+                        let binders_at = at.key("members").index(1).key("value");
                         if aggregate(value, &binders_at, budget, site)?.is_empty() {
                             return Err(malformed(binders_at.key("members")));
                         }
@@ -506,7 +585,7 @@ pub(super) fn check_wire(
                     return Err(malformed(body_at));
                 }
                 for (reference_index, member) in members.iter().enumerate().skip(first_constraint) {
-                    reference(*member, &at.clone().key("members").index(reference_index))?;
+                    reference(*member, &at.key("members").index(reference_index))?;
                 }
             }
         }
@@ -533,7 +612,7 @@ pub(super) fn check_wire(
             reference(b[0].0, &b[0].1)?;
             if quantified {
                 if aggregate(b[1].0, &b[1].1, budget, site)?.is_empty() {
-                    return Err(malformed(b[1].1.clone().key("members")));
+                    return Err(malformed(b[1].1.key("members")));
                 }
                 references(b[1].0, &b[1].1, budget, site)?;
             }
@@ -543,19 +622,16 @@ pub(super) fn check_wire(
                 return Err(malformed(body_at));
             }
             for (index, member) in bounds.iter().enumerate() {
-                reference(
-                    *member,
-                    &b[bounds_index].1.clone().key("members").index(index),
-                )?;
+                reference(*member, &b[bounds_index].1.key("members").index(index))?;
             }
         }
         TimedModelForm::Urgency => {
             let members = aggregate(body, &body_at, budget, site)?;
-            let kind_at = body_at.clone().key("members").index(0).key("value");
+            let kind_at = body_at.key("members").index(0).key("value");
             let kind = members
                 .first()
                 .and_then(possible_binding_value)
-                .ok_or_else(|| malformed(body_at.clone()))?;
+                .ok_or_else(|| malformed(body_at))?;
             match UrgencyKind::from_wire(text(kind, &kind_at)?) {
                 Some(UrgencyKind::When) => {
                     let b = bindings(body, &["kind", "predicate"], &body_at, budget, site)?;
@@ -577,11 +653,11 @@ pub(super) fn check_wire(
         }
         TimedModelForm::Constraint => {
             let members = aggregate(body, &body_at, budget, site)?;
-            let kind_at = body_at.clone().key("members").index(0).key("value");
+            let kind_at = body_at.key("members").index(0).key("value");
             let kind = members
                 .first()
                 .and_then(possible_binding_value)
-                .ok_or_else(|| malformed(body_at.clone()))?;
+                .ok_or_else(|| malformed(body_at))?;
             match text(kind, &kind_at)? {
                 "place" => {
                     let b = bindings(
@@ -594,8 +670,12 @@ pub(super) fn check_wire(
                     reference(b[1].0, &b[1].1)?;
                     reference(b[2].0, &b[2].1)?;
                     references(b[3].0, &b[3].1, budget, site)?;
-                    word(b[4].0, &["lt", "le", "eq", "ge", "gt"], &b[4].1)
-                        .map_err(|_| malformed(body_at.clone()))?;
+                    word(b[4].0, &["lt", "le", "eq", "ge", "gt"], &b[4].1).map_err(|failure| {
+                        match failure {
+                            WireFailure::Malformed(_) => malformed(body_at),
+                            other => other,
+                        }
+                    })?;
                     magnitude(b[5].0, "quantity", &b[5].1)?;
                 }
                 "parameter" => {
@@ -608,8 +688,12 @@ pub(super) fn check_wire(
                     )?;
                     reference(b[1].0, &b[1].1)?;
                     text(b[2].0, &b[2].1)?;
-                    word(b[3].0, &["lt", "le", "eq", "ge", "gt"], &b[3].1)
-                        .map_err(|_| malformed(body_at.clone()))?;
+                    word(b[3].0, &["lt", "le", "eq", "ge", "gt"], &b[3].1).map_err(|failure| {
+                        match failure {
+                            WireFailure::Malformed(_) => malformed(body_at),
+                            other => other,
+                        }
+                    })?;
                     magnitude(b[4].0, "quantity", &b[4].1)?;
                 }
                 _ => return Err(malformed(kind_at.key("value"))),
@@ -617,6 +701,10 @@ pub(super) fn check_wire(
         }
     }
     Ok(())
+}
+
+fn work(meter: &mut WorkMeter, at: impl Into<Path>, amount: u64) -> Result<(), ValidationFailure> {
+    stage_storage::work(meter, &at.into().site(), amount)
 }
 
 use super::{
@@ -792,16 +880,36 @@ fn path_step_kind(step: &CheckedTerm) -> Option<PathStepKind> {
     text_member(step, 0).and_then(PathStepKind::from_wire)
 }
 
+/// Borrowed selector type nodes from a validated place path.
+pub(super) struct PlaceSelectors<'a> {
+    steps: &'a [CheckedTerm],
+    len: usize,
+}
+impl PlaceSelectors<'_> {
+    pub(super) fn len(&self) -> usize {
+        self.len
+    }
+    pub(super) fn iter(&self) -> impl Iterator<Item = &CheckedNodeId> {
+        self.steps
+            .iter()
+            .filter(|step| path_step_kind(step) == Some(PathStepKind::Slot))
+            .filter_map(|step| bound(step, 2).and_then(typed_target))
+    }
+}
+
 /// The selected model and selector type nodes of an already validated place template.
-pub(super) fn place_template(place: &CheckedTerm) -> Option<(&CheckedNodeId, Vec<&CheckedNodeId>)> {
+pub(super) fn place_template(place: &CheckedTerm) -> Option<(&CheckedNodeId, PlaceSelectors<'_>)> {
     let model = bound(place, 0).and_then(typed_target)?;
     let steps = bound(place, 1).map(typed_members)?;
-    let selectors = steps
+    let mut len = 0;
+    for step in steps
         .iter()
         .filter(|step| path_step_kind(step) == Some(PathStepKind::Slot))
-        .map(|step| bound(step, 2).and_then(typed_target))
-        .collect::<Option<Vec<_>>>()?;
-    Some((model, selectors))
+    {
+        bound(step, 2).and_then(typed_target)?;
+        len += 1;
+    }
+    Some((model, PlaceSelectors { steps, len }))
 }
 
 enum RenderedCollectionType<'a> {
@@ -924,14 +1032,16 @@ fn check_resolved_path(
     let rows_at = binding_at(position, 2);
     let steps = bound(place, 1).map(typed_members).unwrap_or_default();
     let rows = bound(place, 2).map(typed_members).unwrap_or_default();
-    let fail = |at| graph.issue(position, Cause::MalformedClockPlace, at);
+    let fail =
+        |meter: &mut WorkMeter, at| graph.issue(meter, position, Cause::MalformedClockPlace, at);
     if steps.first().and_then(path_step_kind) == Some(PathStepKind::Slot) {
         return Err(fail(
-            node_pointer(position).key("body").key("members").index(1),
+            meter,
+            node_path(position).key("body").key("members").index(1),
         ));
     }
     if rows.len() != steps.len() {
-        return Err(fail(rows_at.key("members")));
+        return Err(fail(meter, rows_at.key("members")));
     }
     let model_node = &graph.nodes[root_model];
     let model_name: Option<Word<'_>> = match model_node.declaration.as_ref() {
@@ -946,8 +1056,8 @@ fn check_resolved_path(
     };
     let mut expected_declaring = model_name;
     for (index, (step, row)) in steps.iter().zip(rows).enumerate() {
-        let at = rows_at.clone().key("members").index(index);
-        meter.charge(1, || at.clone())?;
+        let at = rows_at.key("members").index(index);
+        work(meter, at, 1)?;
         let step_kind = path_step_kind(step);
         let parent_type = expected_declaring.as_ref().map(Word::as_str);
         let declaring_expected = if step_kind == Some(PathStepKind::Slot) {
@@ -974,7 +1084,7 @@ fn check_resolved_path(
             || minimum.is_none()
             || maximum.is_none()
         {
-            return Err(fail(at));
+            return Err(fail(meter, at));
         }
         let declared = declaring.unwrap_or_default();
         let identity_matches = identity.is_some_and(|identity| match step_kind {
@@ -994,7 +1104,7 @@ fn check_resolved_path(
             let path_at = binding_at(position, 1).key("members").index(index);
             let model_owner = owners
                 .recover(model_node)
-                .map_err(|_| fail(path_at.clone()))?;
+                .map_err(|_| fail(meter, path_at))?;
             let declaration = parent_type.unwrap_or_default();
             let mut budget =
                 Budget::new(meter, model_owner.package.root, model_owner.package.bytes);
@@ -1007,11 +1117,11 @@ fn check_resolved_path(
                     &mut budget,
                 )
                 .map_err(|failure| match failure {
-                    ModelFailure::Refused(_) => fail(path_at),
+                    ModelFailure::Refused(_) => fail(meter, path_at),
                     ModelFailure::Limit(failure) => failure,
                 })?;
             let Resolved::Field(field) = resolved else {
-                return Err(fail(at));
+                return Err(fail(meter, at));
             };
             let actual_declaring = field.identity.rsplit_once('/').map(|(owner, _)| owner);
             let rendered = if let Some(reference) = field.slot.type_ref.as_ref() {
@@ -1023,12 +1133,12 @@ fn check_resolved_path(
                 None
             };
             let actual_type =
-                declared_field_type(field, |_| rendered, meter)?.ok_or_else(|| fail(at.clone()))?;
+                declared_field_type(field, |_| rendered, meter)?.ok_or_else(|| fail(meter, at))?;
             if actual_declaring != declaring
                 || Some(field.identity.as_ref()) != identity
                 || actual_type != member_type.unwrap_or_default()
             {
-                return Err(fail(at));
+                return Err(fail(meter, at));
             }
             if steps.get(index + 1).and_then(path_step_kind) == Some(PathStepKind::Slot) {
                 let multiplicity = field.slot.multiplicity;
@@ -1055,12 +1165,12 @@ fn check_resolved_path(
                             Some(upper) => maximum.is_some_and(|text| decimal_is(text, upper)),
                         }
                 }) {
-                    return Err(fail(at));
+                    return Err(fail(meter, at));
                 }
             }
         }
         if !identity_matches {
-            return Err(fail(at));
+            return Err(fail(meter, at));
         }
         if step_kind == Some(PathStepKind::Slot) {
             let step_at = binding_at(position, 1).key("members").index(index);
@@ -1074,7 +1184,7 @@ fn check_resolved_path(
                 member_type.unwrap_or_default(),
                 selector_kind,
             ) {
-                return Err(fail(step_at));
+                return Err(fail(meter, step_at));
             }
         }
         let next_kind = steps.get(index + 1).and_then(path_step_kind);
@@ -1085,10 +1195,10 @@ fn check_resolved_path(
                 || !scalar_matches(bound(next, 3), minimum)
                 || !scalar_matches(bound(next, 4), maximum)
             {
-                return Err(fail(at));
+                return Err(fail(meter, at));
             }
         } else if collection != Some("none") || minimum != Some("") || maximum != Some("") {
-            return Err(fail(at));
+            return Err(fail(meter, at));
         }
         expected_declaring = member_type.map(Word::Borrowed);
     }
@@ -1098,6 +1208,7 @@ fn check_resolved_path(
         .is_some_and(terminal_clock)
     {
         return Err(fail(
+            meter,
             rows_at.key("members").index(rows.len().saturating_sub(1)),
         ));
     }
@@ -1120,36 +1231,49 @@ struct PlaceBindings {
 impl Graph<'_> {
     fn issue(
         &self,
+        meter: &mut WorkMeter,
         position: usize,
         cause: CheckedPackageRefusalCause,
-        at: JsonPointer,
+        at: Path,
     ) -> ValidationFailure {
         let code = if cause == CheckedPackageRefusalCause::InvalidTimeQuantity {
             CheckedPackageRefusalCode::IllTyped
         } else {
             CheckedPackageRefusalCode::InvalidPackage
         };
-        ValidationFailure::refused_at(code, at, Some(cause), self.nodes[position].node_id.clone())
+        stage_storage::refuse(
+            meter,
+            &at.site(),
+            Refusal::new(code, at.trail())
+                .because(cause)
+                .at_node(&self.nodes[position].node_id),
+        )
     }
 
-    fn body(&self, position: usize) -> Result<&CheckedTerm, ValidationFailure> {
+    fn body(
+        &self,
+        meter: &mut WorkMeter,
+        position: usize,
+    ) -> Result<&CheckedTerm, ValidationFailure> {
         self.terms
             .get(position)
             .and_then(Option::as_ref)
             .ok_or_else(|| {
                 self.issue(
+                    meter,
                     position,
                     CheckedPackageRefusalCause::TimedNodeReference,
-                    node_pointer(position).key("body"),
+                    node_path(position).key("body"),
                 )
             })
     }
 
     fn target(
         &self,
+        meter: &mut WorkMeter,
         position: usize,
         term: Option<&CheckedTerm>,
-        at: JsonPointer,
+        at: Path,
         accepts: impl FnOnce(CheckedNodeKind) -> bool,
     ) -> Result<usize, ValidationFailure> {
         let target = term
@@ -1158,17 +1282,23 @@ impl Graph<'_> {
             .copied();
         match target {
             Some(target) if self.kinds.get(target).is_some_and(|kind| accepts(*kind)) => Ok(target),
-            _ => Err(self.issue(position, CheckedPackageRefusalCause::TimedNodeReference, at)),
+            _ => Err(self.issue(
+                meter,
+                position,
+                CheckedPackageRefusalCause::TimedNodeReference,
+                at,
+            )),
         }
     }
 
     fn boolean(
         &self,
+        meter: &mut WorkMeter,
         position: usize,
         term: Option<&CheckedTerm>,
-        at: JsonPointer,
+        at: Path,
     ) -> Result<(), ValidationFailure> {
-        let target = self.target(position, term, at.clone(), |kind| {
+        let target = self.target(meter, position, term, at, |kind| {
             matches!(kind, CheckedNodeKind::Expression(_))
         })?;
         let boolean = self
@@ -1179,7 +1309,12 @@ impl Graph<'_> {
         if boolean {
             Ok(())
         } else {
-            Err(self.issue(position, CheckedPackageRefusalCause::TimedNodeReference, at))
+            Err(self.issue(
+                meter,
+                position,
+                CheckedPackageRefusalCause::TimedNodeReference,
+                at,
+            ))
         }
     }
 
@@ -1188,65 +1323,80 @@ impl Graph<'_> {
         position: usize,
         term: Option<&CheckedTerm>,
         positive: bool,
-        at: JsonPointer,
+        at: Path,
         meter: &mut WorkMeter,
     ) -> Result<(), ValidationFailure> {
-        let invalid = || {
+        let invalid = |meter: &mut WorkMeter| {
             self.issue(
+                meter,
                 position,
                 CheckedPackageRefusalCause::InvalidTimeQuantity,
-                at.clone(),
+                at,
             )
         };
-        let value = term.and_then(spelling).ok_or_else(invalid)?;
-        let exact = ExactMagnitude::from_wire(value).ok_or_else(invalid)?;
+        let value = term.and_then(spelling).ok_or_else(|| invalid(meter))?;
+        let exact = ExactMagnitude::from_wire(value).ok_or_else(|| invalid(meter))?;
         // The strict shape has checked nonnegative decimal syntax. Shared
         // natural arithmetic accounts for the exact reduction work.
         if positive && exact.zero
-            || !super::natural::coprime(exact.numerator, exact.denominator, meter, &|| at.clone())?
+            || !super::natural::coprime_at(exact.numerator, exact.denominator, meter, at.site())?
         {
-            return Err(invalid());
+            return Err(invalid(meter));
         }
         Ok(())
     }
 
     fn type_issue(
         &self,
+        meter: &mut WorkMeter,
         position: usize,
         cause: CheckedPackageRefusalCause,
-        at: JsonPointer,
+        at: Path,
     ) -> ValidationFailure {
-        ValidationFailure::refused_at(
-            CheckedPackageRefusalCode::IllTyped,
-            at,
-            Some(cause),
-            self.nodes[position].node_id.clone(),
+        stage_storage::refuse(
+            meter,
+            &at.site(),
+            Refusal::new(CheckedPackageRefusalCode::IllTyped, at.trail())
+                .because(cause)
+                .at_node(&self.nodes[position].node_id),
         )
     }
 
     fn anchor(
         &self,
+        meter: &mut WorkMeter,
         position: usize,
         term: Option<&CheckedTerm>,
-        at: JsonPointer,
+        at: Path,
         model: usize,
     ) -> Result<usize, ValidationFailure> {
-        let anchor = self.target(position, term, at.clone(), |kind| {
+        let anchor = self.target(meter, position, term, at, |kind| {
             kind == CheckedNodeKind::State(StateForm::OperationAnchor)
         })?;
-        let body = self.body(anchor)?;
+        let body = self.body(meter, anchor)?;
         if matches!(body, CheckedTerm::OperationAnchorBody(body) if body.execution_point.is_some())
         {
-            return Err(self.issue(position, CheckedPackageRefusalCause::TimedNodeReference, at));
+            return Err(self.issue(
+                meter,
+                position,
+                CheckedPackageRefusalCause::TimedNodeReference,
+                at,
+            ));
         }
         let context = self.target(
+            meter,
             anchor,
             bound(body, 0),
             binding_at(anchor, 0).key("target"),
             |kind| matches!(kind, CheckedNodeKind::Model(_)),
         )?;
         if context != model {
-            return Err(self.issue(position, CheckedPackageRefusalCause::TimedNodeReference, at));
+            return Err(self.issue(
+                meter,
+                position,
+                CheckedPackageRefusalCause::TimedNodeReference,
+                at,
+            ));
         }
         Ok(anchor)
     }
@@ -1267,13 +1417,15 @@ impl Graph<'_> {
             slots: slots_binding,
         } = bindings;
         let place = self.target(
+            meter,
             position,
             bound(body, place_binding),
             binding_at(position, place_binding).key("target"),
             |kind| kind == CheckedNodeKind::TimedModel(TimedModelForm::Place),
         )?;
-        let place_body = self.body(place)?;
+        let place_body = self.body(meter, place)?;
         let place_model = self.target(
+            meter,
             place,
             bound(place_body, 0),
             binding_at(place, 0).key("target"),
@@ -1281,6 +1433,7 @@ impl Graph<'_> {
         )?;
         if place_model != model {
             return Err(self.issue(
+                meter,
                 position,
                 Cause::TimedNodeReference,
                 binding_at(position, place_binding).key("target"),
@@ -1288,6 +1441,7 @@ impl Graph<'_> {
         }
         check_resolved_path(self, place, place_body, model, owners, meter)?;
         let owner = self.target(
+            meter,
             position,
             bound(body, owner_binding),
             binding_at(position, owner_binding).key("target"),
@@ -1300,12 +1454,13 @@ impl Graph<'_> {
         )?;
         let owner_type = self.index.get(&self.nodes[owner].semantic_type).copied();
         let correct_owner = owner_type
-            .and_then(|p| self.body(p).ok())
+            .and_then(|p| self.terms.get(p).and_then(Option::as_ref))
             .and_then(|body| typed_members(body).first())
             .and_then(typed_target)
             == Some(&self.nodes[model].node_id);
         if !correct_owner {
             return Err(self.type_issue(
+                meter,
                 position,
                 Cause::TypeMismatch,
                 binding_at(position, owner_binding),
@@ -1325,6 +1480,7 @@ impl Graph<'_> {
         };
         if slots.len() != selectors().count() {
             return Err(self.type_issue(
+                meter,
                 position,
                 Cause::OperatorIneligible,
                 binding_at(position, slots_binding),
@@ -1334,14 +1490,14 @@ impl Graph<'_> {
             let at = binding_at(position, slots_binding)
                 .key("members")
                 .index(index);
-            let target = self.target(position, Some(slot), at.clone(), |kind| {
+            let target = self.target(meter, position, Some(slot), at, |kind| {
                 matches!(
                     kind,
                     CheckedNodeKind::Value(_) | CheckedNodeKind::Expression(_)
                 )
             })?;
             if &self.nodes[target].semantic_type != selector {
-                return Err(self.type_issue(position, Cause::TypeMismatch, at));
+                return Err(self.type_issue(meter, position, Cause::TypeMismatch, at));
             }
         }
         Ok(place)
@@ -1400,6 +1556,7 @@ fn frame_writes_clock(
     };
     let model_owner = owners.recover(&graph.nodes[model]).map_err(|_| {
         graph.issue(
+            meter,
             anchor,
             CheckedPackageRefusalCause::TimedNodeReference,
             binding_at(anchor, 0),
@@ -1442,12 +1599,12 @@ fn same_place_path(
     left: &CheckedTerm,
     right: &CheckedTerm,
     meter: &mut WorkMeter,
-    at: &JsonPointer,
+    at: &Path,
 ) -> Result<bool, ValidationFailure> {
     let mut pending = meter.vec(1)?;
     pending.push((left, right));
     while let Some((left, right)) = pending.pop() {
-        meter.charge(1, || at.clone())?;
+        work(meter, at, 1)?;
         match (left, right) {
             (
                 CheckedTerm::Aggregate { members: left },
@@ -1474,6 +1631,30 @@ fn same_place_path(
                 }
                 meter.push(&mut pending, (&**left, &**right))?;
             }
+            (CheckedTerm::Reference { target: left }, CheckedTerm::Reference { target: right }) => {
+                if !meter.compare_ids(left, right)?.is_eq() {
+                    return Ok(false);
+                }
+            }
+            (
+                CheckedTerm::Literal {
+                    type_id: left_type,
+                    value_kind: left_kind,
+                    value: left,
+                },
+                CheckedTerm::Literal {
+                    type_id: right_type,
+                    value_kind: right_kind,
+                    value: right,
+                },
+            ) => {
+                if !meter.compare_ids(left_type, right_type)?.is_eq()
+                    || left_kind != right_kind
+                    || left != right
+                {
+                    return Ok(false);
+                }
+            }
             _ if left != right => return Ok(false),
             _ => {}
         }
@@ -1481,8 +1662,8 @@ fn same_place_path(
     Ok(true)
 }
 
-fn binding_at(position: usize, index: usize) -> JsonPointer {
-    node_pointer(position)
+fn binding_at(position: usize, index: usize) -> Path {
+    node_path(position)
         .key("body")
         .key("members")
         .index(index)
@@ -1516,33 +1697,47 @@ fn check_quantified_binders(
     graph: &Graph<'_>,
     position: usize,
     binders: Option<&CheckedTerm>,
-    at: JsonPointer,
+    at: Path,
     slots: &[&CheckedNodeId],
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
     let Some(binders) = binders else {
         return Ok(());
     };
-    meter.charge(u64::try_from(slots.len()).unwrap_or(u64::MAX), || {
-        at.clone()
-    })?;
-    let slot_positions = first_positions(slots.iter().copied(), meter)?;
+    work(meter, at, u64::try_from(slots.len()).unwrap_or(u64::MAX))?;
+    let mut slot_positions = meter.vec::<(&CheckedNodeId, usize)>(slots.len())?;
+    slot_positions.extend(
+        slots
+            .iter()
+            .enumerate()
+            .map(|(position, id)| (*id, position)),
+    );
+    let mut order = paid_id_order(slots.iter().copied(), slots.len(), graph.nodes.len(), meter)?;
+    slot_positions.sort_unstable_by(|left, right| {
+        order
+            .compare_bounded(left.0, right.0)
+            .then(left.1.cmp(&right.1))
+    });
+    slot_positions.dedup_by(|later, earlier| order.compare_bounded(later.0, earlier.0).is_eq());
     let mut previous_slot = None;
     for (index, binder) in typed_members(binders).iter().enumerate() {
-        let binder_at = at.clone().key("members").index(index).key("target");
-        meter.charge(1, || binder_at.clone())?;
-        let target = graph.target(position, Some(binder), binder_at.clone(), |kind| {
+        let binder_at = at.key("members").index(index).key("target");
+        work(meter, binder_at, 1)?;
+        let target = graph.target(meter, position, Some(binder), binder_at, |kind| {
             kind == CheckedNodeKind::Value(ValueForm::Parameter)
         })?;
-        let Some(&slot_index) = slot_positions.get(&&graph.nodes[target].node_id) else {
+        let Some(slot) = find_id(&slot_positions, &graph.nodes[target].node_id, meter)? else {
             return Err(graph.issue(
+                meter,
                 position,
                 CheckedPackageRefusalCause::TimedNodeReference,
                 binder_at,
             ));
         };
+        let slot_index = slot_positions[slot].1;
         if previous_slot.is_some_and(|previous| slot_index <= previous) {
             return Err(graph.issue(
+                meter,
                 position,
                 CheckedPackageRefusalCause::TimedNodeReference,
                 binder_at,
@@ -1630,7 +1825,7 @@ fn compare_keys(
 fn quantity_key<'g>(
     term: Option<&CheckedTerm>,
     meter: &mut WorkMeter,
-    at: &JsonPointer,
+    at: &Path,
 ) -> Result<Option<OrderPart<'g>>, ValidationFailure> {
     let Some(value) = term.and_then(spelling) else {
         return Ok(None);
@@ -1638,7 +1833,7 @@ fn quantity_key<'g>(
     // Cross multiplication compares two values of this size. Charge its
     // quadratic upper bound before either decimal parse or multiplication.
     let digits = u64::try_from(value.len()).unwrap_or(u64::MAX);
-    meter.charge(digits.saturating_mul(digits), || at.clone())?;
+    work(meter, at, digits.saturating_mul(digits))?;
     let Some(exact) = ExactMagnitude::from_wire(value) else {
         return Ok(None);
     };
@@ -1661,7 +1856,7 @@ fn term_key<'g>(
     term: Option<&'g CheckedTerm>,
     active: &mut [bool],
     meter: &mut WorkMeter,
-    at: &JsonPointer,
+    at: &Path,
 ) -> Result<Option<Vec<OrderPart<'g>>>, ValidationFailure> {
     enum Visit<'g> {
         Term(&'g CheckedTerm),
@@ -1677,7 +1872,7 @@ fn term_key<'g>(
     pending.push(Visit::Term(term));
     let outcome = 'walk: {
         while let Some(visit) = pending.pop() {
-            meter.charge(1, || at.clone())?;
+            work(meter, at, 1)?;
             match visit {
                 Visit::Atom(atom) => meter.push(&mut key, atom)?,
                 Visit::Exit(position) => {
@@ -1857,7 +2052,7 @@ struct KeyWork<'w, 'g, 'b> {
     graph: &'w Graph<'g>,
     active: &'w mut [bool],
     meter: &'w mut WorkMeter<'b>,
-    at: &'w JsonPointer,
+    at: &'w Path,
 }
 
 impl<'g> KeyWork<'_, 'g, '_> {
@@ -2012,7 +2207,7 @@ fn structural_order_key<'g>(
     position: usize,
     active: &mut [bool],
     meter: &mut WorkMeter,
-    at: &JsonPointer,
+    at: &Path,
 ) -> Result<Option<Vec<OrderPart<'g>>>, ValidationFailure> {
     KeyWork {
         graph,
@@ -2037,10 +2232,54 @@ fn comparison_rank(value: &str) -> Option<u64> {
 
 /// A source-map entry may add an earlier region to an existing node. Keep
 /// the minimum across every occurrence and region, independently of node id.
+fn find_id<T>(
+    rows: &[(&CheckedNodeId, T)],
+    target: &CheckedNodeId,
+    meter: &mut WorkMeter,
+) -> Result<Option<usize>, ValidationFailure> {
+    let mut lower = 0;
+    let mut upper = rows.len();
+    while lower < upper {
+        let middle = lower + (upper - lower) / 2;
+        if meter.compare_ids(rows[middle].0, target)?.is_lt() {
+            lower = middle + 1;
+        } else {
+            upper = middle;
+        }
+    }
+    match rows.get(lower) {
+        Some((id, _)) if meter.compare_ids(id, target)?.is_eq() => Ok(Some(lower)),
+        _ => Ok(None),
+    }
+}
+
+// Authenticated identities are graph DAGs: every nested node operand names
+// another node, so the complete graph bounds the comparison continuation.
+fn paid_id_order<'a>(
+    ids: impl Iterator<Item = &'a CheckedNodeId>,
+    count: usize,
+    depth: usize,
+    meter: &mut WorkMeter,
+) -> Result<CheckedNodeIdOrder<'a>, ValidationFailure> {
+    let capacity = if count > 1
+        && ids.into_iter().any(|id| {
+            id.path
+                .iter()
+                .any(|step| matches!(step, CheckedNodePathSegment::Node(_)))
+        }) {
+        depth
+    } else {
+        0
+    };
+    meter.reserve(CheckedNodeIdOrder::bytes(capacity))?;
+    Ok(CheckedNodeIdOrder::with_capacity(capacity))
+}
+
 /// The result is one entry per node, in id order.
 fn source_order_keys<'a>(
     source_map: &'a [CheckedSourceMapEntry],
     meter: &mut WorkMeter,
+    depth: usize,
 ) -> Result<Vec<(&'a CheckedNodeId, SourceOrderKey<'a>)>, ValidationFailure> {
     let regions = source_map.iter().fold(0_usize, |sum, entry| {
         sum.saturating_add(entry.regions.len())
@@ -2049,22 +2288,27 @@ fn source_order_keys<'a>(
     for (at, entry) in source_map.iter().enumerate() {
         meter.at_row("source_map", at);
         for region in &entry.regions {
-            meter.charge(1, || JsonPointer::root().key("source_map"))?;
+            work(meter, Path::root().key("source_map"), 1)?;
             keys.push((
                 &entry.node_id,
                 (region.source.identity.as_ref(), region.start, region.end),
             ));
         }
     }
-    keys.sort_unstable_by(|left, right| left.0.cmp(right.0).then(left.1.cmp(&right.1)));
-    keys.dedup_by(|later, earlier| later.0 == earlier.0);
+    let mut order = paid_id_order(keys.iter().map(|row| row.0), keys.len(), depth, meter)?;
+    keys.sort_unstable_by(|left, right| {
+        order
+            .compare_bounded(left.0, right.0)
+            .then(left.1.cmp(&right.1))
+    });
+    keys.dedup_by(|later, earlier| order.compare_bounded(later.0, earlier.0).is_eq());
     Ok(keys)
 }
 
 fn check_reference_order<'g>(
     graph: &Graph<'g>,
     members: &'g [CheckedTerm],
-    at: &JsonPointer,
+    at: &Path,
     first_index: usize,
     keys: &[(&CheckedNodeId, SourceOrderKey<'_>)],
     active: &mut [bool],
@@ -2072,8 +2316,8 @@ fn check_reference_order<'g>(
 ) -> Result<(), ValidationFailure> {
     let mut previous: Option<(SourceOrderKey<'_>, Vec<OrderPart<'g>>)> = None;
     for (index, member) in members.iter().enumerate() {
-        let member_at = at.clone().key("members").index(index + first_index);
-        meter.charge(1, || member_at.clone())?;
+        let member_at = at.key("members").index(index + first_index);
+        work(meter, member_at, 1)?;
         let Some(target) = typed_target(member) else {
             continue;
         };
@@ -2081,28 +2325,31 @@ fn check_reference_order<'g>(
             Some(&target) => structural_order_key(graph, target, active, meter, &member_at)?,
             None => None,
         };
-        let source = keys
-            .binary_search_by(|(id, _)| (*id).cmp(target))
-            .ok()
-            .map(|at| keys[at].1);
+        let source = find_id(keys, target, meter)?.map(|position| keys[position].1);
         let key = source.zip(member_key);
         // Graph-shape and source-map checks have already validated every
         // reference and region. Their refusal has precedence over this step.
         let Some(key) = key else {
             continue;
         };
-        meter.charge(u64::try_from(key.1.len()).unwrap_or(u64::MAX), || {
-            member_at.clone()
-        })?;
+        work(
+            meter,
+            member_at,
+            u64::try_from(key.1.len()).unwrap_or(u64::MAX),
+        )?;
         if let Some(before) = previous.as_ref() {
             let order = match key.0.cmp(&before.0) {
                 Ordering::Equal => compare_keys(&key.1, &before.1, meter)?,
                 order => order,
             };
             if order != Ordering::Greater {
-                return Err(ValidationFailure::refused(
-                    CheckedPackageRefusalCode::InvalidSemanticGraph,
-                    member_at,
+                return Err(stage_storage::refuse(
+                    meter,
+                    &member_at.site(),
+                    Refusal::new(
+                        CheckedPackageRefusalCode::InvalidSemanticGraph,
+                        member_at.trail(),
+                    ),
                 ));
             }
         }
@@ -2116,7 +2363,7 @@ fn check_timed_reference_order(
     source_map: &[CheckedSourceMapEntry],
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
-    let keys = source_order_keys(source_map, meter)?;
+    let keys = source_order_keys(source_map, meter, graph.nodes.len())?;
     // The positions on the reference path the key walk is on.
     let mut active = meter.filled(graph.nodes.len(), false)?;
     for position in 0..graph.nodes.len() {
@@ -2426,7 +2673,7 @@ pub(super) fn validate_models<'a>(
         if kinds.get(position) != Some(&CheckedNodeKind::TimedModel(Form::Model)) {
             continue;
         }
-        for member in typed_members(graph.body(position)?).iter().skip(2) {
+        for member in typed_members(graph.body(meter, position)?).iter().skip(2) {
             if let CheckedTerm::Binding { value, .. } = member {
                 named = named
                     .saturating_add(usize::from(typed_target(value).is_some()))
@@ -2441,12 +2688,12 @@ pub(super) fn validate_models<'a>(
         if kinds.get(position) != Some(&CheckedNodeKind::TimedModel(Form::Model)) {
             continue;
         }
-        let body = graph.body(position)?;
+        let body = graph.body(meter, position)?;
         roots.push(position);
         represented.push(&nodes[position].node_id);
         root_of[position] = position;
         for (member_index, member) in typed_members(body).iter().enumerate().skip(2) {
-            meter.charge(1, || binding_at(position, member_index))?;
+            work(meter, binding_at(position, member_index), 1)?;
             let CheckedTerm::Binding { value, .. } = member else {
                 continue;
             };
@@ -2466,8 +2713,14 @@ pub(super) fn validate_models<'a>(
             }
         }
     }
-    represented.sort_unstable();
-    represented.dedup();
+    let mut order = paid_id_order(
+        represented.iter().copied(),
+        represented.len(),
+        nodes.len(),
+        meter,
+    )?;
+    represented.sort_unstable_by(|left, right| order.compare_bounded(left, right));
+    represented.dedup_by(|left, right| order.compare_bounded(left, right).is_eq());
     if !roots.is_empty() {
         check_timed_reference_order(&graph, source_map, meter)?;
     }
@@ -2477,19 +2730,21 @@ pub(super) fn validate_models<'a>(
         };
         if roots.is_empty() {
             return Err(graph.issue(
+                meter,
                 position,
                 Cause::MissingTimedModel,
-                JsonPointer::root().key("semantic_graph").key("nodes"),
+                Path::root().key("semantic_graph").key("nodes"),
             ));
         }
         if represented
-            .binary_search(&&nodes[position].node_id)
+            .binary_search_by(|key| order.compare_bounded(key, &nodes[position].node_id))
             .is_err()
         {
             return Err(graph.issue(
+                meter,
                 position,
                 Cause::TimedNodeReference,
-                node_pointer(position).key("body"),
+                node_path(position).key("body"),
             ));
         }
     }
@@ -2497,14 +2752,15 @@ pub(super) fn validate_models<'a>(
         let Some(CheckedNodeKind::TimedModel(form)) = kinds.get(position).copied() else {
             continue;
         };
-        meter.charge(1, || node_pointer(position))?;
-        let body = graph.body(position)?;
+        work(meter, node_path(position), 1)?;
+        let body = graph.body(meter, position)?;
         let root = match root_of[position] {
             usize::MAX => position,
             root => root,
         };
-        let root_body = graph.body(root)?;
+        let root_body = graph.body(meter, root)?;
         let root_model = graph.target(
+            meter,
             root,
             bound(root_body, 0),
             binding_at(root, 0).key("target"),
@@ -2512,20 +2768,30 @@ pub(super) fn validate_models<'a>(
         )?;
         match form {
             Form::Model => {
-                let model =
-                    graph.target(position, bound(body, 0), binding_at(position, 0), |kind| {
-                        matches!(kind, CheckedNodeKind::Model(_))
-                    })?;
-                let dimension =
-                    graph.target(position, bound(body, 1), binding_at(position, 1), |kind| {
-                        kind == CheckedNodeKind::ScalarType(ScalarTypeForm::Dimension)
-                    })?;
-                let source =
-                    graph.target(position, bound(body, 2), binding_at(position, 2), |kind| {
-                        kind == CheckedNodeKind::TimedModel(Form::Source)
-                    })?;
-                let source_body = graph.body(source)?;
+                let model = graph.target(
+                    meter,
+                    position,
+                    bound(body, 0),
+                    binding_at(position, 0),
+                    |kind| matches!(kind, CheckedNodeKind::Model(_)),
+                )?;
+                let dimension = graph.target(
+                    meter,
+                    position,
+                    bound(body, 1),
+                    binding_at(position, 1),
+                    |kind| kind == CheckedNodeKind::ScalarType(ScalarTypeForm::Dimension),
+                )?;
+                let source = graph.target(
+                    meter,
+                    position,
+                    bound(body, 2),
+                    binding_at(position, 2),
+                    |kind| kind == CheckedNodeKind::TimedModel(Form::Source),
+                )?;
+                let source_body = graph.body(meter, source)?;
                 let unit = graph.target(
+                    meter,
                     source,
                     bound(source_body, 1),
                     binding_at(source, 1),
@@ -2533,11 +2799,12 @@ pub(super) fn validate_models<'a>(
                 )?;
                 let is_base_time = is_base_time_dimension(
                     &nodes[dimension],
-                    graph.body(dimension).ok(),
+                    graph.terms.get(dimension).and_then(Option::as_ref),
                     &models_by_identity,
                 );
                 if !is_base_time || nodes[unit].semantic_type != nodes[dimension].node_id {
                     return Err(graph.issue(
+                        meter,
                         source,
                         Cause::InvalidTimeQuantity,
                         binding_at(source, 1).key("target"),
@@ -2545,6 +2812,7 @@ pub(super) fn validate_models<'a>(
                 }
                 if bound(source_body, 0).and_then(spelling) == Some("tick") {
                     let source_model = graph.target(
+                        meter,
                         source,
                         bound(source_body, 2),
                         binding_at(source, 2).key("target"),
@@ -2552,19 +2820,22 @@ pub(super) fn validate_models<'a>(
                     )?;
                     if source_model != model {
                         return Err(graph.issue(
+                            meter,
                             source,
                             Cause::TimedNodeReference,
                             binding_at(source, 2).key("target"),
                         ));
                     }
                     let operation = graph.target(
+                        meter,
                         source,
                         bound(source_body, 3),
                         binding_at(source, 3).key("target"),
                         |kind| kind == CheckedNodeKind::State(super::StateForm::OperationAnchor),
                     )?;
-                    let operation_body = graph.body(operation)?;
+                    let operation_body = graph.body(meter, operation)?;
                     let context = graph.target(
+                        meter,
                         operation,
                         bound(operation_body, 0),
                         binding_at(operation, 0).key("target"),
@@ -2572,6 +2843,7 @@ pub(super) fn validate_models<'a>(
                     )?;
                     if context != source_model {
                         return Err(graph.issue(
+                            meter,
                             source,
                             Cause::TimedNodeReference,
                             binding_at(source, 3).key("target"),
@@ -2599,24 +2871,26 @@ pub(super) fn validate_models<'a>(
                         let at = binding_at(position, member_index)
                             .key("members")
                             .index(child_index);
-                        meter.charge(1, || at.clone())?;
-                        let target = graph.target(position, Some(child), at.clone(), |kind| {
+                        work(meter, at, 1)?;
+                        let target = graph.target(meter, position, Some(child), at, |kind| {
                             kind == CheckedNodeKind::TimedModel(expected)
                         })?;
                         if expected == Form::Place
                             && bound(source_body, 0).and_then(spelling) == Some("tick")
                         {
                             return Err(graph.issue(
+                                meter,
                                 target,
                                 Cause::ClockWithoutDenseTime,
                                 binding_at(target, 0).key("target"),
                             ));
                         }
                         if expected == Form::Place {
-                            let place = graph.body(target)?;
+                            let place = graph.body(meter, target)?;
                             let place_model =
                                 bound(place, 0).and_then(typed_target).ok_or_else(|| {
                                     graph.issue(
+                                        meter,
                                         target,
                                         Cause::TimedNodeReference,
                                         binding_at(target, 0),
@@ -2624,6 +2898,7 @@ pub(super) fn validate_models<'a>(
                                 })?;
                             let place_model = index.get(place_model).copied().ok_or_else(|| {
                                 graph.issue(
+                                    meter,
                                     target,
                                     Cause::TimedNodeReference,
                                     binding_at(target, 0),
@@ -2631,6 +2906,7 @@ pub(super) fn validate_models<'a>(
                             })?;
                             if place_model != model {
                                 return Err(graph.issue(
+                                    meter,
                                     target,
                                     Cause::TimedNodeReference,
                                     binding_at(target, 0),
@@ -2638,6 +2914,7 @@ pub(super) fn validate_models<'a>(
                             }
                             let path = bound(place, 1).ok_or_else(|| {
                                 graph.issue(
+                                    meter,
                                     target,
                                     Cause::MalformedClockPlace,
                                     binding_at(target, 1),
@@ -2645,11 +2922,12 @@ pub(super) fn validate_models<'a>(
                             })?;
                             check_resolved_path(&graph, target, place, model, owners, meter)?;
                             for (seen_model, seen_path) in &seen_places {
-                                meter.charge(1, || at.clone())?;
+                                work(meter, at, 1)?;
                                 if *seen_model == &nodes[model].node_id
                                     && same_place_path(seen_path, path, meter, &at)?
                                 {
                                     return Err(graph.issue(
+                                        meter,
                                         position,
                                         Cause::DuplicateClockPlace,
                                         at,
@@ -2662,11 +2940,16 @@ pub(super) fn validate_models<'a>(
                 }
             }
             Form::Source => {
-                graph.target(position, bound(body, 1), binding_at(position, 1), |kind| {
-                    kind == CheckedNodeKind::ScalarType(ScalarTypeForm::Unit)
-                })?;
+                graph.target(
+                    meter,
+                    position,
+                    bound(body, 1),
+                    binding_at(position, 1),
+                    |kind| kind == CheckedNodeKind::ScalarType(ScalarTypeForm::Unit),
+                )?;
                 if bound(body, 0).and_then(spelling) == Some("tick") {
                     graph.target(
+                        meter,
                         position,
                         bound(body, 3),
                         binding_at(position, 3).key("target"),
@@ -2682,9 +2965,13 @@ pub(super) fn validate_models<'a>(
                 }
             }
             Form::Place => {
-                graph.target(position, bound(body, 0), binding_at(position, 0), |kind| {
-                    matches!(kind, CheckedNodeKind::Model(_))
-                })?;
+                graph.target(
+                    meter,
+                    position,
+                    bound(body, 0),
+                    binding_at(position, 0),
+                    |kind| matches!(kind, CheckedNodeKind::Model(_)),
+                )?;
             }
             Form::Reset | Form::Constraint => {
                 let place = bound(body, 0).and_then(spelling) == Some("place");
@@ -2694,6 +2981,7 @@ pub(super) fn validate_models<'a>(
                         if form == Form::Reset { (3, 4) } else { (2, 3) };
                     let anchor = if form == Form::Reset {
                         Some(graph.anchor(
+                            meter,
                             position,
                             bound(body, 1),
                             binding_at(position, 1).key("target"),
@@ -2717,6 +3005,7 @@ pub(super) fn validate_models<'a>(
                     if let Some(anchor) = anchor {
                         if !graph.frame_writes_place(anchor, place_position, root_model) {
                             return Err(graph.issue(
+                                meter,
                                 position,
                                 Cause::TimedNodeReference,
                                 binding_at(position, place_index).key("target"),
@@ -2731,20 +3020,32 @@ pub(super) fn validate_models<'a>(
                                 .index(binder_index)
                                 .key("target");
                             let binder_target =
-                                graph.target(position, Some(binder), at.clone(), |kind| {
+                                graph.target(meter, position, Some(binder), at, |kind| {
                                     kind == CheckedNodeKind::Value(ValueForm::Parameter)
                                 })?;
                             let Some(slot_index) = slots.iter().position(|slot| {
                                 typed_target(slot) == Some(&nodes[binder_target].node_id)
                             }) else {
-                                return Err(graph.issue(position, Cause::TimedNodeReference, at));
+                                return Err(graph.issue(
+                                    meter,
+                                    position,
+                                    Cause::TimedNodeReference,
+                                    at,
+                                ));
                             };
+
                             if previous_slot.is_some_and(|previous| slot_index <= previous) {
-                                return Err(graph.issue(position, Cause::TimedNodeReference, at));
+                                return Err(graph.issue(
+                                    meter,
+                                    position,
+                                    Cause::TimedNodeReference,
+                                    at,
+                                ));
                             }
                             previous_slot = Some(slot_index);
                         }
                         graph.boolean(
+                            meter,
                             position,
                             bound(body, 6),
                             binding_at(position, 6).key("target"),
@@ -2752,6 +3053,7 @@ pub(super) fn validate_models<'a>(
                     }
                 } else {
                     let anchor = graph.anchor(
+                        meter,
                         position,
                         bound(body, 1),
                         binding_at(position, 1).key("target"),
@@ -2759,13 +3061,18 @@ pub(super) fn validate_models<'a>(
                     )?;
                     let parameter_name = bound(body, 2).and_then(spelling).unwrap_or_default();
                     let operation_name = graph
-                        .body(anchor)
+                        .body(meter, anchor)
                         .ok()
                         .and_then(|body| bound(body, 1))
                         .and_then(spelling)
                         .unwrap_or_default();
                     let model_owner = owners.recover(&nodes[root_model]).map_err(|_| {
-                        graph.issue(position, Cause::TimedNodeReference, binding_at(position, 2))
+                        graph.issue(
+                            meter,
+                            position,
+                            Cause::TimedNodeReference,
+                            binding_at(position, 2),
+                        )
                     })?;
                     let mut budget =
                         Budget::new(meter, model_owner.package.root, model_owner.package.bytes);
@@ -2793,6 +3100,7 @@ pub(super) fn validate_models<'a>(
                         )
                     }) {
                         return Err(graph.issue(
+                            meter,
                             position,
                             Cause::TimedNodeReference,
                             binding_at(position, 2),
@@ -2802,6 +3110,7 @@ pub(super) fn validate_models<'a>(
                         && !frame_writes_clock(&graph, anchor, root_model, owners, meter)?
                     {
                         return Err(graph.issue(
+                            meter,
                             position,
                             Cause::TimedNodeReference,
                             binding_at(position, 1).key("target"),
@@ -2836,6 +3145,7 @@ pub(super) fn validate_models<'a>(
                     .is_some_and(|kind| *kind == CheckedNodeKind::ScalarType(ScalarTypeForm::Unit))
                 {
                     return Err(graph.issue(
+                        meter,
                         position,
                         Cause::InvalidTimeQuantity,
                         binding_at(position, amount).key("type"),
@@ -2844,6 +3154,7 @@ pub(super) fn validate_models<'a>(
             }
             Form::Guard => {
                 let anchor = graph.anchor(
+                    meter,
                     position,
                     bound(body, 0),
                     binding_at(position, 0).key("target"),
@@ -2857,13 +3168,10 @@ pub(super) fn validate_models<'a>(
                 {
                     let at = binding_at(position, 1).key("members").index(part_index);
                     graph.boolean(
+                        meter,
                         position,
                         bound(part, 0),
-                        at.clone()
-                            .key("members")
-                            .index(0)
-                            .key("value")
-                            .key("target"),
+                        at.key("members").index(0).key("value").key("target"),
                     )?;
                     let first_constraint = if is_quantified_binders(typed_members(part).get(1)) {
                         2
@@ -2877,22 +3185,23 @@ pub(super) fn validate_models<'a>(
                         .enumerate()
                         .skip(first_constraint)
                     {
-                        let at = at
-                            .clone()
-                            .key("members")
-                            .index(constraint_index)
-                            .key("target");
+                        let at = at.key("members").index(constraint_index).key("target");
                         let target =
-                            graph.target(position, Some(constraint), at.clone(), |kind| {
+                            graph.target(meter, position, Some(constraint), at, |kind| {
                                 kind == CheckedNodeKind::TimedModel(Form::Constraint)
                             })?;
-                        let constraint_body = graph.body(target)?;
+                        let constraint_body = graph.body(meter, target)?;
                         extend_place_slots(&mut slots, constraint_body, meter)?;
                         if bound(constraint_body, 0).and_then(spelling) == Some("parameter")
                             && bound(constraint_body, 1).and_then(typed_target)
                                 != Some(&nodes[anchor].node_id)
                         {
-                            return Err(graph.issue(position, Cause::TimedNodeReference, at));
+                            return Err(graph.issue(
+                                meter,
+                                position,
+                                Cause::TimedNodeReference,
+                                at,
+                            ));
                         }
                     }
                     if first_constraint == 2 {
@@ -2909,6 +3218,7 @@ pub(super) fn validate_models<'a>(
             }
             Form::Invariant => {
                 graph.boolean(
+                    meter,
                     position,
                     bound(body, 0),
                     binding_at(position, 0).key("target"),
@@ -2930,10 +3240,10 @@ pub(super) fn validate_models<'a>(
                         .key("members")
                         .index(bound_index)
                         .key("target");
-                    let target = graph.target(position, Some(constraint), at.clone(), |kind| {
+                    let target = graph.target(meter, position, Some(constraint), at, |kind| {
                         kind == CheckedNodeKind::TimedModel(Form::Constraint)
                     })?;
-                    let constraint_body = graph.body(target)?;
+                    let constraint_body = graph.body(meter, target)?;
                     extend_place_slots(&mut slots, constraint_body, meter)?;
                     if bound(constraint_body, 0).and_then(spelling) != Some("place")
                         || !matches!(
@@ -2941,7 +3251,7 @@ pub(super) fn validate_models<'a>(
                             Some("lt" | "le")
                         )
                     {
-                        return Err(graph.issue(position, Cause::TimedNodeReference, at));
+                        return Err(graph.issue(meter, position, Cause::TimedNodeReference, at));
                     }
                 }
                 if bounds_index == 2 {
@@ -2957,17 +3267,21 @@ pub(super) fn validate_models<'a>(
             }
             Form::Urgency => {
                 if bound(body, 0).and_then(spelling) == Some("when") {
-                    graph.boolean(position, bound(body, 1), binding_at(position, 1))?;
+                    graph.boolean(meter, position, bound(body, 1), binding_at(position, 1))?;
                 } else {
-                    graph.target(position, bound(body, 1), binding_at(position, 1), |kind| {
-                        matches!(kind, CheckedNodeKind::Model(_))
-                    })?;
+                    graph.target(
+                        meter,
+                        position,
+                        bound(body, 1),
+                        binding_at(position, 1),
+                        |kind| matches!(kind, CheckedNodeKind::Model(_)),
+                    )?;
                 }
             }
         }
     }
     for &root in &roots {
-        let body = graph.body(root)?;
+        let body = graph.body(meter, root)?;
         let guards = bound(body, 5).map(typed_members).unwrap_or_default();
         let mut anchors: Vec<&CheckedNodeId> = meter.vec(guards.len())?;
         let mut used_constraints: Vec<&CheckedNodeId> = Vec::new();
@@ -2981,10 +3295,11 @@ pub(super) fn validate_models<'a>(
             let Some(&guard) = typed_target(guard).and_then(|id| index.get(id)) else {
                 continue;
             };
-            let guard_body = graph.body(guard)?;
+            let guard_body = graph.body(meter, guard)?;
             if let Some(anchor) = bound(guard_body, 0).and_then(typed_target) {
                 if !meter.insert_sorted(&mut anchors, anchor)? {
                     return Err(graph.issue(
+                        meter,
                         guard,
                         Cause::TimedNodeReference,
                         binding_at(guard, 0).key("target"),
@@ -3010,6 +3325,7 @@ pub(super) fn validate_models<'a>(
                     if let Some(target) = typed_target(member) {
                         if listed_constraints.binary_search(&target).is_err() {
                             return Err(graph.issue(
+                                meter,
                                 guard,
                                 Cause::TimedNodeReference,
                                 binding_at(guard, 1)
@@ -3029,7 +3345,7 @@ pub(super) fn validate_models<'a>(
             let Some(&invariant) = typed_target(invariant).and_then(|id| index.get(id)) else {
                 continue;
             };
-            let invariant_body = graph.body(invariant)?;
+            let invariant_body = graph.body(meter, invariant)?;
             let bounds_index = if is_quantified_binders(typed_members(invariant_body).get(1)) {
                 2
             } else {
@@ -3044,6 +3360,7 @@ pub(super) fn validate_models<'a>(
                 if let Some(target) = typed_target(member) {
                     if listed_constraints.binary_search(&target).is_err() {
                         return Err(graph.issue(
+                            meter,
                             invariant,
                             Cause::TimedNodeReference,
                             binding_at(invariant, bounds_index)
@@ -3066,6 +3383,7 @@ pub(super) fn validate_models<'a>(
                 .is_some_and(|target| used_constraints.binary_search(&target).is_err())
             {
                 return Err(graph.issue(
+                    meter,
                     root,
                     Cause::TimedNodeReference,
                     binding_at(root, 8)
@@ -3085,18 +3403,18 @@ pub(super) fn validate_models<'a>(
         {
             continue;
         }
-        let at = node_pointer(position).key("body");
-        meter.charge(1, || at.clone())?;
+        let at = node_path(position).key("body");
+        work(meter, at, 1)?;
         if super::temporal_binding::clock_name(meter, position, 1) != Some("model-time") {
-            return Err(graph.issue(position, Cause::TimedNodeReference, at));
+            return Err(graph.issue(meter, position, Cause::TimedNodeReference, at));
         }
         let Some(subject) = clause_model_subject(&graph, position) else {
             continue;
         };
         let mut matched = false;
         for &root in &roots {
-            meter.charge(1, || at.clone())?;
-            let root_body = graph.body(root)?;
+            work(meter, at, 1)?;
+            let root_body = graph.body(meter, root)?;
             if bound(root_body, 0).and_then(typed_target) == Some(subject)
                 && bound(root_body, 2)
                     .and_then(typed_target)
@@ -3110,7 +3428,7 @@ pub(super) fn validate_models<'a>(
             }
         }
         if !matched {
-            return Err(graph.issue(position, Cause::TimedNodeReference, at));
+            return Err(graph.issue(meter, position, Cause::TimedNodeReference, at));
         }
     }
     Ok(())
@@ -3123,7 +3441,146 @@ mod tests {
     use ix_trace_rs::trace;
     use serde_json::{json, Value};
     use std::collections::BTreeSet;
-    use std::path::Path;
+    use std::path::Path as FilePath;
+
+    fn published_timed_nodes() -> Vec<(usize, CheckedSemanticNodeV2, TimedModelForm)> {
+        let root = std::env::var("QUIRE_SPECIFICATION_DIR").expect("published QSpec checkout");
+        let bytes = std::fs::read(
+            FilePath::new(&root)
+                .join("proposals/checked-package-v2/fixtures/positive-tick-timed-model-nodes.json"),
+        )
+        .expect("published tick timed model");
+        let wire: super::super::RawCheckedPackageWireV2 =
+            serde_json::from_slice(&bytes).expect("published wire");
+        wire.semantic_graph
+            .nodes
+            .into_iter()
+            .enumerate()
+            .filter_map(|(position, node)| {
+                let kind = super::super::CheckedNodeTag::from_wire(&node.node_tag)
+                    .and_then(|tag| CheckedNodeKind::decode(tag, &node.semantic_form));
+                match kind {
+                    Some(CheckedNodeKind::TimedModel(form)) => Some((position, node, form)),
+                    _ => None,
+                }
+            })
+            .collect()
+    }
+
+    #[trace("TC-472", "FR-038-AC-511")]
+    #[test]
+    fn published_timed_wire_allocations_are_prepaid_at_exact_and_short_allowances() {
+        let nodes = published_timed_nodes();
+        assert!(!nodes.is_empty());
+        let run = |limit| {
+            let mut budget = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
+            let mut result = Ok(());
+            let allocated = allocation_counter::measure(|| {
+                for (position, node, form) in &nodes {
+                    result = check_wire(node, *form, *position, &mut budget);
+                    if result.is_err() {
+                        break;
+                    }
+                }
+            });
+            (result, allocated.bytes_total, budget)
+        };
+        let (result, allocated, budget) = run(u64::MAX);
+        assert!(result.is_ok(), "{result:?}");
+        assert_eq!(allocated, budget.read_storage_consumed());
+        assert!(allocated > 0);
+        let (result, exact, _) = run(allocated);
+        assert!(result.is_ok());
+        assert_eq!(exact, allocated);
+        for limit in [allocated - 1, 0] {
+            let (result, actual, budget) = run(limit);
+            assert!(matches!(result, Err(ValidationFailure::Budget(_))));
+            assert_eq!(actual, budget.read_storage_consumed());
+            assert!(budget.first_unpaid_read_storage().is_some());
+        }
+    }
+
+    #[trace("TC-472", "FR-038-AC-511")]
+    #[test]
+    fn timed_wire_first_defect_refusal_and_its_denial_are_paid() {
+        let (position, mut node, form) = published_timed_nodes()
+            .into_iter()
+            .find(|(_, _, form)| *form == TimedModelForm::Model)
+            .expect("published timed root");
+        // Missing ownership precedes missing occurrences and the body.
+        node.owner = None;
+        node.occurrences.clear();
+        let run = |limit| {
+            let mut budget = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
+            let mut outcome = None;
+            let allocated = allocation_counter::measure(|| {
+                outcome = Some(check_wire(&node, form, position, &mut budget))
+            });
+            (outcome.expect("ran"), allocated.bytes_total, budget)
+        };
+        let (outcome, bytes, budget) = run(u64::MAX);
+        let Err(ValidationFailure::Refused(refusal)) = outcome else {
+            panic!("missing owner refuses");
+        };
+        assert_eq!(refusal.code, CheckedPackageRefusalCode::MalformedWire);
+        assert_eq!(
+            refusal.loci[0]
+                .path
+                .as_ref()
+                .map(crate::checked_package::shared::JsonPointer::as_str),
+            Some("/semantic_graph/nodes/45")
+        );
+        assert_eq!(bytes, budget.read_storage_consumed());
+        assert!(matches!(run(bytes).0, Err(ValidationFailure::Refused(_))));
+        for limit in [bytes - 1, 0] {
+            let (outcome, allocated, budget) = run(limit);
+            assert!(matches!(outcome, Err(ValidationFailure::Budget(_))));
+            assert_eq!(allocated, budget.read_storage_consumed());
+        }
+    }
+
+    #[trace("TC-472", "FR-038-AC-511")]
+    #[test]
+    fn timed_sort_scratch_prepays_deep_identity_comparisons() {
+        let nested = |name| {
+            let mut id = node(name);
+            for _ in 0..65 {
+                id = CheckedNodeId {
+                    package: "p".into(),
+                    path: vec![CheckedNodePathSegment::Node(std::sync::Arc::new(id))],
+                    ordinal: 0,
+                };
+            }
+            id
+        };
+        let left = nested("a");
+        let right = nested("b");
+        let run = |limit| {
+            let mut budget = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
+            let mut outcome = Ok(());
+            let allocated = allocation_counter::measure(|| {
+                let mut meter = WorkMeter::over(&mut budget);
+                let mut ids = [&right, &left];
+                outcome = paid_id_order(ids.iter().copied(), ids.len(), 66, &mut meter).map(
+                    |mut order| {
+                        ids.sort_unstable_by(|left, right| order.compare_bounded(left, right));
+                        assert!(std::ptr::eq(ids[0], &left));
+                    },
+                );
+            });
+            (outcome, allocated.bytes_total, budget)
+        };
+        let (result, allocated, budget) = run(u64::MAX);
+        assert!(result.is_ok());
+        assert_eq!(allocated, CheckedNodeIdOrder::bytes(66) as u64);
+        assert_eq!(allocated, budget.read_storage_consumed());
+        assert!(run(allocated).0.is_ok());
+        for limit in [allocated - 1, 0] {
+            let (result, allocated, budget) = run(limit);
+            assert!(matches!(result, Err(ValidationFailure::Budget(_))));
+            assert_eq!(allocated, budget.read_storage_consumed());
+        }
+    }
 
     /// Trace: FR-038-AC-323, TC-367.
     #[trace("TC-367", "FR-038-AC-323")]
@@ -3183,8 +3640,8 @@ mod tests {
         let Ok(root) = std::env::var("QUIRE_SPECIFICATION_DIR") else {
             return;
         };
-        let path =
-            Path::new(&root).join("proposals/checked-package-v2/timed-slot-selector-vectors.json");
+        let path = FilePath::new(&root)
+            .join("proposals/checked-package-v2/timed-slot-selector-vectors.json");
         let bytes = std::fs::read(path).expect("published timed slot vectors");
         let vectors: Value = serde_json::from_slice(&bytes).expect("published vector JSON");
         let cases = vectors["cases"].as_array().expect("published slot cases");
@@ -3363,7 +3820,7 @@ mod tests {
         let mut budget = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
         let mut meter = WorkMeter::over(&mut budget);
         let mut active = vec![false; 2];
-        let at = JsonPointer::root();
+        let at = Path::root();
         let key = term_key(&graph, terms[0].as_ref(), &mut active, &mut meter, &at);
         let words = key.ok().flatten().map(|key| {
             key.iter()
