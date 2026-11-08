@@ -1453,11 +1453,14 @@ impl Graph<'_> {
             },
         )?;
         let owner_type = self.index.get(&self.nodes[owner].semantic_type).copied();
-        let correct_owner = owner_type
-            .and_then(|p| self.terms.get(p).and_then(Option::as_ref))
-            .and_then(|body| typed_members(body).first())
-            .and_then(typed_target)
-            == Some(&self.nodes[model].node_id);
+        let correct_owner = matches_id(
+            owner_type
+                .and_then(|p| self.terms.get(p).and_then(Option::as_ref))
+                .and_then(|body| typed_members(body).first())
+                .and_then(typed_target),
+            &self.nodes[model].node_id,
+            meter,
+        )?;
         if !correct_owner {
             return Err(self.type_issue(
                 meter,
@@ -1496,40 +1499,60 @@ impl Graph<'_> {
                     CheckedNodeKind::Value(_) | CheckedNodeKind::Expression(_)
                 )
             })?;
-            if &self.nodes[target].semantic_type != selector {
+            if !meter
+                .compare_ids(&self.nodes[target].semantic_type, selector)?
+                .is_eq()
+            {
                 return Err(self.type_issue(meter, position, Cause::TypeMismatch, at));
             }
         }
         Ok(place)
     }
 
-    fn frame_writes_place(&self, anchor: usize, place: usize, model: usize) -> bool {
+    fn frame_writes_place(
+        &self,
+        meter: &mut WorkMeter,
+        anchor: usize,
+        place: usize,
+        model: usize,
+    ) -> Result<bool, ValidationFailure> {
         let Some(anchor_body) = self.terms.get(anchor).and_then(Option::as_ref) else {
-            return false;
+            return Ok(false);
         };
         let Some(frame) = bound(anchor_body, 2)
             .and_then(typed_target)
             .and_then(|key| self.index.get(key))
             .copied()
         else {
-            return false;
+            return Ok(false);
         };
         let Some(CheckedTerm::Frame { modifies, .. }) =
             self.terms.get(frame).and_then(Option::as_ref)
         else {
-            return false;
+            return Ok(false);
         };
         let Some(place_body) = self.terms.get(place).and_then(Option::as_ref) else {
-            return false;
+            return Ok(false);
         };
         let field = bound(place_body, 1)
             .map(typed_members)
             .and_then(|steps| steps.first())
             .and_then(|step| text_member(step, 1));
-        modifies.iter().any(|entry| {
-            matches!(entry, CheckedFrameModification::Field { declaration, name, .. }
-            if declaration == &self.nodes[model].node_id && Some(name.as_ref()) == field)
-        })
+        for entry in modifies {
+            if let CheckedFrameModification::Field {
+                declaration, name, ..
+            } = entry
+            {
+                if meter
+                    .compare_ids(declaration, &self.nodes[model].node_id)?
+                    .is_eq()
+                    && Some(name.as_ref()) == field
+                {
+                    return Ok(true);
+                }
+            }
+        }
+        Ok(false)
     }
 }
 
@@ -1569,7 +1592,10 @@ fn frame_writes_clock(
         else {
             continue;
         };
-        if declaration != &graph.nodes[model].node_id {
+        if !meter
+            .compare_ids(declaration, &graph.nodes[model].node_id)?
+            .is_eq()
+        {
             continue;
         }
         let mut budget = Budget::new(meter, model_owner.package.root, model_owner.package.bytes);
@@ -2232,6 +2258,17 @@ fn comparison_rank(value: &str) -> Option<u64> {
 
 /// A source-map entry may add an earlier region to an existing node. Keep
 /// the minimum across every occurrence and region, independently of node id.
+fn matches_id(
+    actual: Option<&CheckedNodeId>,
+    expected: &CheckedNodeId,
+    meter: &mut WorkMeter,
+) -> Result<bool, ValidationFailure> {
+    match actual {
+        Some(actual) => Ok(meter.compare_ids(actual, expected)?.is_eq()),
+        None => Ok(false),
+    }
+}
+
 fn find_id<T>(
     rows: &[(&CheckedNodeId, T)],
     target: &CheckedNodeId,
@@ -2802,7 +2839,11 @@ pub(super) fn validate_models<'a>(
                     graph.terms.get(dimension).and_then(Option::as_ref),
                     &models_by_identity,
                 );
-                if !is_base_time || nodes[unit].semantic_type != nodes[dimension].node_id {
+                if !is_base_time
+                    || !meter
+                        .compare_ids(&nodes[unit].semantic_type, &nodes[dimension].node_id)?
+                        .is_eq()
+                {
                     return Err(graph.issue(
                         meter,
                         source,
@@ -2923,7 +2964,9 @@ pub(super) fn validate_models<'a>(
                             check_resolved_path(&graph, target, place, model, owners, meter)?;
                             for (seen_model, seen_path) in &seen_places {
                                 work(meter, at, 1)?;
-                                if *seen_model == &nodes[model].node_id
+                                if meter
+                                    .compare_ids(seen_model, &nodes[model].node_id)?
+                                    .is_eq()
                                     && same_place_path(seen_path, path, meter, &at)?
                                 {
                                     return Err(graph.issue(
@@ -3003,7 +3046,7 @@ pub(super) fn validate_models<'a>(
                         meter,
                     )?;
                     if let Some(anchor) = anchor {
-                        if !graph.frame_writes_place(anchor, place_position, root_model) {
+                        if !graph.frame_writes_place(meter, anchor, place_position, root_model)? {
                             return Err(graph.issue(
                                 meter,
                                 position,
@@ -3023,9 +3066,18 @@ pub(super) fn validate_models<'a>(
                                 graph.target(meter, position, Some(binder), at, |kind| {
                                     kind == CheckedNodeKind::Value(ValueForm::Parameter)
                                 })?;
-                            let Some(slot_index) = slots.iter().position(|slot| {
-                                typed_target(slot) == Some(&nodes[binder_target].node_id)
-                            }) else {
+                            let mut slot_index = None;
+                            for (index, slot) in slots.iter().enumerate() {
+                                if matches_id(
+                                    typed_target(slot),
+                                    &nodes[binder_target].node_id,
+                                    meter,
+                                )? {
+                                    slot_index = Some(index);
+                                    break;
+                                }
+                            }
+                            let Some(slot_index) = slot_index else {
                                 return Err(graph.issue(
                                     meter,
                                     position,
@@ -3061,8 +3113,9 @@ pub(super) fn validate_models<'a>(
                     )?;
                     let parameter_name = bound(body, 2).and_then(spelling).unwrap_or_default();
                     let operation_name = graph
-                        .body(meter, anchor)
-                        .ok()
+                        .terms
+                        .get(anchor)
+                        .and_then(Option::as_ref)
                         .and_then(|body| bound(body, 1))
                         .and_then(spelling)
                         .unwrap_or_default();
@@ -3193,8 +3246,11 @@ pub(super) fn validate_models<'a>(
                         let constraint_body = graph.body(meter, target)?;
                         extend_place_slots(&mut slots, constraint_body, meter)?;
                         if bound(constraint_body, 0).and_then(spelling) == Some("parameter")
-                            && bound(constraint_body, 1).and_then(typed_target)
-                                != Some(&nodes[anchor].node_id)
+                            && !matches_id(
+                                bound(constraint_body, 1).and_then(typed_target),
+                                &nodes[anchor].node_id,
+                                meter,
+                            )?
                         {
                             return Err(graph.issue(
                                 meter,
@@ -3415,7 +3471,7 @@ pub(super) fn validate_models<'a>(
         for &root in &roots {
             work(meter, at, 1)?;
             let root_body = graph.body(meter, root)?;
-            if bound(root_body, 0).and_then(typed_target) == Some(subject)
+            if matches_id(bound(root_body, 0).and_then(typed_target), subject, meter)?
                 && bound(root_body, 2)
                     .and_then(typed_target)
                     .and_then(|source| index.get(source))
