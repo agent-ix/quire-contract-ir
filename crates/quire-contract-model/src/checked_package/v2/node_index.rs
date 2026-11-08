@@ -11,8 +11,12 @@ use super::native_join_budget::{NativeJoinBudget, PackageReadStage};
 use super::read_charge::{self, Site};
 use super::TermNode;
 use super::{CheckedNodePathSegment, RawCheckedPackageWireV2, ValidationFailure};
+use crate::checked_package::common::Step;
 use crate::checked_package::evidence::CheckedPackageEvidence;
-use crate::checked_package::shared::{CheckedPackageRefusalCode, JsonPointer};
+use crate::checked_package::shared::{
+    push_index, push_key, CheckedPackageRefusal, CheckedPackageRefusalCode,
+    CheckedPackageRefusalLocation, JsonPointer,
+};
 use quire_canonical::{Document, Items, Members, Node, NodeRef};
 use std::sync::Arc;
 
@@ -325,22 +329,15 @@ impl<'k> StructuralOrder<'k> {
     }
 }
 
-fn malformed(at: JsonPointer) -> ValidationFailure {
-    ValidationFailure::refused(CheckedPackageRefusalCode::MalformedWire, at)
-}
-
 /// The charge site of the node-index stage at graph node `index`.
 fn site(index: usize) -> Site {
     Site::new(PackageReadStage::NodeIndex, index, "node_index")
 }
 
-/// The RFC 6901 pointer to the value `target` of `document`. Only a refusal
-/// asks for one, so no walk keeps a pointer beside its values.
-///
-/// A document numbers its values children first, in the order they were read,
-/// so the first child of a container whose id is not below `target` holds it.
-fn locate(document: &Document, target: NodeRef<'_>) -> JsonPointer {
-    let mut pointer = JsonPointer::root();
+/// Walk the target's path without owning it. A document numbers children
+/// before their container, so the first child not below the target holds it.
+/// The same traversal counts the pointer first and writes it only after payment.
+fn locate<'d>(document: &'d Document, target: NodeRef<'d>, mut step: impl FnMut(Step<'d>)) {
     let mut value = document.root();
     let target = target.id();
     while value.id() != target {
@@ -349,7 +346,7 @@ fn locate(document: &Document, target: NodeRef<'_>) -> JsonPointer {
                 let Some((name, child)) = members.find(|(_, child)| child.id() >= target) else {
                     break;
                 };
-                pointer = pointer.key(name);
+                step(Step::Key(name));
                 value = child;
             }
             Node::Array(items) => {
@@ -358,18 +355,91 @@ fn locate(document: &Document, target: NodeRef<'_>) -> JsonPointer {
                 else {
                     break;
                 };
-                pointer = pointer.index(position);
+                step(Step::Index(position));
                 value = child;
             }
             Node::Null | Node::Bool(_) | Node::Number(_) | Node::String(_) => break,
         }
     }
-    pointer
 }
 
-/// The refusal at the value `target` of `document`.
-fn malformed_at(document: &Document, target: NodeRef<'_>) -> ValidationFailure {
-    malformed(locate(document, target))
+fn step_bytes(step: Step<'_>) -> usize {
+    match step {
+        Step::Key(key) => key.bytes().fold(1usize, |bytes, byte| {
+            bytes.saturating_add(if matches!(byte, b'~' | b'/') { 2 } else { 1 })
+        }),
+        Step::Index(mut index) => {
+            let mut bytes = 2;
+            while index >= 10 {
+                index /= 10;
+                bytes += 1;
+            }
+            bytes
+        }
+    }
+}
+
+/// Pay for the complete diagnostic before requesting its pointer, location
+/// vector or boxed record. The graph holder comes from the document path,
+/// including the row holder of `semantic_graph.operand_rows`.
+fn malformed_at(
+    document: &Document,
+    target: NodeRef<'_>,
+    budget: &mut NativeJoinBudget,
+) -> ValidationFailure {
+    use super::read_charge::ReadStorage;
+    let mut length = 0usize;
+    let mut depth = 0usize;
+    let mut graph = false;
+    let mut node_list = false;
+    let mut index = 0;
+    locate(document, target, |step| {
+        length = length.saturating_add(step_bytes(step));
+        match (depth, step) {
+            (0, Step::Key("semantic_graph")) => graph = true,
+            (1, Step::Key("nodes" | "operand_rows")) if graph => node_list = true,
+            (2, Step::Index(holder)) if node_list => index = holder,
+            _ => {}
+        }
+        depth += 1;
+    });
+    let bytes = (std::mem::size_of::<CheckedPackageRefusal>() as u128)
+        .saturating_add(std::mem::size_of::<CheckedPackageRefusalLocation>() as u128)
+        .saturating_add(length as u128);
+    if budget
+        .reserve_diagnostic(
+            bytes,
+            site(index),
+            super::CheckedPackagePendingOutcome::Refused(CheckedPackageRefusalCode::MalformedWire),
+        )
+        .is_err()
+    {
+        return budget.denial();
+    }
+    let mut pointer = String::with_capacity(length);
+    locate(document, target, |step| match step {
+        Step::Key(key) => push_key(&mut pointer, key),
+        Step::Index(index) => push_index(&mut pointer, index),
+    });
+    debug_assert_eq!(pointer.len(), length);
+    ValidationFailure::refused(
+        CheckedPackageRefusalCode::MalformedWire,
+        JsonPointer::from_escaped(pointer),
+    )
+}
+
+/// A closed node-index position is already a borrowed path; use the same
+/// caller budget and diagnostic policy as the document locator.
+fn malformed_path(
+    budget: &mut NativeJoinBudget,
+    index: usize,
+    path: super::stage_storage::Path<'_>,
+) -> ValidationFailure {
+    super::stage_storage::refuse(
+        &mut super::WorkMeter::over(budget),
+        &super::stage_storage::Site::new(PackageReadStage::NodeIndex, index, "node_index", path),
+        super::stage_storage::Refusal::new(CheckedPackageRefusalCode::MalformedWire, path),
+    )
 }
 
 /// One operand segment of the document, in document order by `id`.
@@ -807,6 +877,22 @@ pub(super) fn rebuild_keys<'a>(
     refuse: impl Fn(JsonPointer) -> ValidationFailure,
     budget: &mut NativeJoinBudget,
 ) -> Result<Vec<Arc<super::CheckedNodeId>>, ValidationFailure> {
+    rebuild_keys_with_failure(
+        count,
+        id_of,
+        |position, slot, _budget| refuse(pointer(position, slot)),
+        budget,
+    )
+}
+
+/// One key-building implementation; the strict document caller supplies a
+/// borrowed, caller-paid fault and other callers retain their own policy.
+fn rebuild_keys_with_failure<'a>(
+    count: usize,
+    id_of: impl Fn(usize) -> &'a super::CheckedNodeId,
+    mut refuse: impl FnMut(usize, usize, &mut NativeJoinBudget) -> ValidationFailure,
+    budget: &mut NativeJoinBudget,
+) -> Result<Vec<Arc<super::CheckedNodeId>>, ValidationFailure> {
     // The graph position a segment names, or `None` for a segment that is
     // not an operand reference of this table.
     let target_of = |segment: &CheckedNodePathSegment| -> Option<Option<usize>> {
@@ -824,7 +910,7 @@ pub(super) fn rebuild_keys<'a>(
             match target_of(segment) {
                 Some(None) => {}
                 Some(Some(target)) if target < count => edge_count += 1,
-                Some(Some(_)) | None => return Err(refuse(pointer(position, slot))),
+                Some(Some(_)) | None => return Err(refuse(position, slot, budget)),
             }
         }
     }
@@ -909,7 +995,7 @@ pub(super) fn rebuild_keys<'a>(
     for node in 0..count {
         for &(slot, target) in outgoing(node) {
             if component[node] == component[target] {
-                return Err(refuse(pointer(node, slot)));
+                return Err(refuse(node, slot, budget));
             }
         }
     }
@@ -1028,7 +1114,10 @@ impl<'d> Collector<'d, '_, '_> {
 
     /// A `dependency_reference` term names its target with a document-held
     /// ID whose path holds no operand object.
-    fn check_dependency_reference(&self, members: &Members<'d>) -> Result<(), ValidationFailure> {
+    fn check_dependency_reference(
+        &mut self,
+        members: &Members<'d>,
+    ) -> Result<(), ValidationFailure> {
         let is_reference = members.clone().any(|(name, value)| {
             name == "term" && matches!(value.node(), Node::String("dependency_reference"))
         });
@@ -1039,17 +1128,17 @@ impl<'d> Collector<'d, '_, '_> {
             return Ok(());
         };
         let Node::Object(node_members) = node.node() else {
-            return Err(malformed_at(self.document, node));
+            return Err(malformed_at(self.document, node, self.budget));
         };
         let Some((_, path)) = node_members.clone().find(|(name, _)| *name == "path") else {
             return Ok(());
         };
         let Node::Array(segments) = path.node() else {
-            return Err(malformed_at(self.document, path));
+            return Err(malformed_at(self.document, path, self.budget));
         };
         for segment in segments {
             if matches!(segment.node(), Node::Object(_)) {
-                return Err(malformed_at(self.document, segment));
+                return Err(malformed_at(self.document, segment, self.budget));
             }
         }
         Ok(())
@@ -1072,7 +1161,7 @@ impl<'d> Collector<'d, '_, '_> {
             return Ok(());
         };
         let Node::Array(segments) = path.node() else {
-            return Err(malformed_at(self.document, path));
+            return Err(malformed_at(self.document, path, self.budget));
         };
         let holder = match walk.scope {
             Scope::Node(holder) => Some(holder),
@@ -1092,7 +1181,7 @@ impl<'d> Collector<'d, '_, '_> {
                 continue;
             }
             let Some(value) = as_u64(member) else {
-                return Err(malformed_at(self.document, segment));
+                return Err(malformed_at(self.document, segment, self.budget));
             };
             read_charge::push(
                 self.budget,
@@ -1173,7 +1262,7 @@ fn collect_sites<'d>(
         };
         if let (Scope::Row, true) = (walk.scope, in_items) {
             let Some(value) = as_u64(child) else {
-                return Err(malformed_at(document, child));
+                return Err(malformed_at(document, child, collector.budget));
             };
             read_charge::push(
                 collector.budget,
@@ -1218,10 +1307,10 @@ pub(super) fn check(
 ) -> Result<Vec<Arc<super::CheckedNodeId>>, ValidationFailure> {
     let node_count = wire.semantic_graph.nodes.len();
     let rows = &wire.semantic_graph.operand_rows;
-    let graph_at = || JsonPointer::root().key("semantic_graph");
+    let graph_at = super::stage_storage::Path::root().key("semantic_graph");
     // 1. Rows.
     if rows.len() != node_count {
-        return Err(malformed(graph_at().key("operand_rows")));
+        return Err(malformed_path(budget, 0, graph_at.key("operand_rows")));
     }
     let (sites, row_sites) = collect_sites(document, node_count, evidence, budget)?;
     // 2. Placement. A foreign key's segments name its dependency's graph.
@@ -1229,7 +1318,7 @@ pub(super) fn check(
         .iter()
         .find(|site| site.foreign_graph.is_none() && site.slot != site.holder.is_some())
     {
-        return Err(malformed_at(document, site.id));
+        return Err(malformed_at(document, site.id, budget));
     }
     // 3. Range.
     let out_of_range = sites.iter().find_map(|site| {
@@ -1255,7 +1344,7 @@ pub(super) fn check(
         .flatten()
         .min_by_key(|at| at.id())
     {
-        return Err(malformed_at(document, at));
+        return Err(malformed_at(document, at, budget));
     }
     // 4. Numbering by first occurrence, node by node in graph order. The
     // sites are in document order, so a node's slots are consecutive and in
@@ -1270,7 +1359,7 @@ pub(super) fn check(
         let mut named = 0u64;
         while let Some(site) = slots.next_if(|site| site.holder == Some(node)) {
             if site.value > named {
-                return Err(malformed_at(document, site.id));
+                return Err(malformed_at(document, site.id, budget));
             }
             named = named.max(site.value + 1);
         }
@@ -1287,8 +1376,10 @@ pub(super) fn check(
             .ok()
             .filter(|&named| named < row.len());
         if let Some(position) = [unnamed, repeated].into_iter().flatten().min() {
-            return Err(malformed(
-                graph_at().key("operand_rows").index(node).index(position),
+            return Err(malformed_path(
+                budget,
+                node,
+                graph_at.key("operand_rows").index(node).index(position),
             ));
         }
     }
@@ -1296,19 +1387,22 @@ pub(super) fn check(
     drop(sites);
     drop(row_sites);
     // 5. Cycle, then the keys themselves.
-    let keys = rebuild_keys(
+    let keys = rebuild_keys_with_failure(
         node_count,
         |position| &wire.semantic_graph.nodes[position].node_id,
-        |position, slot| {
-            graph_at()
-                .key("nodes")
-                .index(position)
-                .key("node_id")
-                .key("path")
-                .index(slot)
-                .key("operand")
+        |position, slot, budget| {
+            malformed_path(
+                budget,
+                position,
+                graph_at
+                    .key("nodes")
+                    .index(position)
+                    .key("node_id")
+                    .key("path")
+                    .index(slot)
+                    .key("operand"),
+            )
         },
-        malformed,
         budget,
     )?;
     read_charge::end_stage(budget);
@@ -1472,12 +1566,13 @@ pub(super) fn restore_slots(id: &mut super::CheckedNodeId, row: &[u64]) {
 
 #[cfg(test)]
 mod tests {
-    use super::{contains_inline_node_path, locate, StructuralOrder};
+    use super::{contains_inline_node_path, malformed_at, StructuralOrder};
     use crate::checked_package::v2::native_join_budget::{
         NativeJoinBudget, NativeJoinLocus, NativeJoinLocusSource, PackageReadStage,
     };
     use crate::checked_package::v2::read_charge::Site;
     use crate::checked_package::v2::{CheckedNodeId, CheckedNodePathSegment};
+    use ix_trace_rs::trace;
     use quire_canonical::Node;
     use std::sync::Arc;
 
@@ -1577,17 +1672,217 @@ mod tests {
         );
     }
 
+    fn pointer_document() -> quire_canonical::Document {
+        quire_canonical::read(br#"{"a":[1,{"b":2,"c~":[]}],"d":{"e":3}}"#, 1 << 20)
+            .expect("document")
+    }
+
+    #[trace("TC-472", "FR-038-AC-501", "FR-038-AC-510", "FR-038-AC-511")]
+    #[test]
+    fn located_faults_pay_exact_pointer_record_and_location_before_allocating() {
+        use super::super::super::common::ValidationFailure;
+        use super::super::CheckedPackagePendingOutcome;
+        let document = pointer_document();
+        let mut pending = vec![document.root()];
+        while let Some(value) = pending.pop() {
+            let run = |limit| {
+                let mut budget = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
+                let mut result = None;
+                let actual = allocation_counter::measure(|| {
+                    result = Some(malformed_at(&document, value, &mut budget));
+                });
+                (result.unwrap(), actual.bytes_total, budget)
+            };
+            let (result, actual, mut budget) = run(u64::MAX);
+            let ValidationFailure::Refused(refusal) = &result else {
+                panic!("located fault")
+            };
+            assert_eq!(
+                refusal.code,
+                super::CheckedPackageRefusalCode::MalformedWire
+            );
+            assert_eq!(refusal.cause, None);
+            assert_eq!(refusal.locus, None);
+            let required = budget.read_storage_consumed();
+            assert_eq!(actual, required);
+            assert_eq!(
+                budget.take_paid(),
+                Some(CheckedPackagePendingOutcome::Refused(
+                    super::CheckedPackageRefusalCode::MalformedWire
+                ))
+            );
+            assert_eq!(run(required).0, result);
+            for limit in [0, required - 1] {
+                let (result, actual, budget) = run(limit);
+                assert!(matches!(result, ValidationFailure::Budget(_)));
+                assert_eq!(actual, 0, "no part of a denied diagnostic is allocated");
+                assert_eq!(budget.read_storage_consumed(), 0);
+                assert_eq!(budget.first_unpaid_read_storage(), Some(required as u128));
+                assert_eq!(
+                    budget.first_unpaid_locus(),
+                    Some(NativeJoinLocus {
+                        source: NativeJoinLocusSource::PackageRead(PackageReadStage::NodeIndex, 0),
+                        form: "diagnostic",
+                    })
+                );
+            }
+            match value.node() {
+                Node::Object(members) => pending.extend(members.map(|(_, child)| child)),
+                Node::Array(items) => pending.extend(items),
+                _ => {}
+            }
+        }
+    }
+
+    #[cfg(feature = "test-support")]
+    #[trace("TC-472", "FR-038-AC-496", "FR-038-AC-501")]
+    #[test]
+    fn located_fault_replays_keep_all_prior_caller_counters_and_first_denial() {
+        use super::super::native_join_budget::NativeJoinChargeKind;
+        let document = pointer_document();
+        let Node::Object(mut root) = document.root().node() else {
+            panic!("object fixture")
+        };
+        let array = root.find(|(name, _)| *name == "a").unwrap().1;
+        let Node::Array(mut items) = array.node() else {
+            panic!("array fixture")
+        };
+        let target = items.next().unwrap();
+        let mut measured = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(u64::MAX);
+        let _ = malformed_at(&document, target, &mut measured);
+        let required = measured.read_storage_consumed();
+        let mut caller = NativeJoinBudget::new(100, 100).with_read_storage_limit(7 + 2 * required);
+        let before = caller.begin();
+        assert!(caller.charge(NativeJoinChargeKind::Work, 3));
+        assert!(caller.charge(NativeJoinChargeKind::Storage, 2));
+        super::read_charge::charge(&mut caller, super::site(9), 7).unwrap();
+        caller.finish_read(before, 0);
+        let original_work_storage = caller.consumed();
+        let original_delta = caller.last_success_delta();
+        let original_read_delta = caller.last_success_read_storage_delta();
+        let mut replay = caller.read_proof_snapshot();
+        for step in 1..=2 {
+            let mut result = None;
+            let actual = allocation_counter::measure(|| {
+                result = Some(malformed_at(&document, target, &mut caller));
+            });
+            let other = malformed_at(&document, target, &mut replay);
+            assert_eq!(result.unwrap(), other);
+            assert_eq!(
+                caller, replay,
+                "every captured budget field replays equally"
+            );
+            assert_eq!(actual.bytes_total, required);
+            assert_eq!(caller.read_storage_consumed(), 7 + step * required);
+            assert_eq!(caller.consumed(), original_work_storage);
+            assert_eq!(caller.last_success_delta(), original_delta);
+            assert_eq!(
+                caller.last_success_read_storage_delta(),
+                original_read_delta
+            );
+            assert_eq!(caller.first_unpaid_read_storage(), None);
+            assert_eq!(caller.take_paid(), replay.take_paid());
+        }
+        let mut result = None;
+        let actual = allocation_counter::measure(|| {
+            result = Some(malformed_at(&document, target, &mut caller));
+        });
+        assert!(matches!(
+            result.unwrap(),
+            super::ValidationFailure::Budget(_)
+        ));
+        assert_eq!(actual.bytes_total, 0);
+        assert_eq!(caller.first_unpaid_read_storage(), Some(required as u128));
+        let denied = caller.read_proof_snapshot();
+        let _ = malformed_at(&document, target, &mut caller);
+        assert_eq!(
+            caller, denied,
+            "retry cannot replace the first unpaid charge or clear counters"
+        );
+    }
+
+    #[trace("TC-472", "FR-038-AC-501", "FR-038-AC-511")]
+    #[test]
+    fn key_range_and_cycle_faults_keep_the_first_operand_and_pay_their_diagnostic() {
+        use super::super::stage_storage::Path;
+        for paths in [
+            vec![vec![CheckedNodePathSegment::Index(1)]],
+            vec![
+                vec![CheckedNodePathSegment::Index(1)],
+                vec![CheckedNodePathSegment::Index(0)],
+            ],
+        ] {
+            let ids: Vec<_> = paths
+                .into_iter()
+                .map(|path| CheckedNodeId {
+                    package: "p".into(),
+                    path,
+                    ordinal: 0,
+                })
+                .collect();
+            let run = |limit| {
+                let mut budget = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
+                let mut result = None;
+                let actual = allocation_counter::measure(|| {
+                    result = Some(super::rebuild_keys_with_failure(
+                        ids.len(),
+                        |position| &ids[position],
+                        |position, slot, budget| {
+                            super::malformed_path(
+                                budget,
+                                position,
+                                Path::root()
+                                    .key("semantic_graph")
+                                    .key("nodes")
+                                    .index(position)
+                                    .key("node_id")
+                                    .key("path")
+                                    .index(slot)
+                                    .key("operand"),
+                            )
+                        },
+                        &mut budget,
+                    ));
+                });
+                (result.unwrap(), actual.bytes_total, budget)
+            };
+            let (result, actual, budget) = run(u64::MAX);
+            let Err(super::ValidationFailure::Refused(refusal)) = &result else {
+                panic!("bad operand")
+            };
+            assert_eq!(
+                refusal.code,
+                super::CheckedPackageRefusalCode::MalformedWire
+            );
+            assert_eq!(
+                refusal.loci[0].path.as_ref().unwrap().as_str(),
+                "/semantic_graph/nodes/0/node_id/path/0/operand"
+            );
+            assert_eq!(actual, budget.read_storage_consumed());
+            assert_eq!(run(actual).0, result);
+            let (result, actual, budget) = run(actual - 1);
+            assert!(matches!(result, Err(super::ValidationFailure::Budget(_))));
+            assert_eq!(actual, budget.read_storage_consumed());
+            assert_eq!(budget.first_unpaid_locus().unwrap().form, "diagnostic");
+        }
+    }
+
     /// The pointer to every value of a document is found from its id alone.
     ///
     /// Trace: TC-472, FR-038-AC-500.
     #[test]
     fn locate_finds_every_value_by_id() {
-        let document = quire_canonical::read(br#"{"a":[1,{"b":2,"c~":[]}],"d":{"e":3}}"#, 1 << 20)
-            .expect("document");
+        let document = pointer_document();
         let mut found = Vec::new();
         let mut pending = vec![document.root()];
         while let Some(value) = pending.pop() {
-            found.push(locate(&document, value).as_str().to_owned());
+            let mut budget = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(u64::MAX);
+            let super::ValidationFailure::Refused(refusal) =
+                malformed_at(&document, value, &mut budget)
+            else {
+                panic!("affordable located refusal")
+            };
+            found.push(refusal.loci[0].path.as_ref().unwrap().as_str().to_owned());
             match value.node() {
                 Node::Object(members) => pending.extend(members.map(|(_, child)| child)),
                 Node::Array(items) => pending.extend(items),
