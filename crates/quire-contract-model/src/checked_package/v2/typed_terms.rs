@@ -6,9 +6,11 @@
 //! byte length.
 
 use super::checked_json::CheckedJson;
+#[cfg(test)]
+use super::BodyTerm;
 use super::{
-    ApplicationOperator, BodyTerm, LawRole, LiteralKind, OperationConstraintKind,
-    OperationMemberKind, OperationModeKind, StateClauseKind,
+    ApplicationOperator, LawRole, LiteralKind, OperationConstraintKind, OperationMemberKind,
+    OperationModeKind, StateClauseKind,
 };
 use super::{
     CheckedComponentClause, CheckedCompositionComponent, CheckedCompositionPremise,
@@ -328,36 +330,46 @@ impl CheckedApplicationOperationRecord {
                 })
     }
 
-    pub(super) fn decode_member_ids(&mut self, context: &super::document_de::DecodeContext<'_>) {
+    pub(super) fn decode_member_ids(
+        &mut self,
+        context: &super::document_de::DecodeContext<'_>,
+    ) -> Result<(), super::document_de::Error> {
         let Some(member) = self.member.as_ref().map(super::TermNode::of) else {
-            return;
+            return Ok(());
         };
         let decode = |value: Option<super::TermNode<'_>>| {
-            value
-                .and_then(|value| {
-                    context
-                        .value_by_id(value.node_ref().id())
-                        .and_then(|value| CheckedNodeId::deserialize(value).ok())
-                })
-                .filter(CheckedNodeId::is_well_formed)
+            let Some(value) = value.and_then(|value| context.value_by_id(value.node_ref().id()))
+            else {
+                return Ok(None);
+            };
+            match CheckedNodeId::deserialize(value) {
+                Ok(id) if id.is_well_formed() => Ok(Some(id)),
+                Ok(_)
+                | Err(
+                    super::document_de::Error::Invalid
+                    | super::document_de::Error::UnknownMember,
+                ) => Ok(None),
+                Err(error @ super::document_de::Error::Denied) => Err(error),
+            }
         };
         self.member_ids = CheckedOperationMemberIds {
-            declaration: decode(member.get("declaration")),
-            context: decode(member.get("context")),
-            destination_type: decode(member.get("destination_type")),
-            population: decode(member.get("population")),
+            declaration: decode(member.get("declaration"))?,
+            context: decode(member.get("context"))?,
+            destination_type: decode(member.get("destination_type"))?,
+            population: decode(member.get("population"))?,
             target_declaration: decode(
                 member
                     .get("target")
                     .and_then(|target| target.get("declaration")),
-            ),
-            target_node: decode(member.get("target").and_then(|target| target.get("node"))),
+            )?,
+            target_node: decode(member.get("target").and_then(|target| target.get("node")))?,
             target_parallel: decode(
                 member
                     .get("target")
                     .and_then(|target| target.get("parallel")),
-            ),
+            )?,
         };
+        Ok(())
     }
 
     pub(super) fn copy_member_context(
@@ -1662,7 +1674,9 @@ impl CheckedApplicationOperation {
             let mut budget =
                 super::NativeJoinBudget::new(u64::MAX, u64::MAX).with_read_storage_limit(u64::MAX);
             let context = super::document_de::DecodeContext::new(member.document(), &mut budget);
-            record.decode_member_ids(&context);
+            record
+                .decode_member_ids(&context)
+                .expect("unlimited member-ID decode cannot be denied");
             if record.identity.as_deref() == Some("quire.op.state.clause") {
                 super::TermNode::of(&member)
                     .get("execution_point")
@@ -2328,7 +2342,10 @@ fn map_operation_ids(
         let mut budget =
             super::NativeJoinBudget::new(u64::MAX, u64::MAX).with_read_storage_limit(u64::MAX);
         let context = super::document_de::DecodeContext::new(member.document(), &mut budget);
-        operation.record.decode_member_ids(&context);
+        operation
+            .record
+            .decode_member_ids(&context)
+            .expect("unlimited member-ID decode cannot be denied");
     }
     let Some(views) = &mut operation.views else {
         return;
@@ -2449,10 +2466,8 @@ impl CheckedTerm {
                 if exact_members(
                     object,
                     &["term", "operator", "operation", "result_type", "arguments"],
-                ) =>
+                ) && wire.operator().is_some() =>
             {
-                wire.operator()?;
-                wire.field(TermField::ResultType)?;
                 Some(CheckedTermView::Application {
                     arguments: wire.array(TermField::Arguments)?,
                 })
@@ -2463,7 +2478,11 @@ impl CheckedTerm {
                 })
             }
             TermTag::Known(BodyTerm::Binding)
-                if exact_members(object, &["term", "name", "value"]) =>
+                if exact_members(object, &["term", "name", "value"])
+                    && wire
+                        .field(TermField::Name)
+                        .and_then(Value::as_str)
+                        .is_some() =>
             {
                 Some(CheckedTermView::Binding {
                     value: wire.field(TermField::Value)?,
@@ -2473,7 +2492,8 @@ impl CheckedTerm {
                 Some(CheckedTermView::Reference)
             }
             TermTag::Known(BodyTerm::Literal)
-                if exact_members(object, &["term", "type", "value_kind", "value"]) =>
+                if exact_members(object, &["term", "type", "value_kind", "value"])
+                    && wire.literal_kind().is_some() =>
             {
                 Some(CheckedTermView::Literal)
             }
@@ -3110,9 +3130,22 @@ impl CheckedTerm {
                 value_kind: field(wire, TermField::ValueKind)?,
                 value: field(wire, TermField::Value)?,
             }),
-            TermTag::Known(BodyTerm::Reference) => Ok(Self::Reference {
-                target: field(wire, TermField::Target)?,
-            }),
+            TermTag::Known(BodyTerm::Reference) => {
+                let target = field(wire, TermField::Target)?;
+                if wire
+                    .object()
+                    .is_some_and(|object| !crate::checked_package::common::exact_members(
+                        object,
+                        &["term", "target"],
+                    ))
+                {
+                    return Err(TermConversionCause::MalformedMember {
+                        member: "members",
+                        category: Category::Data,
+                    });
+                }
+                Ok(Self::Reference { target })
+            }
             TermTag::Known(BodyTerm::Application) => Ok(Self::Application {
                 operator: field(wire, TermField::Operator)?,
                 operation: field(wire, TermField::Operation)?,
@@ -4121,6 +4154,17 @@ mod tests {
                 json!({"term":"reference","target":0}),
                 TermConversionCause::MalformedMember {
                     member: "target",
+                    category: Category::Data,
+                },
+            ),
+            (
+                json!({
+                    "term":"reference",
+                    "target":{"package":"p","path":["n"],"ordinal":0},
+                    "members":[]
+                }),
+                TermConversionCause::MalformedMember {
+                    member: "members",
                     category: Category::Data,
                 },
             ),

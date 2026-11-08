@@ -879,7 +879,6 @@ impl ContractPackageV1 {
                         Ok(())
                     },
                     ids,
-                    None,
                 )
             })?;
             work.charge(body_work.saturating_mul(4))
@@ -1923,7 +1922,7 @@ impl ContractPackageWireV1 {
         wire.validate_correspondence(limits, &frames)?;
         wire.validate_accounting(&frames)?;
         wire.validate_dependencies(dependencies, &mut work_meter)?;
-        let terms = wire.validate_references(dependencies, &mut work_meter, &frames)?;
+        let terms = wire.validate_references(dependencies, limits, &mut work_meter, &frames)?;
         let node_index = wire
             .semantic_graph
             .nodes
@@ -2931,7 +2930,6 @@ impl ContractPackageWireV1 {
                     &Trail::Base(&steps),
                     &mut |_, _, _, _, _| Ok(()),
                     ids,
-                    None,
                 )
             })?;
             work_meter.charge(work, || at.clone().key("body"))?;
@@ -3320,6 +3318,7 @@ impl ContractPackageWireV1 {
     fn validate_references(
         &self,
         dependencies: &ContractDependencies<'_>,
+        limits: CheckedPackageReadLimits,
         meter: &mut super::WorkMeter,
         frames: &ContractFrameKeys,
     ) -> Result<Vec<Option<CheckedTerm>>, ValidationFailure> {
@@ -3399,7 +3398,6 @@ impl ContractPackageWireV1 {
                         Ok(())
                     },
                     ids,
-                    None,
                 )
             })?;
             if let Some(pointer) = missing {
@@ -3644,7 +3642,6 @@ fn body_reference_pointer(
                 Ok(())
             },
             ids,
-            None,
         )
     });
     found.unwrap_or_else(|| super::node_pointer(position).key("body"))
