@@ -819,7 +819,7 @@ mod tests {
         );
         let owners = ModelOwners::new(&[], &join.wire.semantic_graph.nodes, |_| Ok(()))
             .expect("empty selected-model owners");
-        let index: std::collections::BTreeMap<&CheckedNodeId, usize> = join
+        let index: Vec<(&CheckedNodeId, usize)> = join
             .wire
             .semantic_graph
             .nodes
