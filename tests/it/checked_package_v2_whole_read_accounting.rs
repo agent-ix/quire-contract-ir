@@ -435,7 +435,7 @@ fn qspec_cases() -> (Vec<Case>, BTreeSet<String>) {
             expected,
         });
     }
-    let vectors = qspec_inputs::read_json(&proposal.join("checked-term-data-vectors.json"))
+    let vectors = qspec_inputs::read_json_wire(&proposal.join("checked-term-data-vectors.json"))
         .expect("published protocol-location vectors");
     let positives = vectors["positive"]["protocol_locations"]
         .as_array()
