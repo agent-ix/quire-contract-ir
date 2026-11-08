@@ -251,11 +251,10 @@ mod read_storage_inputs;
 #[test]
 fn whole_read_chain_100000() {
     let input = read_storage_inputs::chain_100000();
-    qspec_read_proof::with_designated_read_provider(
-        "read_storage_inputs::chain_100000",
-        &["walker_growth"],
-        || whole_read("chain_100000", &input.bytes, &input.evidence),
-    );
+    // A large graph of shallow reference terms is not a single deep term
+    // walk. Keep its normal stage/class endpoint proof; it does not designate
+    // every per-node initial walker reservation as repeated stack growth.
+    whole_read("chain_100000", &input.bytes, &input.evidence);
 }
 
 #[trace("TC-472", "FR-038-AC-511")]
