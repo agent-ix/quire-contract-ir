@@ -3534,7 +3534,6 @@ fn validate_graph(
         dependencies,
         &terms,
         meter,
-        limits.bytes,
     )?;
     validate_declaration_names(&graph.nodes, &kinds, &index)?;
     validate_recursion_group_paths(&graph.nodes)?;

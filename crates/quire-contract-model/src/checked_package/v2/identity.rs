@@ -1527,22 +1527,11 @@ fn record_from_node<B>(
             body_is_literal,
         }));
     }
-    if let Some(super::CheckedNodeOwner::Model {
-        identity,
-        node: owner_node,
-    }) = node.owner.as_ref()
-    {
-        return model_record_from_node(
-            node,
-            body,
-            kind,
-            position,
-            identity,
-            owner_node,
-            models,
-            model_nodes,
-            meter,
-        );
+    if matches!(
+        node.owner.as_ref(),
+        Some(super::CheckedNodeOwner::Model { .. })
+    ) {
+        return model_record_from_node(node, body, kind, position, models, model_nodes, meter);
     }
     let source_owner = match node.owner.as_ref() {
         Some(super::CheckedNodeOwner::Source {
@@ -1648,14 +1637,19 @@ fn model_record_from_node<B>(
     body: BodyInput<'_>,
     kind: NominalKind,
     position: usize,
-    identity: &str,
-    owner_node: &str,
     models: &[DomainModel],
     model_nodes: &ModelNodes<'_>,
     meter: &mut WorkMeter,
 ) -> Result<NominalRecord, ValidationFailure> {
     use crate::checked_package::shared::CheckedNodePathSegment as Segment;
     let at = || node_pointer(position);
+    let Some(super::CheckedNodeOwner::Model {
+        identity,
+        node: owner_node,
+    }) = node.owner.as_ref()
+    else {
+        return Err(invalid(at().key("owner")));
+    };
     let empty_aggregate = body.is_empty_aggregate();
     if node.declaration.is_some() || !empty_aggregate {
         return Err(ValidationFailure::refused(
@@ -1751,7 +1745,6 @@ pub(super) fn validate_nominal_nodes<B>(
     dependencies: &SuppliedDependencies<'_>,
     terms: &[Option<super::CheckedTerm>],
     meter: &mut WorkMeter,
-    bytes: u64,
 ) -> Result<Vec<CheckedNodeId>, ValidationFailure> {
     let model_nodes = model_node_table(
         nodes
@@ -1835,7 +1828,7 @@ pub(super) fn validate_nominal_nodes<B>(
                 validate_enum_member(&site, member, &graph)?;
             }
             NominalRecord::Dimension(dimension) => {
-                validate_dimension(&site, dimension, &graph, lock, meter, bytes)?;
+                validate_dimension(&site, dimension, &graph, lock, meter)?;
             }
             NominalRecord::DimensionEquivalence(equivalence) => {
                 validate_dimension_equivalence(
@@ -2559,6 +2552,8 @@ fn equivalence_potentials<'a>(
     Ok(potentials)
 }
 
+type DimensionPowers<'a> = Vec<(&'a CheckedNodeId, Integer)>;
+
 /// A dimension as the exponents of its base components, in component order,
 /// and its scale within them.
 fn normalized_dimension<'a>(
@@ -2567,7 +2562,7 @@ fn normalized_dimension<'a>(
     bases: &Potentials<'a>,
     meter: &mut WorkMeter,
     at: &dyn Fn() -> JsonPointer,
-) -> Result<(Vec<(&'a CheckedNodeId, Integer)>, ExactRatio), ValidationFailure> {
+) -> Result<(DimensionPowers<'a>, ExactRatio), ValidationFailure> {
     let Some(NominalRecord::Dimension(dimension)) = graph.nominal(id) else {
         return Err(invalid(at()));
     };
@@ -3008,7 +3003,6 @@ fn validate_dimension(
     graph: &NominalGraph<'_>,
     lock: &CheckedPackageLockV2,
     meter: &mut WorkMeter,
-    _bytes: u64,
 ) -> Result<(), ValidationFailure> {
     let node = site.node;
     validate_owner(&dimension.owner, lock, graph, || {
@@ -3044,7 +3038,7 @@ fn validate_dimension(
     let same = same_ids(
         dimension.terms.iter().map(|term| &term.dimension_node_id),
         dimension.terms.len(),
-        &node.dependencies,
+        node.dependencies,
         meter,
     )?;
     require(same, || site.member("dependencies"))
@@ -3111,7 +3105,7 @@ fn validate_unit(
     let same = same_ids(
         std::iter::once(&unit.dimension_node_id).chain(unit.target_unit_node_id.as_ref()),
         1 + usize::from(unit.target_unit_node_id.is_some()),
-        &node.dependencies,
+        node.dependencies,
         meter,
     )?;
     require(same, || site.member("dependencies"))

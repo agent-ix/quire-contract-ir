@@ -593,11 +593,10 @@ pub(super) fn validate_temporal(
             == Some(&CheckedNodeKind::Temporal(TemporalForm::TemporalClause))
         {
             check_clause(
-                context.catalog,
+                &context,
                 position,
                 &graph,
                 terms,
-                context.lock,
                 clock_units
                     .binary_search_by(|(declaration, _)| {
                         (*declaration).cmp(&graph.nodes[position].node_id)
@@ -1032,16 +1031,17 @@ fn selected_under_another_role(
 /// missing argument) is skipped here.
 #[ix_trace_rs::string_edge]
 fn check_clause(
-    catalog: &OperationCatalog,
+    context: &TemporalContext<'_>,
     position: usize,
     graph: &StepGraph<'_, '_>,
     terms: &[Option<CheckedTerm>],
-    lock: &CheckedPackageLockV2,
     clock_unit: Option<&str>,
     meter: &mut WorkMeter,
     covered: &mut [bool],
     stamps: &mut Stamps,
 ) -> Result<(), ValidationFailure> {
+    let catalog = context.catalog;
+    let lock = context.lock;
     let node = &graph.nodes[position];
     meter.at_node(position, super::graph_storage::node_form(&node.node_tag));
     let Some(operation) = operation_of(terms.get(position).and_then(Option::as_ref)) else {
