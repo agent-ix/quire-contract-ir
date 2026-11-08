@@ -188,11 +188,19 @@ fn owner_schema_requests_exactly_what_it_charges() {
 /// whether it admitted, under `limit`. The admitted package is held until the
 /// counter is disarmed, so only the read's own requests are counted.
 fn whole_read(bytes: &[u8], evidence: &CheckedPackageEvidence, limit: u64) -> (u64, u64, bool) {
+    let limits = CheckedPackageReadLimits {
+        bytes: 1 << 30,
+        nodes: 1 << 24,
+        edges: 1 << 24,
+        occurrences: 1 << 24,
+        diagnostics: 1 << 24,
+        work: 1 << 40,
+    };
     let mut budget = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
     REQUESTED.with(|requested| requested.set(Some(0)));
     let result = CheckedPackageV2::read_with_budget(
         bytes,
-        CheckedPackageReadLimits::bounded(),
+        limits,
         evidence,
         &mut budget,
     );
