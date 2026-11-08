@@ -160,6 +160,7 @@ enum StructuralForm {
     UnionValue,
     ProtocolReference,
     AbstractionRelation,
+    Declaration,
 }
 
 impl StructuralForm {
@@ -172,7 +173,9 @@ impl StructuralForm {
             Self::Frame => Some(CheckedOccurrenceRole::Generated),
             Self::OperationAnchor => Some(CheckedOccurrenceRole::Anchor),
             Self::StateClause | Self::StateTransition => Some(CheckedOccurrenceRole::Claim),
-            Self::AbstractionRelation => Some(CheckedOccurrenceRole::Declaration),
+            Self::AbstractionRelation | Self::Declaration => {
+                Some(CheckedOccurrenceRole::Declaration)
+            }
             Self::ProtocolReference => Some(CheckedOccurrenceRole::Expression),
             Self::Hybrid
             | Self::TimedModel
@@ -332,6 +335,10 @@ impl StructuralForm {
             K::Correspondence(CorrespondenceForm::AbstractionRelation) => {
                 Some(Self::AbstractionRelation)
             }
+            K::Correspondence(
+                CorrespondenceForm::ImplementationGuarantee
+                | CorrespondenceForm::ComponentComposition,
+            ) => Some(Self::Declaration),
             K::Correspondence(
                 CorrespondenceForm::SourceLocus
                 | CorrespondenceForm::ModelCorrespondence
@@ -684,7 +691,12 @@ pub(super) fn validate_structural_nodes_with_keys(
             // The per-node body loop already read the frame body; the
             // abstraction step (FR-346) reads its own, so only the role is
             // this stage's.
-            Some(StructuralForm::Frame | StructuralForm::AbstractionRelation) | None => None,
+            Some(
+                StructuralForm::Frame
+                | StructuralForm::AbstractionRelation
+                | StructuralForm::Declaration,
+            )
+            | None => None,
         };
         let role = form.and_then(StructuralForm::role).and_then(|role| {
             node.occurrences
@@ -1864,6 +1876,8 @@ pub(super) fn application_dependencies(
             | CheckedTerm::DependencyReference { .. }
             | CheckedTerm::Frame { .. }
             | CheckedTerm::AbstractionRelation { .. }
+            | CheckedTerm::ImplementationGuarantee { .. }
+            | CheckedTerm::ComponentComposition { .. }
             | CheckedTerm::Refinement { .. }
             | CheckedTerm::ExtensionForm { .. }
             | CheckedTerm::NominalBody(_) => {}

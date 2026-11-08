@@ -1256,6 +1256,36 @@ pub enum CheckedTerm {
         /// Frame mappings.
         frames: Vec<CheckedAbstractionFrame>,
     },
+    /// The closed implementation guarantee body (FR-362).
+    ImplementationGuarantee {
+        /// The infinite-trace temporal clause guaranteed.
+        clause: CheckedNodeId,
+        /// The abstraction relation node.
+        relation: CheckedNodeId,
+        /// Rust path of the initial-state function.
+        initial: Vec<Box<str>>,
+        /// No-divergence premises.
+        progress: Vec<CheckedGuaranteeProgress>,
+        /// Environment premises.
+        environment: Vec<CheckedGuaranteeEnvironment>,
+    },
+    /// The closed component composition body (FR-362).
+    ComponentComposition {
+        /// The selected composition rule.
+        rule: CheckedCompositionRule,
+        /// Component subjects.
+        components: Vec<CheckedCompositionComponent>,
+        /// Declared component guarantees.
+        guarantees: Vec<CheckedCompositionClause>,
+        /// Safety `rely` premises.
+        relies: Vec<CheckedCompositionPremise>,
+        /// Liveness dependency premises.
+        liveness_dependencies: Vec<CheckedCompositionPremise>,
+        /// Fairness constraints the composition supplies.
+        supplies: Vec<CheckedScheduling>,
+        /// Environment premises.
+        environment: Vec<CheckedGuaranteeEnvironment>,
+    },
     /// A closed model or protocol refinement declaration.
     Refinement {
         /// Abstract model declaration.
@@ -1805,6 +1835,8 @@ impl CheckedTerm {
                 }
                 Self::Frame { .. }
                 | Self::AbstractionRelation { .. }
+                | Self::ImplementationGuarantee { .. }
+                | Self::ComponentComposition { .. }
                 | Self::ExtensionForm { .. }
                 | Self::OperationAnchorBody(_)
                 | Self::Refinement { .. } => traversal(SelectedTermTraversal::Visit(
@@ -1871,7 +1903,9 @@ impl CheckedTerm {
             Self::Literal { .. }
             | Self::DependencyReference { .. }
             | Self::Frame { .. }
-            | Self::AbstractionRelation { .. } => {}
+            | Self::AbstractionRelation { .. }
+            | Self::ImplementationGuarantee { .. }
+            | Self::ComponentComposition { .. } => {}
         }
     }
 
@@ -1950,6 +1984,11 @@ impl CheckedTerm {
                     replace(&mut frame.context, old, new);
                 }
             }
+            Self::ImplementationGuarantee { .. } | Self::ComponentComposition { .. } => {
+                for id in self.declaration_node_ids_mut() {
+                    replace(id, old, new);
+                }
+            }
             Self::ExtensionForm { clauses, .. } => {
                 for clause in clauses {
                     clause.replace_node_id(old, new);
@@ -1959,6 +1998,59 @@ impl CheckedTerm {
                 super::refinement::replace_node_ids(self, old, new);
             }
         }
+    }
+
+    /// Every node identity an implementation guarantee or component
+    /// composition body holds, in body order; empty for any other term.
+    fn declaration_node_ids_mut(&mut self) -> Vec<&mut CheckedNodeId> {
+        fn environment<'a>(
+            entries: &'a mut [CheckedGuaranteeEnvironment],
+            ids: &mut Vec<&'a mut CheckedNodeId>,
+        ) {
+            for entry in entries {
+                match &mut entry.supplies {
+                    CheckedEnvironmentSupply::Fairness(scheduling) => {
+                        ids.push(&mut scheduling.context)
+                    }
+                    CheckedEnvironmentSupply::Assumption(node) => ids.push(node),
+                }
+            }
+        }
+        let mut ids = Vec::new();
+        match self {
+            Self::ImplementationGuarantee {
+                clause,
+                relation,
+                progress,
+                environment: entries,
+                ..
+            } => {
+                ids.push(clause);
+                ids.push(relation);
+                ids.extend(progress.iter_mut().map(|entry| &mut entry.context));
+                environment(entries, &mut ids);
+            }
+            Self::ComponentComposition {
+                components,
+                guarantees,
+                relies,
+                liveness_dependencies,
+                supplies,
+                environment: entries,
+                ..
+            } => {
+                ids.extend(components.iter_mut().map(|entry| &mut entry.subject));
+                ids.extend(guarantees.iter_mut().map(|entry| &mut entry.clause));
+                for premise in relies.iter_mut().chain(liveness_dependencies) {
+                    ids.push(&mut premise.guarantee.clause);
+                    ids.push(&mut premise.on.clause);
+                }
+                ids.extend(supplies.iter_mut().map(|entry| &mut entry.context));
+                environment(entries, &mut ids);
+            }
+            _ => {}
+        }
+        ids
     }
 
     /// Rewrite each logical typed node identity slot once, in term preorder.
@@ -1977,6 +2069,16 @@ impl CheckedTerm {
                 }
                 NodeMapWork::Operation(operation) => map_operation_ids(operation, &mut map),
                 NodeMapWork::Nominal(body) => body.map_node_ids(&mut map),
+                NodeMapWork::Term(term)
+                    if matches!(
+                        term,
+                        Self::ImplementationGuarantee { .. } | Self::ComponentComposition { .. }
+                    ) =>
+                {
+                    let mut ids = term.declaration_node_ids_mut();
+                    ids.reverse();
+                    work.extend(ids.into_iter().map(NodeMapWork::Id));
+                }
                 NodeMapWork::Term(term) => match term {
                     Self::Literal { type_id, .. } => work.push(NodeMapWork::Id(type_id)),
                     Self::Reference { target } => work.push(NodeMapWork::Id(target)),
@@ -2028,6 +2130,7 @@ impl CheckedTerm {
                             work.push(NodeMapWork::Id(&mut object.type_id));
                         }
                     }
+                    Self::ImplementationGuarantee { .. } | Self::ComponentComposition { .. } => {}
                     Self::ExtensionForm { clauses, .. } => {
                         work.extend(clauses.iter_mut().rev().map(NodeMapWork::Term));
                     }
@@ -2286,6 +2389,24 @@ impl CheckedTerm {
                 populations: field(wire, TermField::Populations)?,
                 frames: field(wire, TermField::Frames)?,
             }),
+            TermTag::Known(BodyTerm::ImplementationGuarantee) => {
+                Ok(Self::ImplementationGuarantee {
+                    clause: field(wire, TermField::Clause)?,
+                    relation: field(wire, TermField::Relation)?,
+                    initial: field(wire, TermField::Initial)?,
+                    progress: field(wire, TermField::Progress)?,
+                    environment: field(wire, TermField::Environment)?,
+                })
+            }
+            TermTag::Known(BodyTerm::ComponentComposition) => Ok(Self::ComponentComposition {
+                rule: field(wire, TermField::Rule)?,
+                components: field(wire, TermField::Components)?,
+                guarantees: field(wire, TermField::Guarantees)?,
+                relies: field(wire, TermField::Relies)?,
+                liveness_dependencies: field(wire, TermField::LivenessDependencies)?,
+                supplies: field(wire, TermField::Supplies)?,
+                environment: field(wire, TermField::Environment)?,
+            }),
             TermTag::ExtensionForm => Ok(Self::ExtensionForm {
                 definition: field(wire, TermField::Definition)?,
                 node_kind: field(wire, TermField::NodeKind)?,
@@ -2413,6 +2534,52 @@ impl Encode for CheckedTerm {
                 super::refinement::encode_rows(populations, writer)?;
                 writer.name("frames")?;
                 super::refinement::encode_rows(frames, writer)?;
+            }
+            Self::ImplementationGuarantee {
+                clause,
+                relation,
+                initial,
+                progress,
+                environment,
+            } => {
+                writer.name("term")?;
+                writer.string("implementation_guarantee")?;
+                writer.name("clause")?;
+                clause.encode_into(writer)?;
+                writer.name("relation")?;
+                relation.encode_into(writer)?;
+                writer.name("initial")?;
+                writer.serialize(initial)?;
+                writer.name("progress")?;
+                super::refinement::encode_rows(progress, writer)?;
+                writer.name("environment")?;
+                super::refinement::encode_rows(environment, writer)?;
+            }
+            Self::ComponentComposition {
+                rule,
+                components,
+                guarantees,
+                relies,
+                liveness_dependencies,
+                supplies,
+                environment,
+            } => {
+                writer.name("term")?;
+                writer.string("component_composition")?;
+                writer.name("rule")?;
+                writer.string(rule.wire())?;
+                writer.name("components")?;
+                super::refinement::encode_rows(components, writer)?;
+                writer.name("guarantees")?;
+                super::refinement::encode_rows(guarantees, writer)?;
+                writer.name("relies")?;
+                super::refinement::encode_rows(relies, writer)?;
+                writer.name("liveness_dependencies")?;
+                super::refinement::encode_rows(liveness_dependencies, writer)?;
+                writer.name("supplies")?;
+                super::refinement::encode_rows(supplies, writer)?;
+                writer.name("environment")?;
+                super::refinement::encode_rows(environment, writer)?;
             }
             Self::Refinement {
                 abstract_key,
@@ -2776,6 +2943,111 @@ pub struct CheckedAbstractionParameter {
     pub parameter_ident: Box<str>,
 }
 
+/// One implementation guarantee no-divergence premise.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CheckedGuaranteeProgress {
+    /// Operation context node.
+    pub context: CheckedNodeId,
+    /// Operation name.
+    pub operation: Box<str>,
+    /// The well-founded measure.
+    pub measure: CheckedProgressMeasure,
+}
+
+/// The measure of a no-divergence premise.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
+pub enum CheckedProgressMeasure {
+    /// A Rust function strictly decreased by every stutter step.
+    Decreases(Vec<Box<str>>),
+    /// At most this many consecutive stutter steps.
+    Bound(u64),
+}
+
+/// A scheduling premise or supplied fairness constraint over a bound
+/// operation.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CheckedScheduling {
+    /// Weak or strong fairness.
+    pub kind: super::refinement::RefinementFairnessKind,
+    /// Per-instance or whole-operation fairness.
+    pub granularity: super::refinement::RefinementGranularity,
+    /// Operation context node.
+    pub context: CheckedNodeId,
+    /// Operation name.
+    pub operation: Box<str>,
+}
+
+/// What an environment premise supplies.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
+pub enum CheckedEnvironmentSupply {
+    /// A scheduling premise.
+    Fairness(CheckedScheduling),
+    /// A `predicate` node assumed to hold of the environment.
+    Assumption(CheckedNodeId),
+}
+
+/// One environment premise: an assumption, with no certification.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CheckedGuaranteeEnvironment {
+    /// Premise name.
+    pub name: Box<str>,
+    /// What supplies the premise.
+    pub supplier: Box<str>,
+    /// The supplied premise.
+    pub supplies: CheckedEnvironmentSupply,
+}
+
+/// The four composition rules of QSpec FR-491.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum CheckedCompositionRule {
+    /// Assume-guarantee composition.
+    AssumeGuarantee,
+    /// Protocol refinement.
+    ProtocolRefinement,
+    /// Refinement transfer.
+    RefinementTransfer,
+    /// Interface composition.
+    Interface,
+}
+
+/// One component of a composition.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CheckedCompositionComponent {
+    /// Component name.
+    pub name: Box<str>,
+    /// Identity of the package holding the subject.
+    pub package: Box<str>,
+    /// The component's subject node.
+    pub subject: CheckedNodeId,
+}
+
+/// A component's temporal clause.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CheckedCompositionClause {
+    /// Component name.
+    pub component: Box<str>,
+    /// The clause node.
+    pub clause: CheckedNodeId,
+}
+
+/// A `rely` or liveness dependency premise.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CheckedCompositionPremise {
+    /// The guarantee that holds the premise.
+    pub guarantee: CheckedCompositionClause,
+    /// The peer guarantee it relies on.
+    pub on: CheckedCompositionClause,
+}
+
 impl Encode for CheckedFrameModification {
     fn encode_into<S: Sink + ?Sized>(&self, writer: &mut Writer<'_, S>) -> Result<(), Error> {
         writer.begin_object()?;
@@ -2825,6 +3097,116 @@ impl Encode for CheckedAbstractionPopulation {
         self.population.encode_into(writer)?;
         writer.name("collection")?;
         writer.serialize(&self.collection)?;
+        writer.end_object()
+    }
+}
+
+impl CheckedCompositionRule {
+    /// The rule's wire spelling.
+    pub const fn wire(self) -> &'static str {
+        match self {
+            Self::AssumeGuarantee => "assume-guarantee",
+            Self::ProtocolRefinement => "protocol-refinement",
+            Self::RefinementTransfer => "refinement-transfer",
+            Self::Interface => "interface",
+        }
+    }
+}
+
+impl Encode for CheckedGuaranteeProgress {
+    fn encode_into<S: Sink + ?Sized>(&self, writer: &mut Writer<'_, S>) -> Result<(), Error> {
+        writer.begin_object()?;
+        writer.name("context")?;
+        self.context.encode_into(writer)?;
+        writer.name("operation")?;
+        writer.serialize(&self.operation)?;
+        writer.name("measure")?;
+        writer.begin_object()?;
+        match &self.measure {
+            CheckedProgressMeasure::Decreases(path) => {
+                writer.name("decreases")?;
+                writer.serialize(path)?;
+            }
+            CheckedProgressMeasure::Bound(count) => {
+                writer.name("bound")?;
+                writer.serialize(count)?;
+            }
+        }
+        writer.end_object()?;
+        writer.end_object()
+    }
+}
+
+impl Encode for CheckedScheduling {
+    fn encode_into<S: Sink + ?Sized>(&self, writer: &mut Writer<'_, S>) -> Result<(), Error> {
+        writer.begin_object()?;
+        writer.name("kind")?;
+        writer.serialize(&self.kind)?;
+        writer.name("granularity")?;
+        writer.serialize(&self.granularity)?;
+        writer.name("context")?;
+        self.context.encode_into(writer)?;
+        writer.name("operation")?;
+        writer.serialize(&self.operation)?;
+        writer.end_object()
+    }
+}
+
+impl Encode for CheckedGuaranteeEnvironment {
+    fn encode_into<S: Sink + ?Sized>(&self, writer: &mut Writer<'_, S>) -> Result<(), Error> {
+        writer.begin_object()?;
+        writer.name("name")?;
+        writer.serialize(&self.name)?;
+        writer.name("supplier")?;
+        writer.serialize(&self.supplier)?;
+        writer.name("supplies")?;
+        writer.begin_object()?;
+        match &self.supplies {
+            CheckedEnvironmentSupply::Fairness(scheduling) => {
+                writer.name("fairness")?;
+                scheduling.encode_into(writer)?;
+            }
+            CheckedEnvironmentSupply::Assumption(node) => {
+                writer.name("assumption")?;
+                node.encode_into(writer)?;
+            }
+        }
+        writer.end_object()?;
+        writer.end_object()
+    }
+}
+
+impl Encode for CheckedCompositionComponent {
+    fn encode_into<S: Sink + ?Sized>(&self, writer: &mut Writer<'_, S>) -> Result<(), Error> {
+        writer.begin_object()?;
+        writer.name("name")?;
+        writer.serialize(&self.name)?;
+        writer.name("package")?;
+        writer.serialize(&self.package)?;
+        writer.name("subject")?;
+        self.subject.encode_into(writer)?;
+        writer.end_object()
+    }
+}
+
+impl Encode for CheckedCompositionClause {
+    fn encode_into<S: Sink + ?Sized>(&self, writer: &mut Writer<'_, S>) -> Result<(), Error> {
+        writer.begin_object()?;
+        writer.name("component")?;
+        writer.serialize(&self.component)?;
+        writer.name("clause")?;
+        self.clause.encode_into(writer)?;
+        writer.end_object()
+    }
+}
+
+impl Encode for CheckedCompositionPremise {
+    fn encode_into<S: Sink + ?Sized>(&self, writer: &mut Writer<'_, S>) -> Result<(), Error> {
+        writer.begin_object()?;
+        writer.name("guarantee")?;
+        self.guarantee.encode_into(writer)?;
+        writer.name("on")?;
+        self.on.encode_into(writer)?;
         writer.end_object()
     }
 }
@@ -3299,6 +3681,26 @@ mod tests {
         let abstraction = json!({
             "term":"abstraction_relation","objects":[],"populations":[],"frames":[]
         });
+        let guarantee = json!({
+            "term":"implementation_guarantee","clause":node,"relation":node,
+            "initial":["init"],
+            "progress":[{"context":node,"operation":"step","measure":{"bound":3}},
+                {"context":node,"operation":"tick","measure":{"decreases":["fuel"]}}],
+            "environment":[
+                {"name":"sched","supplier":"os","supplies":{"fairness":
+                    {"kind":"weak","granularity":"each","context":node,"operation":"step"}}},
+                {"name":"inv","supplier":"os","supplies":{"assumption":node}}]
+        });
+        let composition = json!({
+            "term":"component_composition","rule":"assume-guarantee",
+            "components":[{"name":"a","package":"p","subject":node}],
+            "guarantees":[{"component":"a","clause":node}],
+            "relies":[{"guarantee":{"component":"a","clause":node},
+                "on":{"component":"b","clause":node}}],
+            "liveness_dependencies":[],
+            "supplies":[{"kind":"strong","granularity":"whole","context":node,"operation":"go"}],
+            "environment":[]
+        });
         let refinement = json!({
             "term":"refinement", "abstract":node,
             "profile":{"authority":"test","identity":"trace"},
@@ -3339,6 +3741,8 @@ mod tests {
             (application, "application"),
             (frame, "frame"),
             (abstraction, "abstraction_relation"),
+            (guarantee, "implementation_guarantee"),
+            (composition, "component_composition"),
             (refinement, "refinement"),
             (extension, "extension_form"),
         ] {
@@ -3352,6 +3756,8 @@ mod tests {
                 CheckedTerm::Application { .. } => "application",
                 CheckedTerm::Frame { .. } => "frame",
                 CheckedTerm::AbstractionRelation { .. } => "abstraction_relation",
+                CheckedTerm::ImplementationGuarantee { .. } => "implementation_guarantee",
+                CheckedTerm::ComponentComposition { .. } => "component_composition",
                 CheckedTerm::Refinement { .. } => "refinement",
                 CheckedTerm::ExtensionForm { .. } => "extension_form",
                 CheckedTerm::OperationAnchorBody(_) => "operation_anchor_body",

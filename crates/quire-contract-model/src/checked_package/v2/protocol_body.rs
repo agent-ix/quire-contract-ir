@@ -4229,6 +4229,8 @@ impl<'a, 'b> ProtocolScope<'a, 'b> {
                     | CheckedTerm::DependencyReference { .. }
                     | CheckedTerm::Frame { .. }
                     | CheckedTerm::AbstractionRelation { .. }
+                    | CheckedTerm::ImplementationGuarantee { .. }
+                    | CheckedTerm::ComponentComposition { .. }
                     | CheckedTerm::Refinement { .. }
                     | CheckedTerm::ExtensionForm { .. }
                     | CheckedTerm::NominalBody(_)
