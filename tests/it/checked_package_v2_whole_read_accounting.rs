@@ -64,6 +64,28 @@ fn positive(label: impl Into<String>, wire: Value) -> Case {
     case(label, wire, evidence, Expected::Admitted)
 }
 
+/// The same wire and evidence preparation used by the original wide-bound
+/// native control. No additional normalization or replacement recipe.
+fn wide_bounded_quantity_case() -> Case {
+    let (wire, _, _, _) = crate::checked_package_v2_map_type::nested_bounded_quantity_wire();
+    Case {
+        label: "native/map_type/nested_bounded_quantity_wire".into(),
+        bytes: canonical(&wire),
+        evidence: evidence_for(&wire),
+        expected: Expected::Admitted,
+    }
+}
+
+#[trace("TC-472", "FR-038-AC-511", "FR-038-AC-512")]
+#[test]
+fn original_wide_bounded_quantity_provider_has_exact_core_accounting() {
+    let input = wide_bounded_quantity_case();
+    proof::assert_read::<IntegrationCounter>(
+        &input.label, &input.bytes, &input.evidence, input.expected,
+    );
+    eprintln!("Original wide bounded-quantity builder: admitted; exact core accounting; no all-family FR-038-AC-516 or source-site census claim");
+}
+
 /// Reuses the exact builder dispatch of the existing catalogue admission
 /// test, including its model-document controls. No copied wire builders.
 fn positive_cases() -> Vec<Case> {
@@ -118,6 +140,7 @@ fn positive_cases() -> Vec<Case> {
         evidence,
         Expected::Admitted,
     ));
+    cases.push(wide_bounded_quantity_case());
     let catalog: Value = serde_json::from_str(
         quire_verification_contracts::operation_catalog::CHECKED_OPERATION_CATALOG_V1,
     )
