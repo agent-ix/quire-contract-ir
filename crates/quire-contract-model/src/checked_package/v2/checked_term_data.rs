@@ -232,8 +232,8 @@ pub struct CheckedProtocolLocation {
 }
 
 /// The two closed kinds of protocol semantic origin.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
 pub enum CheckedProtocolLocationOrigin {
     /// A named type declaration.
     TypeDeclaration {
@@ -247,6 +247,75 @@ pub enum CheckedProtocolLocationOrigin {
         /// Attempt position.
         attempt: u64,
     },
+}
+
+impl<'de> Deserialize<'de> for CheckedProtocolLocationOrigin {
+    /// The checked document decodes the closed tag in place, so the declaration
+    /// name is the single charged string; any other deserializer buffers the
+    /// internally tagged map as serde does.
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+        enum Wire {
+            TypeDeclaration { name: Box<str> },
+            ProtocolAttempt { protocol: u64, attempt: u64 },
+        }
+        #[derive(Deserialize)]
+        #[serde(rename_all = "snake_case")]
+        enum Tag {
+            TypeDeclaration,
+            ProtocolAttempt,
+        }
+        struct Visitor;
+        impl<'de> serde::de::Visitor<'de> for Visitor {
+            type Value = CheckedProtocolLocationOrigin;
+            fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                f.write_str("a closed protocol location origin")
+            }
+            fn visit_newtype_struct<D2: serde::Deserializer<'de>>(
+                self,
+                inner: D2,
+            ) -> Result<Self::Value, D2::Error> {
+                Ok(match Wire::deserialize(inner)? {
+                    Wire::TypeDeclaration { name } => {
+                        CheckedProtocolLocationOrigin::TypeDeclaration { name }
+                    }
+                    Wire::ProtocolAttempt { protocol, attempt } => {
+                        CheckedProtocolLocationOrigin::ProtocolAttempt { protocol, attempt }
+                    }
+                })
+            }
+            fn visit_enum<A: serde::de::EnumAccess<'de>>(
+                self,
+                record: A,
+            ) -> Result<Self::Value, A::Error> {
+                use serde::de::VariantAccess;
+                let (tag, fields) = record.variant::<Tag>()?;
+                match tag {
+                    Tag::TypeDeclaration => {
+                        #[derive(Deserialize)]
+                        #[serde(deny_unknown_fields)]
+                        struct Fields {
+                            name: Box<str>,
+                        }
+                        let Fields { name } = fields.newtype_variant::<Fields>()?;
+                        Ok(CheckedProtocolLocationOrigin::TypeDeclaration { name })
+                    }
+                    Tag::ProtocolAttempt => {
+                        #[derive(Deserialize)]
+                        #[serde(deny_unknown_fields)]
+                        struct Fields {
+                            protocol: u64,
+                            attempt: u64,
+                        }
+                        let Fields { protocol, attempt } = fields.newtype_variant::<Fields>()?;
+                        Ok(CheckedProtocolLocationOrigin::ProtocolAttempt { protocol, attempt })
+                    }
+                }
+            }
+        }
+        deserializer.deserialize_newtype_struct(super::document_de::CLOSED_ENUM_TOKEN, Visitor)
+    }
 }
 
 /// A graph position represented by a safe JSON integer or a larger canonical string.

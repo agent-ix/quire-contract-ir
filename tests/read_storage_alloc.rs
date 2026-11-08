@@ -13,7 +13,8 @@
 mod checked_package;
 
 use checked_package::{
-    canonical, evidence_for, family_key, node_id, settle, v2_all_families, v2_nominal,
+    canonical, evidence_for, family_key, node_id, positive_operation_identities, refresh_identity,
+    settle, v2_all_families, v2_nominal,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -1060,5 +1061,100 @@ fn function_call_parameter_check_has_no_unpaid_allocation() {
         "the parameter-bound call admits: {:?}",
         observation.result
     );
+    drop_without_request::<ThreadCounter>(observation);
+}
+
+/// A protocol-location sidecar row decodes its origin without an unpaid
+/// tagged-map buffer or an unpaid declaration-name string (FR-322-AC-289).
+#[trace("TC-472", "FR-038-AC-511")]
+#[test]
+fn protocol_location_origin_has_no_unpaid_allocation() {
+    initialize_operation_catalog().expect("catalogue gate");
+    let mut package = positive_operation_identities();
+    let call = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .find(|node| node["node_tag"] == "expression" && node["body"]["term"] == "application")
+        .expect("the fixture's local application");
+    let (application, occurrence) = (call["node_id"].clone(), call["occurrences"][0].clone());
+    package["checked_term_data"] = serde_json::json!({
+        "equality_decisions": [],
+        "protocol_locations": [{
+            "application": application, "occurrence": occurrence, "term_ordinal": 0,
+            "location": {"origin": {"kind": "type_declaration", "name": "Example"}, "path": []}
+        }],
+        "dispatch_tables": [], "probabilistic_claims": []
+    });
+    refresh_identity(&mut package);
+    let observation = read_allocation_proof::measure_at::<ThreadCounter>(
+        &canonical(&package),
+        &evidence_for(&package),
+        generous_limits(),
+        u64::MAX,
+        u64::MAX,
+    );
+    assert!(
+        matches!(
+            observation.result,
+            CheckedPackageV2BudgetedReadResult::Admitted(_)
+        ),
+        "the protocol-location sidecar admits: {:?}",
+        observation.result
+    );
+    read_allocation_proof::accounted("protocol location origin", &observation);
+    let storage = observation.budget.read_storage_consumed();
+    drop_without_request::<ThreadCounter>(observation);
+    let short = read_allocation_proof::measure_at::<ThreadCounter>(
+        &canonical(&package),
+        &evidence_for(&package),
+        generous_limits(),
+        u64::MAX,
+        storage - 1,
+    );
+    read_allocation_proof::accounted("protocol location origin, one byte short", &short);
+    drop_without_request::<ThreadCounter>(short);
+}
+
+/// A refused protocol-location row pays for its refusal diagnostic before it
+/// is built (FR-322-AC-289).
+#[trace("TC-472", "FR-038-AC-511")]
+#[test]
+fn protocol_location_refusals_have_no_unpaid_allocation() {
+    initialize_operation_catalog().expect("catalogue gate");
+    let mut package = positive_operation_identities();
+    let call = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .find(|node| node["node_tag"] == "expression" && node["body"]["term"] == "application")
+        .expect("the fixture's local application");
+    let (application, occurrence) = (call["node_id"].clone(), call["occurrences"][0].clone());
+    let mut row = serde_json::json!({
+        "application": application, "occurrence": occurrence, "term_ordinal": 0,
+        "location": {"origin": {"kind": "type_declaration", "name": "Example"}, "path": []}
+    });
+    row["occurrence"]["ordinal"] = serde_json::json!(999);
+    package["checked_term_data"] = serde_json::json!({
+        "equality_decisions": [], "protocol_locations": [row],
+        "dispatch_tables": [], "probabilistic_claims": []
+    });
+    refresh_identity(&mut package);
+    let observation = read_allocation_proof::measure_at::<ThreadCounter>(
+        &canonical(&package),
+        &evidence_for(&package),
+        generous_limits(),
+        u64::MAX,
+        u64::MAX,
+    );
+    assert!(
+        matches!(
+            observation.result,
+            CheckedPackageV2BudgetedReadResult::Refused(_)
+        ),
+        "the unmapped occurrence refuses: {:?}",
+        observation.result
+    );
+    read_allocation_proof::accounted("protocol location refusal", &observation);
     drop_without_request::<ThreadCounter>(observation);
 }
