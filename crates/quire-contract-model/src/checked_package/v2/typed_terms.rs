@@ -5,6 +5,7 @@
 //! has bounded term depth, so serde's recursion here is independent of input
 //! byte length.
 
+use super::checked_json::CheckedJson;
 use super::{
     ApplicationOperator, BodyTerm, LawRole, LiteralKind, OperationConstraintKind,
     OperationMemberKind, OperationModeKind, StateClauseKind,
@@ -1134,7 +1135,7 @@ pub struct CheckedLiteralRead<'a> {
     pub value: CheckedLiteralValue<'a>,
 }
 
-fn rational_parts(value: &Value) -> Option<(BigInt, BigInt)> {
+fn rational_parts(value: &CheckedJson) -> Option<(BigInt, BigInt)> {
     let text = value.as_str()?;
     let (numerator, denominator) = text.split_once('/').unwrap_or((text, "1"));
     Some((
@@ -1143,15 +1144,11 @@ fn rational_parts(value: &Value) -> Option<(BigInt, BigInt)> {
     ))
 }
 
-fn literal_value(kind: LiteralKind, value: &Value) -> Option<CheckedLiteralValue<'_>> {
+fn literal_value(kind: LiteralKind, value: &CheckedJson) -> Option<CheckedLiteralValue<'_>> {
     Some(match kind {
         LiteralKind::Boolean => CheckedLiteralValue::Boolean(value.as_bool()?),
         LiteralKind::Integer => {
-            let text = match value {
-                Value::String(text) => text.clone(),
-                Value::Number(number) => number.to_string(),
-                _ => return None,
-            };
+            let text = value.as_str().or_else(|| value.number_text())?;
             CheckedLiteralValue::Integer(BigInt::parse_bytes(text.as_bytes(), 10)?)
         }
         LiteralKind::Rational | LiteralKind::Quantity => {
@@ -1199,7 +1196,7 @@ pub enum CheckedTerm {
         /// The closed literal kind.
         value_kind: LiteralKind,
         /// The literal payload; its shape depends on `value_kind`.
-        value: Value,
+        value: CheckedJson,
     },
     /// A reference to another graph node.
     Reference {
@@ -1884,10 +1881,8 @@ impl CheckedTerm {
             }
         }
         match self {
-            Self::Literal { type_id, value, .. } => {
-                replace(type_id, old, new);
-                replace_node_ids_in_value(value, old, new);
-            }
+            // A literal's payload is a scalar and holds no node id.
+            Self::Literal { type_id, .. } => replace(type_id, old, new),
             Self::Reference { target } => replace(target, old, new),
             Self::Application {
                 operation,
@@ -2167,7 +2162,7 @@ impl CheckedTerm {
         Self::Literal {
             type_id,
             value_kind: LiteralKind::Text,
-            value: Value::String(value.into().into()),
+            value: CheckedJson::scalar(&Value::String(value.into().into())),
         }
     }
 
@@ -2176,7 +2171,7 @@ impl CheckedTerm {
         Self::Literal {
             type_id,
             value_kind: LiteralKind::Rational,
-            value: Value::String(value.into().into()),
+            value: CheckedJson::scalar(&Value::String(value.into().into())),
         }
     }
 
@@ -2185,7 +2180,7 @@ impl CheckedTerm {
         Self::Literal {
             type_id,
             value_kind: LiteralKind::Quantity,
-            value: Value::String(value.into().into()),
+            value: CheckedJson::scalar(&Value::String(value.into().into())),
         }
     }
 
@@ -2194,7 +2189,7 @@ impl CheckedTerm {
         Self::Literal {
             type_id,
             value_kind: LiteralKind::Integer,
-            value: Value::Number(value.into()),
+            value: CheckedJson::scalar(&Value::Number(value.into())),
         }
     }
 

@@ -808,7 +808,7 @@ mod tests {
                 value: Box::new(CheckedTerm::Literal {
                     type_id: node_id('0'),
                     value_kind: super::super::LiteralKind::Integer,
-                    value: json!(text),
+                    value: crate::checked_package::CheckedJson::scalar(&json!(text)),
                 }),
             };
             self.terms[0] = Some(CheckedTerm::Aggregate {

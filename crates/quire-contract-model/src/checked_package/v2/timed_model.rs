@@ -1582,7 +1582,7 @@ fn term_key(
                     value
                         .as_str()
                         .map(str::to_owned)
-                        .unwrap_or_else(|| value.to_string()),
+                        .unwrap_or_else(|| value.to_value().to_string()),
                 )));
                 pending.push(Visit::Atom(OrderPart::Word(format!("{value_kind:?}"))));
                 pending.push(Visit::Atom(OrderPart::Start));
@@ -2823,10 +2823,10 @@ mod tests {
         let mut meter = WorkMeter::new(u64::MAX);
         let mut budget = Budget::new(&mut meter, 0, 1 << 20);
         let model = super::super::model_members::read_semantic_ir(
-            &document,
+            super::super::model_members::view_of(&document),
             "example",
             &mut budget,
-            &std::sync::Arc::new(BTreeMap::new()),
+            &crate::checked_package::v2::model_members::UnitRefs::default(),
         )
         .expect("selected FCD dimensions");
         let models = BTreeMap::from([(model.identity.as_ref(), &model)]);

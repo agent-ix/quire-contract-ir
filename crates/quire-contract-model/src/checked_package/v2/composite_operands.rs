@@ -1360,7 +1360,7 @@ fn closed_literal(
 }
 
 #[cfg(test)]
-mod tests {
+pub(in crate::checked_package::v2) mod tests {
     use super::super::CheckedOccurrenceRole;
     use super::*;
     use crate::{
@@ -1471,7 +1471,7 @@ mod tests {
     }
 
     /// Every corruption below starts from a genuinely reader-admitted package.
-    fn package() -> CheckedPackageV2 {
+    pub(in crate::checked_package::v2) fn package() -> CheckedPackageV2 {
         match CheckedPackageV2::read(
             &crate::checked_package::v2::test_support::canonical(&fixture().0),
             CheckedPackageReadLimits::bounded(),
@@ -3984,7 +3984,7 @@ mod tests {
         application_arguments(&mut later)[1] = CheckedTerm::Literal {
             type_id: id('2'),
             value_kind: LiteralKind::Integer,
-            value: json!("1"),
+            value: crate::checked_package::CheckedJson::scalar(&json!("1")),
         };
         assert_eq!(
             later.composite_application_operands(&id('6'), &occurrence, 26),
@@ -4219,7 +4219,7 @@ mod tests {
         application_arguments(&mut p)[1] = CheckedTerm::Literal {
             type_id: id('2'),
             value_kind: LiteralKind::Integer,
-            value: json!("1"),
+            value: crate::checked_package::CheckedJson::scalar(&json!("1")),
         };
         assert_eq!(
             read(&p),
@@ -4259,7 +4259,7 @@ mod tests {
         application_arguments(&mut p)[0] = CheckedTerm::Literal {
             type_id: id('2'),
             value_kind: LiteralKind::Integer,
-            value: json!("1"),
+            value: crate::checked_package::CheckedJson::scalar(&json!("1")),
         };
         assert_eq!(
             read(&p),
@@ -4367,7 +4367,7 @@ mod tests {
         application_arguments(&mut p)[1] = CheckedTerm::Literal {
             type_id: id('2'),
             value_kind: LiteralKind::Integer,
-            value: json!("1"),
+            value: crate::checked_package::CheckedJson::scalar(&json!("1")),
         };
         assert_eq!(
             read(&p),
@@ -4425,7 +4425,7 @@ mod tests {
         application_arguments(&mut p)[1] = CheckedTerm::Literal {
             type_id: id('2'),
             value_kind: LiteralKind::Integer,
-            value: json!("1"),
+            value: crate::checked_package::CheckedJson::scalar(&json!("1")),
         };
         assert_eq!(read(&p), Err(type_error(0, Some(id('9')))));
     }

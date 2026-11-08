@@ -3,8 +3,8 @@ use super::super::model_members::tests::{
     read, BYTES, ORDERS, RECORDED,
 };
 use super::super::model_members::{
-    declaration_id, probe, read_semantic_ir, Budget, DeclarationForm, MemberKind, ModelFailure,
-    ModelOwners,
+    declaration_id, probe, read_semantic_ir, view_of, Budget, DeclarationForm, MemberKind,
+    ModelFailure, ModelOwners,
 };
 use super::super::CheckedSemanticNodeV2;
 use super::*;
@@ -29,11 +29,12 @@ fn population_catalog_defensively_refuses_a_retained_unresolved_member() {
     let model = &mut std::sync::Arc::make_mut(&mut fixture.package.models).models[0];
     model
         .populations
-        .insert("ix://acme/orders/population/Unresolved".into());
-    model.population_members.insert(
-        "ix://acme/orders/population/Unresolved".into(),
-        std::collections::BTreeSet::from(["ix://acme/orders/Missing".into()]),
-    );
+        .insert_unmetered("ix://acme/orders/population/Unresolved".into());
+    let mut unresolved = crate::checked_package::v2::model_members::SortedSet::new();
+    unresolved.insert_unmetered("ix://acme/orders/Missing".into());
+    model
+        .population_members
+        .insert_unmetered("ix://acme/orders/population/Unresolved".into(), unresolved);
     let result =
         fixture
             .package
@@ -414,10 +415,10 @@ fn exact_field_rows_require_selected_record_and_original_field() {
 fn unbuilt(document: &Value) -> DomainModel {
     let mut meter = WorkMeter::new(u64::MAX);
     match read_semantic_ir(
-        document,
+        view_of(document),
         "checked",
         &mut Budget::new(&mut meter, 0, BYTES),
-        &Arc::new(BTreeMap::new()),
+        &crate::checked_package::v2::model_members::UnitRefs::default(),
     ) {
         Ok(model) => model,
         Err(_) => panic!("the document reads"),
@@ -1361,7 +1362,7 @@ fn tc_227_the_accessor_does_not_read_a_node_body_it_was_not_passed() {
         if let super::super::CheckedTerm::Aggregate { members } = &mut node.body {
             if let super::super::CheckedTerm::Binding { value, .. } = &mut members[1] {
                 if let super::super::CheckedTerm::Literal { value, .. } = value.as_mut() {
-                    *value = json!(upper);
+                    *value = crate::checked_package::CheckedJson::scalar(&json!(upper));
                 }
             }
         }
@@ -1616,9 +1617,422 @@ fn tc_227_the_component_search_needs_no_call_stack() {
     let model = unbuilt(&chain_document(20_000));
     let found = std::thread::Builder::new()
         .stack_size(256 * 1024)
-        .spawn(move || components(&model).len())
+        .spawn(move || {
+            let mut meter = WorkMeter::new(u64::MAX);
+            let mut budget = Budget::new(&mut meter, 0, BYTES);
+            components(&model, &mut budget).map(|found| found.len())
+        })
         .expect("a thread")
         .join()
-        .expect("the search finishes on a small stack");
+        .expect("the search finishes on a small stack")
+        .expect("the search is within its budget");
     assert_eq!(found, 20_000);
+}
+
+/// A document whose fields reach collections, optional members and a value
+/// type, so the member types are derived through wrappers.
+fn typed_document() -> Value {
+    let owner = format!("{ORDERS}Holder");
+    let mut many = field(&owner, "many", "ix://quire/native/Integer");
+    many["multiplicity"] = crate::checked_package::v2::model_members::tests::multiplicity(0, None);
+    let mut bounded = field(&owner, "bounded", "ix://quire/native/String");
+    bounded["multiplicity"] =
+        crate::checked_package::v2::model_members::tests::multiplicity(1, Some(4));
+    let mut optional = field(&owner, "maybe", "ix://quire/native/Boolean");
+    optional["presence"] = json!("optional");
+    document(vec![object_type(
+        &owner,
+        &[],
+        vec![
+            field(&owner, "one", "ix://quire/native/Integer"),
+            many,
+            bounded,
+            optional,
+        ],
+    )])
+}
+
+/// What one build of the field tables of `models` did under `allowance`
+/// bytes of read storage.
+struct Tables {
+    built: bool,
+    consumed: u64,
+    allocated: u64,
+    locus: Option<crate::NativeJoinLocus>,
+}
+
+fn build_under(models: &[DomainModel], allowance: u64) -> Tables {
+    let mut models = models.to_vec();
+    let mut budget =
+        crate::NativeJoinBudget::new(u64::MAX, u64::MAX).with_read_storage_limit(allowance);
+    let mut built = false;
+    let measured = allocation_counter::measure(|| {
+        let mut meter = WorkMeter::over(&mut budget);
+        built = build_field_tables(&mut models, &mut meter).is_ok();
+    });
+    Tables {
+        built,
+        consumed: budget.read_storage_consumed(),
+        allocated: measured.bytes_total,
+        locus: budget.first_unpaid_locus(),
+    }
+}
+
+/// The bytes the refusal's own pointer takes to build, which the budgeted
+/// outcome charges as the diagnostic.
+fn denial_pointer_bytes() -> u64 {
+    allocation_counter::measure(|| {
+        drop(crate::checked_package::common::node_pointer(0).key("owner"));
+    })
+    .bytes_total
+}
+
+/// The field tables allocate exactly what they request: an exact allowance
+/// builds them, one byte short refuses at `PackageRead(Lock, i)` with the
+/// `field_tables` form, and no allowance is overdrawn.
+#[trace("TC-472", "FR-038-AC-502")]
+#[test]
+fn tc_472_field_tables_allocate_exactly_what_they_request() {
+    use crate::checked_package::v2::PackageReadStage;
+    use crate::NativeJoinLocusSource;
+    let diamond = {
+        let (top, left, right, bottom) = (
+            format!("{ORDERS}Top"),
+            format!("{ORDERS}Left"),
+            format!("{ORDERS}Right"),
+            format!("{ORDERS}Bottom"),
+        );
+        let mut replacement = field(&left, "t", "ix://quire/native/Integer");
+        replacement["redefines"] = json!(format!("{top}/t"));
+        record_document(vec![
+            record_type(
+                "Top",
+                &[],
+                vec![field(&top, "t", "ix://quire/native/Boolean")],
+            ),
+            record_type(
+                "Left",
+                &[&top],
+                vec![replacement, field(&left, "l", "ix://quire/native/Boolean")],
+            ),
+            record_type(
+                "Right",
+                &[&top],
+                vec![field(&right, "r", "ix://quire/native/Integer")],
+            ),
+            record_type(
+                "Bottom",
+                &[&left, &right],
+                vec![field(&bottom, "z", "ix://quire/native/Boolean")],
+            ),
+        ])
+    };
+    for document in [
+        diamond,
+        typed_document(),
+        document_of("self_cycle_redefinition"),
+        document_of("redefining_chain"),
+        chain_document(12),
+        ledger(),
+    ] {
+        let model = unbuilt(&document);
+        let mut meter = WorkMeter::new(u64::MAX);
+        let mut derive = Budget::new(&mut meter, 0, BYTES);
+        for declared in model
+            .object_types
+            .values()
+            .chain(model.record_types.values())
+        {
+            for field in &declared.fields {
+                assert_eq!(
+                    model
+                        .field_type_charged(field, &mut derive, "field_tables")
+                        .expect("no limit"),
+                    model.field_type(field),
+                    "{}",
+                    field.identity
+                );
+            }
+        }
+        let models = [model.clone(), model];
+        let unlimited = build_under(&models, u64::MAX);
+        assert!(unlimited.built, "the tables build");
+        assert_eq!(
+            unlimited.allocated, unlimited.consumed,
+            "every byte the build allocates is a byte it requested"
+        );
+        let exact = build_under(&models, unlimited.consumed);
+        assert!(exact.built, "the exact allowance builds them");
+        assert_eq!(exact.consumed, unlimited.consumed);
+        let short = build_under(&models, unlimited.consumed - 1);
+        assert!(!short.built, "one byte short refuses");
+        let locus = short.locus.expect("the denial is recorded");
+        assert_eq!(locus.form, "field_tables");
+        assert!(matches!(
+            locus.source,
+            NativeJoinLocusSource::PackageRead(PackageReadStage::Lock, 0 | 1)
+        ));
+        let pointer = denial_pointer_bytes();
+        let mut allowance = 0;
+        while allowance < unlimited.consumed {
+            let outcome = build_under(&models, allowance);
+            assert!(!outcome.built, "allowance {allowance} is short");
+            assert!(
+                outcome.allocated <= allowance + pointer,
+                "allowance {allowance}: allocated {}",
+                outcome.allocated
+            );
+            allowance += 53;
+        }
+    }
+}
+
+/// What one run did under `allowance` bytes of read storage.
+struct Run {
+    ok: bool,
+    consumed: u64,
+    allocated: u64,
+    locus: Option<crate::NativeJoinLocus>,
+}
+
+fn run_under<T>(
+    allowance: u64,
+    input: T,
+    body: impl FnOnce(T, &mut WorkMeter) -> Result<(), ValidationFailure>,
+) -> Run {
+    let mut budget =
+        crate::NativeJoinBudget::new(u64::MAX, u64::MAX).with_read_storage_limit(allowance);
+    let mut ok = false;
+    let measured = allocation_counter::measure(|| {
+        let mut meter = WorkMeter::over(&mut budget);
+        ok = body(input, &mut meter).is_ok();
+    });
+    Run {
+        ok,
+        consumed: budget.read_storage_consumed(),
+        allocated: measured.bytes_total,
+        locus: budget.first_unpaid_locus(),
+    }
+}
+
+/// Every byte `body` allocates is a byte it requested, the exact allowance
+/// admits it, and one byte short refuses in the Graph stage without any
+/// shorter allowance allocating past what it was granted.
+fn assert_graph_exact<T>(
+    prepare: impl Fn() -> T,
+    body: impl Fn(T, &mut WorkMeter) -> Result<(), ValidationFailure>,
+) {
+    use crate::checked_package::v2::PackageReadStage;
+    use crate::NativeJoinLocusSource;
+    let unlimited = run_under(u64::MAX, prepare(), &body);
+    assert!(unlimited.ok, "the run succeeds without a limit");
+    assert!(unlimited.consumed > 0, "the run requests storage");
+    assert_eq!(
+        unlimited.allocated, unlimited.consumed,
+        "every byte allocated is a byte requested"
+    );
+    assert!(run_under(unlimited.consumed, prepare(), &body).ok);
+    let short = run_under(unlimited.consumed - 1, prepare(), &body);
+    assert!(!short.ok, "one byte short refuses");
+    assert!(matches!(
+        short.locus.map(|locus| locus.source),
+        Some(NativeJoinLocusSource::PackageRead(
+            PackageReadStage::Graph,
+            _
+        ))
+    ));
+    let denial = allocation_counter::measure(|| {
+        drop(crate::checked_package::common::node_pointer(99_999).key("body"));
+    })
+    .bytes_total;
+    for allowance in (0..unlimited.consumed).step_by(5) {
+        let refused = run_under(allowance, prepare(), &body);
+        assert!(!refused.ok, "allowance {allowance} is short");
+        assert!(
+            refused.allocated <= allowance + denial,
+            "allowance {allowance}: allocated {}",
+            refused.allocated
+        );
+    }
+}
+
+/// The declaration index of the selected models and the retained tables
+/// built over it allocate exactly what they request, at `PackageRead(Graph, i)`.
+fn assert_declaration_tables_exact(fixture: &Fixture) {
+    let nodes = &fixture.package.wire.semantic_graph.nodes;
+    let models = fixture.package.models.selected_models();
+    assert_graph_exact(
+        || (),
+        |(), meter| {
+            ModelOwners::build(
+                models,
+                nodes,
+                &mut Budget::node(meter, 0),
+                |budget, root| {
+                    budget.charge_at(1, "model", || {
+                        crate::checked_package::common::node_pointer(root)
+                    })
+                },
+            )
+            .map(drop)
+        },
+    );
+    let owners = ModelOwners::new(models, nodes, |_| Ok(())).expect("owners");
+    assert_graph_exact(
+        || (),
+        |(), meter| owners.index_charged(&mut Budget::node(meter, 0)).map(drop),
+    );
+    let index = owners.index();
+    assert_graph_exact(
+        || (index.clone(), models.to_vec()),
+        |(index, models), meter| {
+            RetainedModels::build(index, models, &mut Budget::node(meter, 0)).map(drop)
+        },
+    );
+    assert_eq!(
+        owners
+            .index()
+            .0
+            .iter()
+            .map(|(key, declared)| (key.clone(), declared.clone()))
+            .collect::<Vec<_>>(),
+        index
+            .0
+            .iter()
+            .map(|(key, declared)| (key.clone(), declared.clone()))
+            .collect::<Vec<_>>()
+    );
+}
+
+/// With one declaration no node ids are compared, so the owners, the index
+/// and the retained tables are exact as they stand.
+#[trace("TC-472", "FR-038-AC-502")]
+#[test]
+fn tc_472_declaration_tables_of_one_declaration_allocate_exactly_what_they_request() {
+    let solo = document(vec![object_type(&format!("{ORDERS}Solo"), &[], vec![])]);
+    let fixture = build_fixture(&solo, &[("Solo", DeclarationForm::ObjectType)]);
+    assert_declaration_tables_exact(&fixture);
+}
+
+/// With several declarations the tables are sorted by node id, whose
+/// comparison allocates until group D's shared.rs change is folded.
+#[trace("TC-472", "FR-038-AC-502")]
+#[test]
+#[ignore = "ModelOwners::build sorts and dedups rows by CheckedNodeId::cmp/==, whose pre-D heap stack allocates per comparison; passes once D 911aa4da (shared.rs) is folded"]
+fn tc_472_declaration_tables_allocate_exactly_what_they_request() {
+    let names: Vec<String> = (0..9).map(|i| format!("R{i}")).collect();
+    let types = names
+        .iter()
+        .map(|name| object_type(&format!("{ORDERS}{name}"), &[], vec![]))
+        .collect();
+    let declarations: Vec<_> = names
+        .iter()
+        .map(|name| (name.as_str(), DeclarationForm::ObjectType))
+        .collect();
+    let fixture = build_fixture(&document(types), &declarations);
+    assert_declaration_tables_exact(&fixture);
+}
+
+/// The operation parameter types and relationships a selected document
+/// retains are converted and cloned with each box, id and text requested
+/// first, and equal what the unmetered conversion yields. The index is
+/// empty, so no node id is compared.
+#[trace("TC-472", "FR-038-AC-502")]
+#[test]
+fn tc_472_retained_operations_and_relationships_allocate_exactly_what_they_request() {
+    use crate::checked_package::v2::model_members::tests::{relationship, GADGET, WIDGET};
+    let parameter = |name: &str, type_ref: &str, lower: u64, upper: Option<u64>| {
+        json!({"identity": format!("{WIDGET}/act/{name}"), "name": name,
+            "typeRef": type_ref, "multiplicity": multiplicity(lower, upper)})
+    };
+    let mut widget = object_type(WIDGET, &[], vec![]);
+    widget["operations"] = json!([
+        {"identity": format!("{WIDGET}/act"), "params": [
+            parameter("one", "ix://quire/native/Integer", 1, Some(1)),
+            parameter("many", "ix://quire/native/String", 0, None),
+            parameter("few", "ix://quire/native/Boolean", 1, Some(4)),
+            parameter("other", "ix://acme/orders/Gadget", 1, Some(1)),
+        ]},
+        {"identity": format!("{WIDGET}/rest"), "params": []},
+    ]);
+    widget["relationships"] = json!([relationship()]);
+    let model = read(&document(vec![widget, object_type(GADGET, &[], vec![])])).expect("reads");
+    let models = [model];
+    assert_graph_exact(
+        || (DeclarationIndex::default(), models.to_vec()),
+        |(index, models), meter| {
+            RetainedModels::build(index, models, &mut Budget::node(meter, 0)).map(drop)
+        },
+    );
+    let retained = RetainedModels::new(DeclarationIndex::default(), models.to_vec());
+    assert_eq!(retained.operation_types.len(), 2);
+    assert_eq!(retained.relationships.len(), 1);
+    let [model] = &models;
+    let parameters = &model.object_types[WIDGET].operations[0].parameters;
+    let expected: Vec<_> = parameters
+        .iter()
+        .map(|slot| model.slot_type(slot).as_ref().map(CheckedMemberType::from))
+        .collect();
+    assert_eq!(
+        retained.operation_types[&(0, Box::from(WIDGET), Box::from("act"))].parameters,
+        expected
+    );
+}
+
+/// The operation resolution of a model type, its candidate and effective
+/// names and the family walk each allocate exactly what they request, at
+/// `PackageRead(Graph, root)`.
+#[trace("TC-472", "FR-038-AC-502")]
+#[test]
+fn tc_472_operation_resolution_allocates_exactly_what_it_requests() {
+    use crate::checked_package::v2::model_members::{MemberKind, Resolved};
+    let (base, derived, third) = (
+        format!("{ORDERS}Base"),
+        format!("{ORDERS}Derived"),
+        format!("{ORDERS}Third"),
+    );
+    let operation = |identity: String, redefines: Option<String>| {
+        let mut operation = json!({"identity": identity, "params": []});
+        if let Some(target) = redefines {
+            operation["redefines"] = json!(target);
+        }
+        operation
+    };
+    let mut base_type = object_type(&base, &[], vec![]);
+    base_type["operations"] = json!([
+        operation(format!("{base}/act"), None),
+        operation(format!("{base}/keep"), None)
+    ]);
+    let mut derived_type = object_type(&derived, &[&base], vec![]);
+    derived_type["operations"] = json!([
+        operation(format!("{derived}/act"), Some(format!("{base}/act"))),
+        operation(format!("{derived}/own"), None)
+    ]);
+    let mut third_type = object_type(&third, &[&derived], vec![]);
+    third_type["operations"] = json!([operation(
+        format!("{third}/act"),
+        Some(format!("{derived}/act"))
+    )]);
+    let model = unbuilt(&document(vec![base_type, derived_type, third_type]));
+    let run = |meter: &mut WorkMeter| {
+        let mut budget = Budget::node(meter, 7);
+        let names = model.effective_operation_names(&third, &mut budget)?;
+        let family = model.operation_in_family(&third, &base, "keep", &mut budget)?;
+        let conforms = model.conforms(&base, &third, &mut budget)?;
+        let found = match model.resolve(&third, MemberKind::Operation, "act", &mut budget) {
+            Ok(Resolved::Operation(found)) => Some(found.identity.as_ref()),
+            Err(ModelFailure::Limit(failure)) => return Err(failure),
+            _ => None,
+        };
+        Ok::<_, ValidationFailure>((names, family, conforms, found))
+    };
+    let mut meter = WorkMeter::new(u64::MAX);
+    let (names, family, conforms, found) = run(&mut meter).expect("no limit");
+    assert_eq!(
+        names.iter().map(AsRef::as_ref).collect::<Vec<_>>(),
+        ["act", "keep", "own"]
+    );
+    assert!(family && conforms);
+    assert_eq!(found, Some(format!("{third}/act").as_str()));
+    assert_graph_exact(|| (), |(), meter| run(meter).map(drop));
 }

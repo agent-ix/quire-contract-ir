@@ -38,6 +38,107 @@ pub(super) fn take_node_id() -> Option<CheckedNodeId> {
     NODE_ID.with(|slot| slot.borrow_mut().take())
 }
 
+/// The name under which a boxed value announces its allocation.
+const BOX_TOKEN: &str = "$quire::Box";
+
+/// The name under which an exact vector announces its allocation.
+const SEQUENCE_TOKEN: &str = "$quire::Sequence";
+
+thread_local! {
+    static BOX_BYTES: Cell<usize> = const { Cell::new(0) };
+    static ELEMENT_BYTES: Cell<usize> = const { Cell::new(0) };
+}
+
+/// A `Vec` reserved once, at the exact element count the document holds.
+///
+/// The document deserializer reports the array's length, so the vector is
+/// allocated at that capacity before any element is decoded and never grows.
+/// Any other deserializer gets the same decode through the iterated elements.
+pub(in crate::checked_package) fn exact_vec<'de, D, T>(deserializer: D) -> Result<Vec<T>, D::Error>
+where
+    D: de::Deserializer<'de>,
+    T: serde::Deserialize<'de>,
+{
+    struct Exact<T>(std::marker::PhantomData<T>);
+    impl<'de, T: serde::Deserialize<'de>> Visitor<'de> for Exact<T> {
+        type Value = Vec<T>;
+
+        fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            formatter.write_str("a sequence")
+        }
+
+        fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Vec<T>, A::Error> {
+            let mut elements = Vec::with_capacity(seq.size_hint().unwrap_or(0));
+            while let Some(element) = seq.next_element()? {
+                elements.push(element);
+            }
+            Ok(elements)
+        }
+
+        // The document deserializer charges the whole vector, then hands the
+        // sequence on; any other deserializer passes straight through.
+        fn visit_newtype_struct<D2: de::Deserializer<'de>>(
+            self,
+            inner: D2,
+        ) -> Result<Vec<T>, D2::Error> {
+            inner.deserialize_seq(self)
+        }
+    }
+    ELEMENT_BYTES.with(|bytes| bytes.set(std::mem::size_of::<T>()));
+    deserializer.deserialize_newtype_struct(SEQUENCE_TOKEN, Exact(std::marker::PhantomData))
+}
+
+/// [`exact_vec`] for an optional member: absent stays `None`.
+pub(in crate::checked_package) fn exact_optional_vec<'de, D, T>(
+    deserializer: D,
+) -> Result<Option<Vec<T>>, D::Error>
+where
+    D: de::Deserializer<'de>,
+    T: serde::Deserialize<'de>,
+{
+    struct Wrapped<T>(Vec<T>);
+    impl<'de, T: serde::Deserialize<'de>> serde::Deserialize<'de> for Wrapped<T> {
+        fn deserialize<D: de::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+            exact_vec(deserializer).map(Self)
+        }
+    }
+    Option::<Wrapped<T>>::deserialize(deserializer).map(|rows| rows.map(|rows| rows.0))
+}
+
+/// An explicit `null` is a value and an absent member stays a schema refusal;
+/// a present value is boxed after the box's allocation is charged.
+pub(in crate::checked_package) fn charged_nullable_box<'de, D, T>(
+    deserializer: D,
+) -> Result<Option<Box<T>>, D::Error>
+where
+    D: de::Deserializer<'de>,
+    T: serde::Deserialize<'de>,
+{
+    struct Charged<T>(Box<T>);
+    impl<'de, T: serde::Deserialize<'de>> serde::Deserialize<'de> for Charged<T> {
+        fn deserialize<D: de::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+            struct Held<T>(std::marker::PhantomData<T>);
+            impl<'de, T: serde::Deserialize<'de>> Visitor<'de> for Held<T> {
+                type Value = Charged<T>;
+
+                fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                    formatter.write_str("a boxed value")
+                }
+
+                fn visit_newtype_struct<D2: de::Deserializer<'de>>(
+                    self,
+                    inner: D2,
+                ) -> Result<Charged<T>, D2::Error> {
+                    T::deserialize(inner).map(|value| Charged(Box::new(value)))
+                }
+            }
+            BOX_BYTES.with(|bytes| bytes.set(std::mem::size_of::<T>()));
+            deserializer.deserialize_newtype_struct(BOX_TOKEN, Held(std::marker::PhantomData))
+        }
+    }
+    Option::<Charged<T>>::deserialize(deserializer).map(|boxed| boxed.map(|boxed| boxed.0))
+}
+
 /// How many path segments the decode tracks for its locus. The closed wire is
 /// shallower than this; a deeper position keeps its enclosing locus.
 const TRACKED_DEPTH: usize = 12;
@@ -166,6 +267,7 @@ impl<'d> DecodeContext<'d> {
         ValueDe {
             node: self.document.root(),
             context: self,
+            prepaid: false,
         }
     }
 
@@ -257,6 +359,8 @@ impl<'d> DecodeContext<'d> {
 pub(in crate::checked_package) struct ValueDe<'c, 'd> {
     node: NodeRef<'d>,
     context: &'c DecodeContext<'d>,
+    /// The enclosing call already charged this sequence's elements.
+    prepaid: bool,
 }
 
 impl<'c, 'd> ValueDe<'c, 'd> {
@@ -264,6 +368,7 @@ impl<'c, 'd> ValueDe<'c, 'd> {
         ValueDe {
             node,
             context: self.context,
+            prepaid: false,
         }
     }
 }
@@ -292,7 +397,7 @@ impl<'de, 'c> de::Deserializer<'de> for ValueDe<'c, 'de> {
                     items,
                     count,
                     position: 0,
-                    charged: false,
+                    charged: self.prepaid,
                     parent: self,
                 })
             }
@@ -335,10 +440,25 @@ impl<'de, 'c> de::Deserializer<'de> for ValueDe<'c, 'de> {
             ));
             return visitor.visit_unit();
         }
+        if name == SEQUENCE_TOKEN {
+            if let Node::Array(items) = self.node.node() {
+                let bytes = ELEMENT_BYTES.with(Cell::get).saturating_mul(items.len());
+                self.context.charge(bytes)?;
+            }
+            return visitor.visit_newtype_struct(ValueDe {
+                prepaid: true,
+                ..self
+            });
+        }
+        if name == BOX_TOKEN {
+            let bytes = BOX_BYTES.with(Cell::get);
+            self.context.charge(bytes)?;
+            return visitor.visit_newtype_struct(self);
+        }
         if name == NODE_ID_TOKEN {
             let decoded = CheckedNodeId::deserialize(ValueDe {
-                node: self.node,
-                context: self.context,
+                prepaid: false,
+                ..self
             })?;
             NODE_ID.with(|slot| *slot.borrow_mut() = Some(decoded));
             return visitor.visit_unit();
