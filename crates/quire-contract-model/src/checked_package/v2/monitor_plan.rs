@@ -5,16 +5,18 @@
 
 use super::graph_storage::GraphIndex;
 use super::model_members::DomainModel;
+use super::native_join_budget::PackageReadStage;
 use super::native_join_storage as storage;
+use super::stage_storage::{self, Path, Refusal, Site as StorageSite};
 use super::{
     CheckedNodeId, CheckedNodeKind, CheckedOccurrence, CheckedOccurrenceRole, CheckedPackageV2,
-    CheckedRational, CheckedTerm, ClockConfiguration, CompositeTypeForm, FunctionForm, LiteralKind,
-    NativeJoinBudget, NativeJoinChargeKind, NativeJoinDeniedCharge, RawSemanticNodeV2,
+    CheckedRational, CheckedSemanticNodeV2, CheckedTerm, ClockConfiguration, CompositeTypeForm,
+    FunctionForm, LiteralKind, NativeJoinBudget, NativeJoinChargeKind, NativeJoinDeniedCharge,
     ScalarTypeForm, TemporalForm, TemporalProfile, ValueForm, WorkMeter,
 };
-use crate::checked_package::common::{node_pointer, ValidationFailure};
+use crate::checked_package::common::ValidationFailure;
 use crate::checked_package::shared::{
-    CheckedPackageRefusalCause as Cause, CheckedPackageRefusalCode as Code, JsonPointer,
+    CheckedPackageRefusalCause as Cause, CheckedPackageRefusalCode as Code,
 };
 use std::collections::BTreeSet;
 use std::sync::Arc;
@@ -654,14 +656,18 @@ fn text(term: &CheckedTerm) -> Option<&str> {
 fn literal(term: &CheckedTerm, kind: LiteralKind) -> bool {
     matches!(term, CheckedTerm::Literal { value_kind, .. } if *value_kind == kind)
 }
-fn integer(term: &CheckedTerm) -> Option<Box<str>> {
+fn integer(term: &CheckedTerm) -> Option<&str> {
     match term {
-        CheckedTerm::Literal { value, .. } => value
-            .as_str()
-            .or_else(|| value.number_text())
-            .map(Into::into),
+        CheckedTerm::Literal { value, .. } => value.as_str().or_else(|| value.number_text()),
         _ => None,
     }
+}
+fn suffix_canonical(name: &str, index: usize) -> bool {
+    name.len()
+        == "buffer_".len()
+            + index
+                .checked_ilog10()
+                .map_or(1, |digits| digits as usize + 1)
 }
 fn positive(text: &str) -> bool {
     matches!(text.as_bytes(), [first, rest @ ..] if (b'1'..=b'9').contains(first) && rest.iter().all(u8::is_ascii_digit))
@@ -671,14 +677,14 @@ fn natural(text: &str) -> bool {
     text == "0" || positive(text)
 }
 
-struct Graph<'a> {
-    nodes: &'a [RawSemanticNodeV2],
+struct Graph<'a, Body> {
+    nodes: &'a [CheckedSemanticNodeV2<Body>],
     kinds: &'a [CheckedNodeKind],
     terms: &'a [Option<CheckedTerm>],
     index: &'a GraphIndex<'a>,
     keys: &'a [Arc<CheckedNodeId>],
 }
-impl Graph<'_> {
+impl<Body> Graph<'_, Body> {
     fn term(&self, position: usize) -> Option<&CheckedTerm> {
         self.terms.get(position)?.as_ref()
     }
@@ -694,49 +700,71 @@ impl Graph<'_> {
     fn composite(&self, position: usize, form: CompositeTypeForm) -> bool {
         self.kind(position, CheckedNodeKind::CompositeType(form))
     }
-    fn fields(&self, position: usize) -> Option<Vec<(&str, usize)>> {
-        members(self.term(position)?)?
-            .iter()
-            .map(|member| {
-                let CheckedTerm::Binding { name, value } = member else {
-                    return None;
-                };
-                Some((name.as_ref(), self.resolve(value)?))
-            })
-            .collect()
-    }
-    fn positional(&self, position: usize) -> Option<Vec<usize>> {
-        members(self.term(position)?)?
-            .iter()
-            .map(|member| self.resolve(member))
-            .collect()
-    }
-    fn parameters(&self, position: usize) -> Option<Vec<usize>> {
-        let (parameters, body, measure) = match members(self.term(position)?)? {
-            [parameters, body] => (parameters, body, None),
-            [parameters, body, measure] => (parameters, body, Some(measure)),
-            _ => return None,
-        };
-        if let Some(measure) = measure {
-            self.resolve(named(measure, "measure")?)?;
-        }
-        let parameters = members(named(parameters, "parameters")?)?;
-        let expression = self.resolve(named(body, "body")?)?;
-        if !matches!(
-            self.kinds.get(expression),
-            Some(CheckedNodeKind::Expression(_))
-        ) {
+    fn fields<const N: usize>(&self, position: usize) -> Option<[(&str, usize); N]> {
+        let members = members(self.term(position)?)?;
+        if members.len() != N {
             return None;
         }
-        parameters
-            .iter()
-            .map(|parameter| {
-                let p = self.resolve(parameter)?;
-                self.kind(p, CheckedNodeKind::Value(ValueForm::Parameter))
-                    .then_some(())?;
-                self.index.get(&self.nodes.get(p)?.semantic_type).copied()
-            })
-            .collect()
+        let mut fields = [("", 0); N];
+        for (field, member) in fields.iter_mut().zip(members) {
+            let CheckedTerm::Binding { name, value } = member else {
+                return None;
+            };
+            *field = (name.as_ref(), self.resolve(value)?);
+        }
+        Some(fields)
+    }
+    fn positional<const N: usize>(&self, position: usize) -> Option<[usize; N]> {
+        let members = members(self.term(position)?)?;
+        if members.len() != N {
+            return None;
+        }
+        let mut positions = [0; N];
+        for (position, member) in positions.iter_mut().zip(members) {
+            *position = self.resolve(member)?;
+        }
+        Some(positions)
+    }
+    fn parameters(
+        &self,
+        position: usize,
+        meter: &mut WorkMeter,
+    ) -> Result<Option<Vec<usize>>, ValidationFailure> {
+        let prepared = || -> Option<&[CheckedTerm]> {
+            let (parameters, body, measure) = match members(self.term(position)?)? {
+                [parameters, body] => (parameters, body, None),
+                [parameters, body, measure] => (parameters, body, Some(measure)),
+                _ => return None,
+            };
+            if let Some(measure) = measure {
+                self.resolve(named(measure, "measure")?)?;
+            }
+            let expression = self.resolve(named(body, "body")?)?;
+            if !matches!(
+                self.kinds.get(expression),
+                Some(CheckedNodeKind::Expression(_))
+            ) {
+                return None;
+            }
+            members(named(parameters, "parameters")?)
+        };
+        let Some(parameters) = prepared() else {
+            return Ok(None);
+        };
+        let mut positions = meter.vec(parameters.len())?;
+        for parameter in parameters {
+            let Some(p) = self
+                .resolve(parameter)
+                .filter(|&p| self.kind(p, CheckedNodeKind::Value(ValueForm::Parameter)))
+            else {
+                return Ok(None);
+            };
+            let Some(ty) = self.index.get(&self.nodes[p].semantic_type) else {
+                return Ok(None);
+            };
+            positions.push(*ty);
+        }
+        Ok(Some(positions))
     }
 }
 
@@ -745,23 +773,55 @@ struct Site<'a> {
     id: &'a CheckedNodeId,
 }
 impl Site<'_> {
-    fn at(&self, slot: usize) -> JsonPointer {
-        node_pointer(self.position)
+    fn work(&self, meter: &mut WorkMeter, at: Path<'_>) -> Result<(), ValidationFailure> {
+        stage_storage::work(
+            meter,
+            &StorageSite::new(PackageReadStage::Graph, self.position, "temporal", at),
+            1,
+        )
+    }
+
+    fn at(&self, slot: usize) -> Path<'_> {
+        Path::root()
+            .key("semantic_graph")
+            .key("nodes")
+            .index(self.position)
             .key("body")
             .key("members")
             .index(slot)
     }
-    fn refusal(&self, code: Code, cause: Option<Cause>, at: JsonPointer) -> ValidationFailure {
-        ValidationFailure::refused_at(code, at, cause, self.id.clone())
+    fn refusal(
+        &self,
+        code: Code,
+        cause: Option<Cause>,
+        at: Path<'_>,
+        meter: &mut WorkMeter,
+    ) -> ValidationFailure {
+        let refusal = Refusal::new(code, at).at_node(self.id);
+        let refusal = if let Some(cause) = cause {
+            refusal.because(cause)
+        } else {
+            refusal
+        };
+        stage_storage::refuse(
+            meter,
+            &StorageSite::new(PackageReadStage::Graph, self.position, "temporal", at),
+            refusal,
+        )
     }
-    fn shape(&self, slot: usize) -> ValidationFailure {
-        self.refusal(Code::InvalidSemanticGraph, None, self.at(slot))
+    fn shape(&self, slot: usize, meter: &mut WorkMeter) -> ValidationFailure {
+        self.refusal(Code::InvalidSemanticGraph, None, self.at(slot), meter)
     }
-    fn typed(&self, slot: usize) -> ValidationFailure {
-        self.refusal(Code::IllTyped, Some(Cause::TypeMismatch), self.at(slot))
+    fn typed(&self, slot: usize, meter: &mut WorkMeter) -> ValidationFailure {
+        self.refusal(
+            Code::IllTyped,
+            Some(Cause::TypeMismatch),
+            self.at(slot),
+            meter,
+        )
     }
-    fn premise(&self, at: JsonPointer) -> ValidationFailure {
-        self.refusal(Code::InvalidPackage, Some(Cause::InvalidValue), at)
+    fn premise(&self, at: Path<'_>, meter: &mut WorkMeter) -> ValidationFailure {
+        self.refusal(Code::InvalidPackage, Some(Cause::InvalidValue), at, meter)
     }
 }
 
@@ -774,7 +834,7 @@ fn rational(
     meter: &mut WorkMeter,
 ) -> Result<CheckedRational, ValidationFailure> {
     let at = site.at(slot).key("value");
-    let raw = text(term).ok_or_else(|| site.premise(at.clone()))?;
+    let raw = text(term).ok_or_else(|| site.premise(at, meter))?;
     let (numerator, denominator) = raw.split_once('/').unwrap_or((raw, "1"));
     if !(if allow_zero {
         natural(numerator)
@@ -783,35 +843,35 @@ fn rational(
     }) || !positive(denominator)
         || (raw.contains('/') && denominator == "1")
     {
-        return Err(site.premise(at));
+        return Err(site.premise(at, meter));
     }
-    super::identity::validate_rational_parts(numerator, denominator, meter, &|| at.clone())
-        .map_err(|failure| match failure {
-            ValidationFailure::Refused(_) => site.premise(at.clone()),
-            other => other,
-        })?;
+    if !super::schedulability::rational_parts_are_canonical(numerator, denominator, meter, &|| {
+        at.build()
+    })? {
+        return Err(site.premise(at, meter));
+    }
     Ok(CheckedRational {
-        numerator: numerator.into(),
-        denominator: denominator.into(),
+        numerator: meter.boxed_str(numerator)?,
+        denominator: meter.boxed_str(denominator)?,
     })
 }
 
 #[ix_trace_rs::string_edge]
-fn outcome(
-    graph: &Graph<'_>,
+fn outcome<Body>(
+    graph: &Graph<'_, Body>,
     results: usize,
     meter: &mut WorkMeter,
     site: &Site<'_>,
 ) -> Result<bool, ValidationFailure> {
     let valid = || -> Option<bool> {
-        let elements = graph.positional(results)?;
+        let elements = graph.positional::<1>(results)?;
         let [result] = elements.as_slice() else {
             return Some(false);
         };
         if !graph.composite(*result, CompositeTypeForm::Record) {
             return Some(false);
         }
-        let fields = graph.fields(*result)?;
+        let fields = graph.fields::<2>(*result)?;
         let [("instance", instance), ("outcome", outcome)] = fields.as_slice() else {
             return Some(false);
         };
@@ -820,7 +880,7 @@ fn outcome(
         {
             return Some(false);
         }
-        let instance_fields = graph.fields(*instance)?;
+        let instance_fields = graph.fields::<3>(*instance)?;
         let [("subject", subject), ("subformula", subformula), ("origin", origin)] =
             instance_fields.as_slice()
         else {
@@ -832,7 +892,7 @@ fn outcome(
         {
             return Some(false);
         }
-        let cases = super::structural::typed_union_type_body(graph.term(*outcome)?)?;
+        let cases = members(graph.term(*outcome)?)?;
         if cases.len() != 6 {
             return Some(false);
         }
@@ -844,19 +904,23 @@ fn outcome(
             "Pending",
             "True",
         ]) {
-            if case.name != expected {
+            let CheckedTerm::Binding { name, value } = case else {
+                return None;
+            };
+            if name.as_ref() != expected {
                 return Some(false);
             }
+            let payloads = members(value)?;
             if matches!(expected, "Failed" | "Incomplete") {
-                let [payload] = case.payload.as_slice() else {
+                let [payload] = payloads else {
                     return Some(false);
                 };
-                let p = *graph.index.get(payload)?;
+                let p = *graph.index.get(reference(payload)?)?;
                 if !graph.composite(p, CompositeTypeForm::Record) {
                     return Some(false);
                 }
-                let fields = graph.fields(p)?;
                 if expected == "Failed" {
+                    let fields = graph.fields::<2>(p)?;
                     let [("gap", gap), ("max_reading_gap", max)] = fields.as_slice() else {
                         return Some(false);
                     };
@@ -866,6 +930,7 @@ fn outcome(
                         return Some(false);
                     }
                 } else {
+                    let fields = graph.fields::<3>(p)?;
                     let [("limit", limit), ("value", value), ("setting", setting)] =
                         fields.as_slice()
                     else {
@@ -878,35 +943,35 @@ fn outcome(
                         return Some(false);
                     }
                 }
-            } else if !case.payload.is_empty() {
+            } else if !payloads.is_empty() {
                 return Some(false);
             }
         }
         Some(true)
     };
-    meter.charge(1, || site.at(4))?;
+    site.work(meter, site.at(4))?;
     Ok(valid().unwrap_or(false))
 }
 
-fn activation_type(
-    graph: &Graph<'_>,
+fn activation_type<Body>(
+    graph: &Graph<'_, Body>,
     sequence: usize,
     meter: &mut WorkMeter,
     site: &Site<'_>,
 ) -> Result<bool, ValidationFailure> {
-    meter.charge(1, || site.at(1))?;
+    site.work(meter, site.at(1))?;
     let valid = || -> Option<bool> {
         if !graph.composite(sequence, CompositeTypeForm::Sequence) {
             return Some(false);
         }
-        let elements = graph.positional(sequence)?;
+        let elements = graph.positional::<1>(sequence)?;
         let [record] = elements.as_slice() else {
             return Some(false);
         };
         if !graph.composite(*record, CompositeTypeForm::Record) {
             return Some(false);
         }
-        let fields = graph.fields(*record)?;
+        let fields = graph.fields::<3>(*record)?;
         let [("subformula", subformula), ("origin", origin), ("status", _)] = fields.as_slice()
         else {
             return Some(false);
@@ -920,8 +985,8 @@ fn activation_type(
 }
 
 #[ix_trace_rs::string_edge]
-pub(super) fn validate(
-    nodes: &[RawSemanticNodeV2],
+pub(super) fn validate<Body>(
+    nodes: &[CheckedSemanticNodeV2<Body>],
     kinds: &[CheckedNodeKind],
     terms: &[Option<CheckedTerm>],
     index: &GraphIndex<'_>,
@@ -929,6 +994,7 @@ pub(super) fn validate(
     models: &[DomainModel],
     meter: &mut WorkMeter,
 ) -> Result<Vec<Plan>, ValidationFailure> {
+    meter.at_node(0, "temporal");
     let graph = Graph {
         nodes,
         kinds,
@@ -943,42 +1009,56 @@ pub(super) fn validate(
     let model_index = super::graph_storage::SortedTable::from_vec(identified, |left, right| {
         std::ptr::from_ref(*right).cmp(&std::ptr::from_ref(*left))
     });
-    let mut positions = index
+    let count = index
         .values()
-        .copied()
-        .filter(|&p| graph.kind(p, CheckedNodeKind::Temporal(TemporalForm::MonitorPlan)))
-        .collect::<Vec<_>>();
-    positions.sort_by(|&a, &b| keys[a].cmp(&keys[b]));
-    let mut plans = Vec::with_capacity(positions.len());
+        .filter(|&&p| graph.kind(p, CheckedNodeKind::Temporal(TemporalForm::MonitorPlan)))
+        .count();
+    let mut positions = meter.vec(count)?;
+    positions.extend(
+        index
+            .values()
+            .copied()
+            .filter(|&p| graph.kind(p, CheckedNodeKind::Temporal(TemporalForm::MonitorPlan))),
+    );
+    positions.sort_unstable_by(|&a, &b| keys[a].cmp(&keys[b]));
+    let mut plans = meter.vec(positions.len())?;
     for position in positions {
+        meter.at_node(position, "temporal");
         let node = &nodes[position];
         let site = Site {
             position,
             id: &node.node_id,
         };
-        meter.charge(1, || node_pointer(position).key("body"))?;
-        let body = graph.term(position).ok_or_else(|| site.shape(0))?;
-        let body_members = members(body).ok_or_else(|| site.shape(0))?;
-        let mut values = Vec::with_capacity(NAMES.len());
+        site.work(
+            meter,
+            Path::root()
+                .key("semantic_graph")
+                .key("nodes")
+                .index(position)
+                .key("body"),
+        )?;
+        let body = graph.term(position).ok_or_else(|| site.shape(0, meter))?;
+        let body_members = members(body).ok_or_else(|| site.shape(0, meter))?;
+        let mut values = meter.vec(NAMES.len())?;
         // Complete shape precedes all reference-kind and signature checks.
         for (slot, name) in NAMES.iter().enumerate() {
-            meter.charge(1, || site.at(slot))?;
+            site.work(meter, site.at(slot))?;
             let value = body_members
                 .get(slot)
                 .and_then(|member| named(member, name))
-                .ok_or_else(|| site.shape(slot))?;
+                .ok_or_else(|| site.shape(slot, meter))?;
             let valid = match slot {
                 8 | 9 | 16 => literal(value, LiteralKind::Integer),
                 10 | 14 => literal(value, LiteralKind::Rational),
                 12 => literal(value, LiteralKind::Text),
                 11 => {
-                    let buffers = members(value).ok_or_else(|| site.shape(slot))?;
+                    let buffers = members(value).ok_or_else(|| site.shape(slot, meter))?;
                     for (i, buffer) in buffers.iter().enumerate() {
-                        meter.charge(1, || site.at(slot).key("value").key("members").index(i))?;
+                        site.work(meter, site.at(slot).key("value").key("members").index(i))?;
                         if !matches!(members(buffer), Some([subformula, capacity]) if named(subformula, "subformula").and_then(reference).is_some()
                             && named(capacity, "capacity").is_some_and(|t| literal(t, LiteralKind::Integer)))
                         {
-                            return Err(site.shape(slot));
+                            return Err(site.shape(slot, meter));
                         }
                     }
                     true
@@ -986,16 +1066,16 @@ pub(super) fn validate(
                 _ => reference(value).is_some(),
             };
             if !valid {
-                return Err(site.shape(slot));
+                return Err(site.shape(slot, meter));
             }
             values.push(value);
         }
         if body_members.len() != NAMES.len() {
-            return Err(site.shape(NAMES.len()));
+            return Err(site.shape(NAMES.len(), meter));
         }
         let slots = [0, 1, 2, 3, 4, 5, 6, 7, 13, 15];
         let mut references = [0; 10];
-        let mut buffers = Vec::new();
+        let mut buffers = meter.vec(members(values[11]).expect("checked buffers").len())?;
         for (i, slot) in slots.into_iter().enumerate() {
             if slot == 13 {
                 for (i, buffer) in members(values[11])
@@ -1003,24 +1083,25 @@ pub(super) fn validate(
                     .iter()
                     .enumerate()
                 {
-                    meter.charge(1, || site.at(11).key("value").key("members").index(i))?;
+                    site.work(meter, site.at(11).key("value").key("members").index(i))?;
                     let subformula = graph
                         .resolve(bound(buffer, 0).expect("checked buffer"))
                         .filter(|&p| {
                             graph.kind(p, CheckedNodeKind::Temporal(TemporalForm::Formula))
                         })
-                        .ok_or_else(|| site.shape(11))?;
+                        .ok_or_else(|| site.shape(11, meter))?;
+                    let capacity = integer(bound(buffer, 1).expect("checked capacity"))
+                        .ok_or_else(|| site.shape(11, meter))?;
                     buffers.push(Buffer {
                         subformula,
-                        capacity: integer(bound(buffer, 1).expect("checked capacity"))
-                            .ok_or_else(|| site.shape(11))?,
+                        capacity: meter.boxed_str(capacity)?,
                     });
                 }
             }
-            meter.charge(1, || site.at(slot))?;
+            site.work(meter, site.at(slot))?;
             let p = graph
                 .resolve(values[slot])
-                .ok_or_else(|| site.shape(slot))?;
+                .ok_or_else(|| site.shape(slot, meter))?;
             let valid = match slot {
                 0 => graph.kind(p, CheckedNodeKind::Temporal(TemporalForm::TemporalClause)),
                 1..=3 => graph.composite(p, CompositeTypeForm::Record),
@@ -1047,7 +1128,7 @@ pub(super) fn validate(
                 _ => unreachable!("closed reference slots"),
             };
             if !valid {
-                return Err(site.shape(slot));
+                return Err(site.shape(slot, meter));
             }
             references[i] = p;
         }
@@ -1056,18 +1137,25 @@ pub(super) fn validate(
             return Err(site.refusal(
                 Code::InvalidSemanticGraph,
                 None,
-                node_pointer(position).key("semantic_type"),
+                Path::root()
+                    .key("semantic_graph")
+                    .key("nodes")
+                    .index(position)
+                    .key("semantic_type"),
+                meter,
             ));
         }
-        let mut entries = Vec::with_capacity(4);
+        let mut entries = meter.vec(4)?;
         for (entry_index, slot) in ENTRY_SLOTS.into_iter().enumerate() {
-            meter.charge(1, || site.at(slot))?;
+            site.work(meter, site.at(slot))?;
             let p = references[if entry_index == 3 { 9 } else { 5 + entry_index }];
-            let parameters = graph.parameters(p).ok_or_else(|| site.typed(slot))?;
+            let parameters = graph
+                .parameters(p, meter)?
+                .ok_or_else(|| site.typed(slot, meter))?;
             let result = index
                 .get(&nodes[p].semantic_type)
                 .copied()
-                .ok_or_else(|| site.typed(slot))?;
+                .ok_or_else(|| site.typed(slot, meter))?;
             let signature = match entry_index {
                 0 => parameters.is_empty() && result == state,
                 1 | 2 => {
@@ -1080,9 +1168,9 @@ pub(super) fn validate(
             };
             let result_valid = entry_index == 0
                 || (graph.composite(result, CompositeTypeForm::Tuple)
-                    && graph.positional(result).as_deref() == Some(&[state, references[4]]));
+                    && graph.positional::<2>(result) == Some([state, references[4]]));
             if !signature || !result_valid {
-                return Err(site.typed(slot));
+                return Err(site.typed(slot, meter));
             }
             entries.push(Entry {
                 position: p,
@@ -1091,18 +1179,18 @@ pub(super) fn validate(
             });
         }
         if !outcome(&graph, references[4], meter, &site)? {
-            return Err(site.typed(4));
+            return Err(site.typed(4, meter));
         }
         let width = integer(values[8])
             .filter(|s| natural(s))
             .and_then(|s| s.parse::<u8>().ok())
             .filter(|&w| (1..=64).contains(&w))
-            .ok_or_else(|| site.premise(site.at(8).key("value")))?;
+            .ok_or_else(|| site.premise(site.at(8).key("value"), meter))?;
         let gap = integer(values[9])
             .filter(|s| natural(s))
             .and_then(|s| s.parse::<u64>().ok())
             .filter(|&g| width == 64 || g < (1_u64 << width))
-            .ok_or_else(|| site.premise(site.at(9).key("value")))?;
+            .ok_or_else(|| site.premise(site.at(9).key("value"), meter))?;
         let rate = rational(values[10], false, &site, 10, meter)?;
         for (i, buffer) in buffers.iter().enumerate() {
             if !positive(&buffer.capacity) {
@@ -1114,28 +1202,31 @@ pub(super) fn validate(
                         .key("members")
                         .index(1)
                         .key("value"),
+                    meter,
                 ));
             }
         }
         if text(values[12]).is_none_or(str::is_empty) {
-            return Err(site.premise(site.at(12).key("value")));
+            return Err(site.premise(site.at(12).key("value"), meter));
         }
         let uncertainty = rational(values[14], true, &site, 14, meter)?;
         let activation_capacity = integer(values[16])
             .filter(|value| natural(value))
-            .ok_or_else(|| site.premise(site.at(16).key("value")))?;
-        let mut reached = BTreeSet::new();
-        let mut pending = vec![references[0]];
+            .ok_or_else(|| site.premise(site.at(16).key("value"), meter))?;
+        let mut reached = meter.filled(nodes.len(), false)?;
+        let mut pending = meter.vec(1)?;
+        pending.push(references[0]);
         while let Some(p) = pending.pop() {
-            meter.charge(1, || site.at(11))?;
-            if !reached.insert(p) {
+            site.work(meter, site.at(11))?;
+            if reached[p] {
                 continue;
             }
+            reached[p] = true;
             if let Some(CheckedTerm::Application { arguments, .. }) = graph.term(p) {
                 for argument in arguments {
                     if let Some(target) = graph.resolve(argument) {
                         if graph.kind(target, CheckedNodeKind::Temporal(TemporalForm::Formula)) {
-                            pending.push(target);
+                            meter.push(&mut pending, target)?;
                         }
                     }
                 }
@@ -1147,33 +1238,48 @@ pub(super) fn validate(
                 .keys
                 .get(buffer.subformula)
                 .expect("resolved buffer key");
-            if !reached.contains(&buffer.subformula) || previous.is_some_and(|last| last >= key) {
-                return Err(site.shape(11));
+            if !reached[buffer.subformula] || previous.is_some_and(|last| last >= key) {
+                return Err(site.shape(11, meter));
             }
             previous = Some(key);
         }
-        let fields = graph.fields(state).ok_or_else(|| site.shape(1))?;
-        if fields.len() != buffers.len() + 4 {
-            return Err(site.shape(1));
+        let fields = graph
+            .term(state)
+            .and_then(members)
+            .ok_or_else(|| site.shape(1, meter))?;
+        if fields.iter().any(|field| match field {
+            CheckedTerm::Binding { value, .. } => graph.resolve(value).is_none(),
+            _ => true,
+        }) {
+            return Err(site.shape(1, meter));
         }
-        for (i, (name, ty)) in fields.iter().enumerate() {
-            meter.charge(1, || site.at(1))?;
+        if fields.len() != buffers.len() + 4 {
+            return Err(site.shape(1, meter));
+        }
+        for (i, field) in fields.iter().enumerate() {
+            let CheckedTerm::Binding { name, value } = field else {
+                return Err(site.shape(1, meter));
+            };
+            let ty = graph.resolve(value).ok_or_else(|| site.shape(1, meter))?;
+            site.work(meter, site.at(1))?;
             let valid = match i {
-                0 => *name == "now" && graph.scalar(*ty, ScalarTypeForm::Integer),
-                1 => *name == "history_start" && graph.scalar(*ty, ScalarTypeForm::Integer),
+                0 => name.as_ref() == "now" && graph.scalar(ty, ScalarTypeForm::Integer),
+                1 => name.as_ref() == "history_start" && graph.scalar(ty, ScalarTypeForm::Integer),
                 i if i == fields.len() - 2 => {
-                    *name == "activations" && activation_type(&graph, *ty, meter, &site)?
+                    name.as_ref() == "activations" && activation_type(&graph, ty, meter, &site)?
                 }
                 i if i == fields.len() - 1 => {
-                    *name == "event_position" && graph.scalar(*ty, ScalarTypeForm::Integer)
+                    name.as_ref() == "event_position" && graph.scalar(ty, ScalarTypeForm::Integer)
                 }
                 _ => {
-                    *name == format!("buffer_{}", i - 2)
-                        && graph.composite(*ty, CompositeTypeForm::Sequence)
+                    name.strip_prefix("buffer_")
+                        .and_then(|suffix| suffix.parse::<usize>().ok())
+                        .is_some_and(|index| index == i - 2 && suffix_canonical(name, index))
+                        && graph.composite(ty, CompositeTypeForm::Sequence)
                 }
             };
             if !valid {
-                return Err(site.shape(1));
+                return Err(site.shape(1, meter));
             }
         }
         let entries = entries
@@ -1188,49 +1294,218 @@ pub(super) fn validate(
             rate,
             uncertainty,
             buffers,
-            activation_capacity,
+            activation_capacity: meter.boxed_str(activation_capacity)?,
         });
     }
     Ok(plans)
 }
 
 /// The root's dependency set includes body targets and its State semantic type.
-pub(super) fn validate_dependencies(
-    nodes: &[RawSemanticNodeV2],
+pub(super) fn validate_dependencies<Body>(
+    nodes: &[CheckedSemanticNodeV2<Body>],
     kinds: &[CheckedNodeKind],
     references: &[Vec<super::BodyReference>],
     index: &GraphIndex<'_>,
     keys: &[Arc<CheckedNodeId>],
+    meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
     for (position, node) in nodes.iter().enumerate() {
         if kinds[position] != CheckedNodeKind::Temporal(TemporalForm::MonitorPlan) {
             continue;
         }
-        let key = |id: &CheckedNodeId| {
-            index
-                .get(id)
-                .and_then(|&p| keys.get(p))
-                .map(Arc::as_ref)
-                .cloned()
-        };
-        let expected = references[position]
-            .iter()
-            .filter(|(_, site)| site.member == super::ReferenceMember::Target)
-            .map(|(target, _)| target)
-            .chain(std::iter::once(&node.semantic_type))
-            .filter_map(key)
-            .collect::<BTreeSet<_>>()
-            .into_iter()
-            .collect::<Vec<_>>();
-        let actual = node.dependencies.iter().filter_map(key).collect::<Vec<_>>();
+        let key = |id: &CheckedNodeId| index.get(id).and_then(|&p| keys.get(p)).map(Arc::as_ref);
+        meter.at_node(position, "temporal");
+        let mut expected = meter.vec(references[position].len().saturating_add(1))?;
+        expected.extend(
+            references[position]
+                .iter()
+                .filter(|(_, site)| site.member == super::ReferenceMember::Target)
+                .map(|(target, _)| target)
+                .chain(std::iter::once(&node.semantic_type))
+                .filter_map(key),
+        );
+        expected.sort_unstable();
+        expected.dedup();
+        let mut actual = meter.vec(node.dependencies.len())?;
+        actual.extend(node.dependencies.iter().filter_map(key));
         if actual != expected {
-            return Err(ValidationFailure::refused_at(
+            let site = Site {
+                position,
+                id: &node.node_id,
+            };
+            return Err(site.refusal(
                 Code::InvalidSemanticGraph,
-                node_pointer(position).key("dependencies"),
                 None,
-                node.node_id.clone(),
+                Path::root()
+                    .key("semantic_graph")
+                    .key("nodes")
+                    .index(position)
+                    .key("dependencies"),
+                meter,
             ));
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod admission_storage_tests {
+    use super::super::{test_support::node_id, CheckedJson};
+    use super::*;
+    use ix_trace_rs::trace;
+    use serde_json::json;
+
+    fn node(fill: char) -> CheckedSemanticNodeV2<CheckedJson> {
+        let id = node_id(fill);
+        serde_json::from_value(json!({
+            "node_id":id, "schema_version":"quire.checked-semantic-graph/v2",
+            "node_tag":"temporal", "semantic_form":"monitor_plan", "semantic_type":id,
+            "dependencies":[], "occurrences":[], "body":{"term":"aggregate","members":[]}
+        }))
+        .expect("retained document metadata")
+    }
+
+    #[trace("TC-472", "FR-038-AC-504")]
+    #[test]
+    fn monitor_shape_refusal_prepays_actual_tables_and_held_diagnostic() {
+        let nodes = [node('a')];
+        let kinds = [CheckedNodeKind::Temporal(TemporalForm::MonitorPlan)];
+        let terms = [Some(CheckedTerm::Aggregate {
+            members: Vec::new(),
+        })];
+        let index = nodes
+            .iter()
+            .enumerate()
+            .map(|(p, n)| (&n.node_id, p))
+            .collect::<GraphIndex<'_>>();
+        let keys = [Arc::new(nodes[0].node_id.clone())];
+        let run = |limit| {
+            let mut budget = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
+            let mut result = None;
+            let measured = allocation_counter::measure(|| {
+                result = Some(validate(
+                    &nodes,
+                    &kinds,
+                    &terms,
+                    &index,
+                    &keys,
+                    &[],
+                    &mut WorkMeter::over(&mut budget),
+                ));
+            });
+            (
+                result.expect("the monitor validator ran"),
+                measured.bytes_total,
+                budget,
+            )
+        };
+        let check = |result| {
+            let Err(ValidationFailure::Refused(refusal)) = result else {
+                panic!("missing first slot must refuse");
+            };
+            assert_eq!(refusal.code, Code::InvalidSemanticGraph);
+            assert_eq!(refusal.cause, None);
+            assert_eq!(refusal.locus.as_ref(), Some(&nodes[0].node_id));
+            assert_eq!(
+                refusal.loci[0].path.as_ref().expect("path").as_str(),
+                "/semantic_graph/nodes/0/body/members/0"
+            );
+        };
+        let (result, allocated, budget) = run(u64::MAX);
+        check(result);
+        let required = budget.read_storage_consumed();
+        assert!(required > 0);
+        assert_eq!(allocated, required);
+        check(run(required).0);
+        assert!(matches!(
+            run(required - 1).0,
+            Err(ValidationFailure::Budget(_))
+        ));
+    }
+
+    #[trace("TC-472", "FR-038-AC-504")]
+    #[test]
+    fn monitor_dependency_join_canonicalizes_expected_keys_but_preserves_actual_sequence() {
+        let mut nodes = [node('a'), node('b'), node('c')];
+        nodes[0].semantic_type = nodes[1].node_id.clone();
+        nodes[0].dependencies = vec![nodes[1].node_id.clone(), nodes[2].node_id.clone()];
+        let kinds = [
+            CheckedNodeKind::Temporal(TemporalForm::MonitorPlan),
+            CheckedNodeKind::ScalarType(ScalarTypeForm::Integer),
+            CheckedNodeKind::ScalarType(ScalarTypeForm::Integer),
+        ];
+        let target = |id: &CheckedNodeId| {
+            (
+                id.clone(),
+                super::super::ReferenceSite {
+                    member: super::super::ReferenceMember::Target,
+                    is_body_root: false,
+                },
+            )
+        };
+        let references = [
+            vec![
+                target(&nodes[2].node_id),
+                target(&nodes[1].node_id),
+                target(&nodes[2].node_id),
+            ],
+            vec![],
+            vec![],
+        ];
+        let run = |nodes: &[CheckedSemanticNodeV2<CheckedJson>], limit| {
+            let index = nodes
+                .iter()
+                .enumerate()
+                .map(|(p, n)| (&n.node_id, p))
+                .collect::<GraphIndex<'_>>();
+            let keys: Vec<_> = nodes.iter().map(|n| Arc::new(n.node_id.clone())).collect();
+            let mut budget = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
+            let mut result = None;
+            let measured = allocation_counter::measure(|| {
+                result = Some(validate_dependencies(
+                    nodes,
+                    &kinds,
+                    &references,
+                    &index,
+                    &keys,
+                    &mut WorkMeter::over(&mut budget),
+                ));
+            });
+            (
+                result.expect("the dependency join ran"),
+                measured.bytes_total,
+                budget,
+            )
+        };
+        let (result, allocated, budget) = run(&nodes, u64::MAX);
+        assert!(result.is_ok());
+        let required = budget.read_storage_consumed();
+        assert!(required > 0);
+        assert_eq!(allocated, required);
+        assert!(run(&nodes, required).0.is_ok());
+        let (short, allocated, budget) = run(&nodes, required - 1);
+        assert!(matches!(short, Err(ValidationFailure::Budget(_))));
+        assert!(
+            allocated <= budget.read_storage_consumed(),
+            "a denied request cannot allocate an unpaid pointer"
+        );
+        for duplicate in [false, true] {
+            let mut changed = nodes.clone();
+            if duplicate {
+                changed[0]
+                    .dependencies
+                    .push(changed[0].dependencies[1].clone());
+            } else {
+                changed[0].dependencies.reverse();
+            }
+            let Err(ValidationFailure::Refused(refusal)) = run(&changed, u64::MAX).0 else {
+                panic!("actual order and duplicates remain validated");
+            };
+            assert_eq!(refusal.code, Code::InvalidSemanticGraph);
+            assert_eq!(
+                refusal.loci[0].path.as_ref().expect("path").as_str(),
+                "/semantic_graph/nodes/0/dependencies"
+            );
+        }
+    }
 }

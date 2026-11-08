@@ -3519,6 +3519,7 @@ fn validate_graph(
         &references,
         &index,
         structural_keys,
+        meter,
     )?;
     refinement::validate_dependencies(
         &graph.nodes,

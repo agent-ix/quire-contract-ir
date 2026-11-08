@@ -41,7 +41,9 @@ pub(super) struct Path<'a> {
 
 impl<'a> Path<'a> {
     /// The deepest position a stage names.
-    const CAPACITY: usize = 8;
+    // A schedulability task value reaches twelve closed-shape steps.
+    // Arbitrary-depth expressions use Position::Trail instead.
+    const CAPACITY: usize = 12;
 
     /// The document root.
     pub(super) const fn root() -> Self {
@@ -638,6 +640,27 @@ mod tests {
 
     fn budget(limit: u64) -> NativeJoinBudget {
         NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit)
+    }
+
+    #[trace("TC-472", "FR-038-AC-510")]
+    #[test]
+    fn closed_task_value_path_preserves_all_twelve_steps() {
+        let at = Path::root()
+            .key("semantic_graph")
+            .key("nodes")
+            .index(17)
+            .key("body")
+            .key("members")
+            .index(4)
+            .key("value")
+            .key("members")
+            .index(2)
+            .key("members")
+            .index(5)
+            .key("value");
+        let expected = "/semantic_graph/nodes/17/body/members/4/value/members/2/members/5/value";
+        assert_eq!(at.pointer_len(), expected.len());
+        assert_eq!(at.build().as_str(), expected);
     }
 
     #[trace("TC-472", "FR-038-AC-505")]
