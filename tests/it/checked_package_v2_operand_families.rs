@@ -1622,23 +1622,24 @@ fn genuine_monitor_base_fold_is_admitted_without_removing_semantics() {
         diagnostics: 10_000,
         work: 1_000_000_000,
     };
-    let package =
-        match CheckedPackageV2::read(bytes, limits, &evidence) {
-            CheckedPackageV2ReadResult::Admitted(package) => package,
-            other => panic!("complete genuine monitor-base fold must admit: {other:?}"),
-        };
+    let package = match CheckedPackageV2::read(bytes, limits, &evidence) {
+        CheckedPackageV2ReadResult::Admitted(package) => package,
+        other => panic!("complete genuine monitor-base fold must admit: {other:?}"),
+    };
     assert_eq!(
         package.graph().nodes.len(),
         1114,
         "retain the full emitted graph"
     );
-    let fold = &package.graph().nodes[359];
+    let fold = package
+        .document_held_id(359)
+        .expect("original monitor fold id");
     let Some(quire_contract_model::CheckedTerm::Application {
         operation,
         arguments,
         result_type,
         ..
-    }) = package.term(&fold.node_id)
+    }) = package.term(fold)
     else {
         panic!("original monitor fold application");
     };
