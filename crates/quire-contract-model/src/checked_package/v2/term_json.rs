@@ -14,15 +14,16 @@
 //! stage and index with the form `"walk"`. An integer is read from its text
 //! with `str::parse`, which requests no heap.
 
+use super::native_join_budget::PackageReadStage;
+use super::read_charge::{Denied as ReadDenied, ReadStorage, Site as ReadSite};
 use super::stage_storage::{self, Position, Refusal, Site};
+use super::term_view::NodeIdRead;
 use super::{BodyTerm, TermItems, TermNode, WorkMeter};
 use crate::checked_package::common::{
     ReferenceMember, ReferenceSite, Step, TermField, TermTag, Trail, ValidationFailure,
 };
-use crate::checked_package::shared::{
-    CheckedNodeId, CheckedNodePathSegment, CheckedPackageRefusalCode,
-};
-use quire_canonical::{Items, Node, NodeRef};
+use crate::checked_package::shared::{CheckedNodeId, CheckedPackageRefusalCode};
+use quire_canonical::{Node, NodeRef};
 use quire_walk::{walk_reserved, Children, Denied, Reservation, Walk};
 use std::cell::RefCell;
 use std::mem::size_of;
@@ -30,9 +31,6 @@ use std::ops::ControlFlow;
 
 /// The locus form of every request the term walk makes.
 const FORM: &str = "walk";
-
-/// The largest integer an I-JSON wire carries exactly.
-const I_JSON_BOUND: u64 = 9_007_199_254_740_991;
 
 /// What a term walk found.
 pub(super) struct Checked<'s> {
@@ -274,6 +272,23 @@ impl<'s> TermWalk<'_, '_, '_, 's, '_> {
         Ok(())
     }
 
+    /// Reads `value` as a node id, its heap charged before it is requested.
+    fn read_id(&self, value: TermNode<'s>) -> Result<NodeIdRead, ValidationFailure> {
+        let mut storage = Storage {
+            shared: self.shared,
+            stage: self.stage,
+            index: self.index,
+            at: Trail::Base(&self.steps),
+            failure: None,
+        };
+        let read = value.node_id(&mut storage, ReadSite::new(self.stage, self.index, FORM));
+        match (read, storage.failure) {
+            (Ok(read), _) => Ok(read),
+            (Err(_), Some(failure)) => Err(failure),
+            (Err(_), None) => Err(stage_storage::unavailable(0)),
+        }
+    }
+
     /// Reports the node id held in `object[key]`.
     fn visit_member(
         &mut self,
@@ -285,15 +300,14 @@ impl<'s> TermWalk<'_, '_, '_, 's, '_> {
         let Some(value) = object.get(key) else {
             return Err(self.invalid(None));
         };
-        let spec = match IdSpec::read(value) {
-            Ok(spec) => spec,
-            Err(IdFault::Shape) => return Err(self.invalid(Some(key))),
-            Err(IdFault::Bounds) => {
+        let value = TermNode::from_ref(value);
+        let id = match self.read_id(value)? {
+            NodeIdRead::Id(id) => id,
+            NodeIdRead::Malformed => return Err(self.invalid(Some(key))),
+            NodeIdRead::Invalid(_) => {
                 return Err(self.reject(CheckedPackageRefusalCode::MalformedWire, Some(key)))
             }
         };
-        self.charge(spec.bytes())?;
-        let id = spec.build();
         let site = ReferenceSite {
             member,
             is_body_root,
@@ -434,10 +448,10 @@ impl<'s> TermWalk<'_, '_, '_, 's, '_> {
                 {
                     return Err(self.invalid(Some("package")));
                 }
-                if !term
-                    .get("node")
-                    .is_some_and(|node| IdSpec::read(node.node_ref()).is_ok())
-                {
+                let Some(node) = term.get("node") else {
+                    return Err(self.invalid(Some("node")));
+                };
+                if !matches!(self.read_id(node)?, NodeIdRead::Id(_)) {
                     return Err(self.invalid(Some("node")));
                 }
                 Ok(1)
@@ -487,126 +501,27 @@ fn is_literal_value(value: NodeRef<'_>) -> bool {
     }
 }
 
-/// The unsigned integer a number's text spells.
-fn unsigned(value: NodeRef<'_>) -> Option<u64> {
-    match value.node() {
-        Node::Number(number) => number.text().parse().ok(),
-        _ => None,
-    }
+/// The walk's reads as a [`ReadStorage`]: each request is charged at the
+/// entered term, a denial leaving its failure here.
+struct Storage<'x, 'm, 'b> {
+    shared: &'x Shared<'m, 'b>,
+    stage: PackageReadStage,
+    index: usize,
+    at: Trail<'x>,
+    failure: Option<ValidationFailure>,
 }
 
-/// Why a value is not a node id.
-enum IdFault {
-    /// It is no flat node id object: the deserializer refuses it.
-    Shape,
-    /// It is one, outside the V2 wire's bounds.
-    Bounds,
-}
-
-/// One segment of a wire node id's path.
-enum Segment<'d> {
-    Name(&'d str),
-    Index(u64),
-    Operand(u64),
-}
-
-#[ix_trace_rs::string_edge]
-fn segment(node: NodeRef<'_>) -> Option<Segment<'_>> {
-    match node.node() {
-        Node::String(name) => Some(Segment::Name(name)),
-        Node::Object(mut members) => {
-            let (key, value) = members.next()?;
-            if members.next().is_some() {
-                return None;
+impl ReadStorage for Storage<'_, '_, '_> {
+    fn reserve(&mut self, bytes: u128, _site: ReadSite) -> Result<(), ReadDenied> {
+        let site = Site::new(self.stage, self.index, FORM, Position::Trail(self.at));
+        let mut meter = self.shared.meter.borrow_mut();
+        let bytes = usize::try_from(bytes).unwrap_or(usize::MAX);
+        match stage_storage::reserve(&mut meter, &site, bytes) {
+            Ok(()) => Ok(()),
+            Err(failure) => {
+                self.failure = Some(failure);
+                Err(ReadDenied)
             }
-            let slot = unsigned(value).filter(|slot| *slot <= I_JSON_BOUND)?;
-            match key {
-                "node" => Some(Segment::Index(slot)),
-                "operand" => Some(Segment::Operand(slot)),
-                _ => None,
-            }
-        }
-        _ => None,
-    }
-}
-
-/// A wire node id read in place, before any of it is copied.
-struct IdSpec<'d> {
-    package: &'d str,
-    path: Items<'d>,
-    ordinal: u64,
-    /// The bytes of the names in the path.
-    names: usize,
-}
-
-impl<'d> IdSpec<'d> {
-    fn read(value: NodeRef<'d>) -> Result<Self, IdFault> {
-        let Node::Object(members) = value.node() else {
-            return Err(IdFault::Shape);
-        };
-        if members.len() != 3 {
-            return Err(IdFault::Shape);
-        }
-        let (Some(package), Some(path), Some(ordinal)) = (
-            value.get("package"),
-            value.get("path"),
-            value.get("ordinal"),
-        ) else {
-            return Err(IdFault::Shape);
-        };
-        let Node::String(package) = package.node() else {
-            return Err(IdFault::Shape);
-        };
-        let Node::Array(path) = path.node() else {
-            return Err(IdFault::Shape);
-        };
-        let ordinal = unsigned(ordinal).ok_or(IdFault::Shape)?;
-        let mut names = 0_usize;
-        for item in path.clone() {
-            if let Segment::Name(name) = segment(item).ok_or(IdFault::Shape)? {
-                names = names.saturating_add(name.len());
-            }
-        }
-        if package.is_empty() || path.len() == 0 || ordinal > I_JSON_BOUND {
-            return Err(IdFault::Bounds);
-        }
-        Ok(Self {
-            package,
-            path,
-            ordinal,
-            names,
-        })
-    }
-
-    /// The heap the id requests: its package name, its path and each name in
-    /// it, which is what `stage_storage::node_id_clone_bytes` counts.
-    fn bytes(&self) -> usize {
-        self.package
-            .len()
-            .saturating_add(
-                self.path
-                    .len()
-                    .saturating_mul(size_of::<CheckedNodePathSegment>()),
-            )
-            .saturating_add(self.names)
-    }
-
-    /// The id, in blocks of exactly the sizes [`Self::bytes`] counts.
-    fn build(self) -> CheckedNodeId {
-        let mut path = Vec::with_capacity(self.path.len());
-        for item in self.path {
-            if let Some(segment) = segment(item) {
-                path.push(match segment {
-                    Segment::Name(name) => CheckedNodePathSegment::Name(name.into()),
-                    Segment::Index(slot) => CheckedNodePathSegment::Index(slot),
-                    Segment::Operand(slot) => CheckedNodePathSegment::Operand(slot),
-                });
-            }
-        }
-        CheckedNodeId {
-            package: self.package.into(),
-            path,
-            ordinal: self.ordinal,
         }
     }
 }
