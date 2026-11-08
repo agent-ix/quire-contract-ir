@@ -31,6 +31,7 @@ use super::budgeted_read::denial;
 use super::checked_json::CheckedJson;
 use super::native_join_budget::{NativeJoinBudget, PackageReadStage};
 use super::read_charge::{self, Meter, Site, WalkReservation};
+use super::stage_storage::{self, Refusal};
 use super::temporal::{interval_bound_outside_pattern_node, timed_upper_is_null_node};
 use super::TermNode;
 use super::{
@@ -196,6 +197,7 @@ pub(super) fn check(
                         &at,
                         Place::BodyRoot,
                         false,
+                        Some(&node.node_id),
                         &mut meter.reservation(flat_site(position)),
                     )
                 }
@@ -232,12 +234,22 @@ pub(super) fn check(
             // of their own, and no application stands in either; an
             // application at the root of an abstraction relation body is a
             // term of the closed grammar, placed by the abstraction step.
-            BodyGrammar::Frame => {
-                scan_members(body, &at, &mut meter.reservation(flat_site(position))).map(|_| ())
-            }
+            BodyGrammar::Frame => scan_members_at_node(
+                body,
+                &at,
+                Some(&node.node_id),
+                &mut meter.reservation(flat_site(position)),
+            )
+            .map(|_| ()),
             BodyGrammar::Term => {
                 if kind == CheckedNodeKind::Claim(super::ClaimForm::StepRelation) {
-                    scan_members(body, &at, &mut meter.reservation(flat_site(position))).map(|_| ())
+                    scan_members_at_node(
+                        body,
+                        &at,
+                        Some(&node.node_id),
+                        &mut meter.reservation(flat_site(position)),
+                    )
+                    .map(|_| ())
                 } else if kind == CheckedNodeKind::Claim(super::ClaimForm::Schedulability) {
                     check_term_with_empty_leaf(
                         body,
@@ -245,10 +257,16 @@ pub(super) fn check(
                         Place::BodyRoot,
                         false,
                         true,
+                        Some(&node.node_id),
                         &mut meter.reservation(flat_site(position)),
                     )
                 } else if kind == CheckedNodeKind::State(super::StateForm::OperationAnchor) {
-                    check_anchor_flat_wire(body, &at, &mut meter.reservation(flat_site(position)))
+                    check_anchor_flat_wire(
+                        body,
+                        &at,
+                        Some(&node.node_id),
+                        &mut meter.reservation(flat_site(position)),
+                    )
                 } else if kind == CheckedNodeKind::Protocol(super::ProtocolForm::ProtocolReference)
                     && body.kind() == Some(BodyTerm::Application)
                     && body.operator() == Some(ApplicationOperator::ProtocolControl)
@@ -263,6 +281,7 @@ pub(super) fn check(
                         &at,
                         Place::BodyRoot,
                         false,
+                        Some(&node.node_id),
                         &mut meter.reservation(flat_site(position)),
                     )
                     .and_then(|_| {
@@ -394,10 +413,17 @@ pub(super) fn check(
                         &at,
                         Place::BodyRoot,
                         false,
+                        Some(&node.node_id),
                         &mut meter.reservation(flat_site(position)),
                     )
                 } else {
-                    scan_members(body, &at, &mut meter.reservation(flat_site(position))).map(|_| ())
+                    scan_members_at_node(
+                        body,
+                        &at,
+                        Some(&node.node_id),
+                        &mut meter.reservation(flat_site(position)),
+                    )
+                    .map(|_| ())
                 }
             }
             BodyGrammar::Refinement => {
@@ -428,6 +454,7 @@ pub(super) fn check(
                 &Trail::Base(&steps),
                 Place::Member,
                 true,
+                None,
                 &mut meter.reservation(flat_site(0)),
             )?;
         }
@@ -441,6 +468,7 @@ pub(super) fn check(
 fn check_anchor_flat_wire<'a, V: TermSource<'a>>(
     body: V,
     at: &Trail<'a>,
+    locus: Option<&CheckedNodeId>,
     reservation: &mut WalkReservation<'_>,
 ) -> Result<(), ValidationFailure> {
     fn is_point<'a, V: TermSource<'a>>(member: V) -> bool {
@@ -448,11 +476,11 @@ fn check_anchor_flat_wire<'a, V: TermSource<'a>>(
     }
     let members = || body.member("members").and_then(TermSource::items);
     if members().is_none() || body.kind() != Some(BodyTerm::Aggregate) {
-        return check_term(body, at, Place::BodyRoot, false, reservation);
+        return check_term(body, at, Place::BodyRoot, false, locus, reservation);
     }
     let count = members().map_or(0, Iterator::count);
     if count < 4 && !members().is_some_and(|mut items| items.any(is_point)) {
-        return check_term(body, at, Place::BodyRoot, false, reservation);
+        return check_term(body, at, Place::BodyRoot, false, locus, reservation);
     }
     for (index, member) in members().into_iter().flatten().enumerate() {
         if is_point(member) {
@@ -465,6 +493,7 @@ fn check_anchor_flat_wire<'a, V: TermSource<'a>>(
             &member_at,
             Place::Member,
             false,
+            locus,
             reservation,
         )?;
     }
@@ -701,9 +730,10 @@ fn check_term<'a, V: TermSource<'a>>(
     at: &Trail<'a>,
     place: Place,
     details: bool,
+    locus: Option<&CheckedNodeId>,
     reservation: &mut WalkReservation<'_>,
 ) -> Result<(), ValidationFailure> {
-    check_term_with_empty_leaf(root, at, place, details, false, reservation)
+    check_term_with_empty_leaf(root, at, place, details, false, locus, reservation)
 }
 
 // FR-482 task records additionally use an empty aggregate for absent HI work
@@ -714,6 +744,7 @@ fn check_term_with_empty_leaf<'a, V: TermSource<'a>>(
     place: Place,
     details: bool,
     empty_leaf: bool,
+    locus: Option<&CheckedNodeId>,
     reservation: &mut WalkReservation<'_>,
 ) -> Result<(), ValidationFailure> {
     let (meter, site) = (reservation.meter, reservation.check);
@@ -724,6 +755,9 @@ fn check_term_with_empty_leaf<'a, V: TermSource<'a>>(
         &mut Flat {
             cursor,
             charge: &charge,
+            meter,
+            site,
+            locus,
             _terms: std::marker::PhantomData,
             details,
             empty_leaf,
@@ -745,7 +779,14 @@ pub(super) fn check_refinement_term<'a, 'b, V: TermSource<'a>>(
 where
     'a: 'b,
 {
-    check_term(root.shorter(), at, Place::BodyRoot, false, reservation)
+    check_term(
+        root.shorter(),
+        at,
+        Place::BodyRoot,
+        false,
+        None,
+        reservation,
+    )
 }
 
 /// Walks the values below the root of a frame or abstraction relation body,
@@ -760,6 +801,15 @@ pub(super) fn scan_members<'a, V: TermSource<'a>>(
     at: &Trail<'a>,
     reservation: &mut WalkReservation<'_>,
 ) -> Result<u64, ValidationFailure> {
+    scan_members_at_node(body, at, None, reservation)
+}
+
+fn scan_members_at_node<'a, V: TermSource<'a>>(
+    body: V,
+    at: &Trail<'a>,
+    locus: Option<&CheckedNodeId>,
+    reservation: &mut WalkReservation<'_>,
+) -> Result<u64, ValidationFailure> {
     let (meter, site) = (reservation.meter, reservation.check);
     let charge = move |bytes: usize| meter.charge(site, bytes as u128);
     let cursor = Cursor::charged(at, &charge)?;
@@ -767,6 +817,9 @@ pub(super) fn scan_members<'a, V: TermSource<'a>>(
     let mut scan = Scan {
         cursor,
         charge: &charge,
+        meter,
+        site,
+        locus,
         _terms: std::marker::PhantomData,
         work: 0,
     };
@@ -781,6 +834,9 @@ pub(super) fn scan_members<'a, V: TermSource<'a>>(
 struct Scan<'a, 'c, V> {
     cursor: Cursor<'a>,
     charge: &'c dyn Fn(usize) -> Result<(), ValidationFailure>,
+    meter: &'c dyn read_charge::ChargeAt,
+    site: Site,
+    locus: Option<&'c CheckedNodeId>,
     _terms: std::marker::PhantomData<V>,
     work: u64,
 }
@@ -806,6 +862,9 @@ impl<'a, V: TermSource<'a>> Walk for Scan<'a, '_, V> {
                 node.value,
                 &self.cursor.trail(),
                 false,
+                self.locus,
+                self.meter,
+                self.site,
             ));
         }
         children.extend(
@@ -825,6 +884,9 @@ impl<'a, V: TermSource<'a>> Walk for Scan<'a, '_, V> {
 struct Flat<'a, 'c, V> {
     cursor: Cursor<'a>,
     charge: &'c dyn Fn(usize) -> Result<(), ValidationFailure>,
+    meter: &'c dyn read_charge::ChargeAt,
+    site: Site,
+    locus: Option<&'c CheckedNodeId>,
     _terms: std::marker::PhantomData<V>,
     details: bool,
     empty_leaf: bool,
@@ -854,6 +916,9 @@ impl<'a, V: TermSource<'a>> Walk for Flat<'a, '_, V> {
                     value,
                     &self.cursor.trail(),
                     self.details,
+                    self.locus,
+                    self.meter,
+                    self.site,
                 ));
             }
             Some(BodyTerm::Aggregate) => match place {
@@ -905,9 +970,13 @@ impl<'a, V: TermSource<'a>> Flat<'a, '_, V> {
     /// `malformed_wire` at the entered term: it stands where its stratum is
     /// not admitted.
     fn outside_grammar(&self) -> ValidationFailure {
-        ValidationFailure::refused(
-            CheckedPackageRefusalCode::MalformedWire,
-            self.cursor.trail().pointer(),
+        stage_storage::refuse_charged(
+            self.meter,
+            self.site,
+            Refusal::new(
+                CheckedPackageRefusalCode::MalformedWire,
+                self.cursor.trail(),
+            ),
         )
     }
 }
@@ -950,6 +1019,9 @@ pub(super) fn nested_application_refusal<'a>(
     application: impl TermSource<'a>,
     at: &Trail<'_>,
     details: bool,
+    locus: Option<&CheckedNodeId>,
+    meter: &dyn read_charge::ChargeAt,
+    site: Site,
 ) -> ValidationFailure {
     let operator = application.operator();
     let operator_ineligible = match operator {
@@ -981,13 +1053,20 @@ pub(super) fn nested_application_refusal<'a>(
         | None => false,
     };
     if operator_ineligible {
-        ValidationFailure::refused_because(
-            CheckedPackageRefusalCode::IllTyped,
-            at.key("operator").pointer(),
-            CheckedPackageRefusalCause::OperatorIneligible,
-        )
+        let refusal = Refusal::new(CheckedPackageRefusalCode::IllTyped, at.key("operator"))
+            .because(CheckedPackageRefusalCause::OperatorIneligible);
+        let refusal = if let Some(locus) = locus {
+            refusal.at_node(locus)
+        } else {
+            refusal
+        };
+        stage_storage::refuse_charged(meter, site, refusal)
     } else {
-        ValidationFailure::refused(CheckedPackageRefusalCode::MalformedWire, at.pointer())
+        stage_storage::refuse_charged(
+            meter,
+            site,
+            Refusal::new(CheckedPackageRefusalCode::MalformedWire, *at),
+        )
     }
 }
 
@@ -1268,6 +1347,81 @@ mod tests {
         assert_eq!(worked, Ok(u64::try_from(LEVELS + 3).expect("count")));
     }
 
+    #[trace("TC-472", "FR-038-AC-510", "FR-038-AC-511")]
+    #[test]
+    fn flat_faults_prepay_the_complete_final_diagnostic() {
+        use crate::checked_package::common::{Step, ValidationFailure};
+        use crate::checked_package::shared::CheckedPackageRefusalCause as Cause;
+        use crate::checked_package::v2::read_charge::{Meter, SinkCell, Site};
+        use crate::checked_package::v2::{
+            CheckedPackagePendingOutcome, PackageReadStage, TermNode,
+        };
+
+        let id = serde_json::from_value(json!({
+            "package": "test/flat", "path": ["value", "x/~é"], "ordinal": 0
+        }))
+        .unwrap();
+        let steps = [
+            Step::Key("semantic_graph"),
+            Step::Key("nodes"),
+            Step::Index(7),
+            Step::Key("body"),
+        ];
+        let at = Trail::Base(&steps);
+        for (bytes, place, details, located, code, suffix, cause) in [
+            (br#"{"term":"application","operator":"call","arguments":[{"term":"application","operator":"unknown","arguments":[]}]}"#.as_slice(), Place::BodyRoot, false, false, CheckedPackageRefusalCode::MalformedWire, "/arguments/0", None),
+            (br#"{"term":"application","operator":"call","arguments":[{"term":"application","operator":"case","arguments":[]}]}"#.as_slice(), Place::BodyRoot, false, true, CheckedPackageRefusalCode::IllTyped, "/arguments/0/operator", Some(Cause::OperatorIneligible)),
+            (br#"{"term":"application","operator":"temporal_formula","arguments":[]}"#.as_slice(), Place::Member, true, false, CheckedPackageRefusalCode::IllTyped, "/operator", Some(Cause::OperatorIneligible)),
+            (br#"{"term":"binding","name":"x","value":{"term":"literal","value":true}}"#.as_slice(), Place::BodyRoot, false, false, CheckedPackageRefusalCode::MalformedWire, "", None),
+        ] {
+            let document = quire_canonical::read(bytes, u64::MAX).unwrap();
+            let expected_path = format!("/semantic_graph/nodes/7/body{suffix}");
+            for shared_sink in [false, true] {
+                let run = |budget: &mut NativeJoinBudget| {
+                    let mut result = None;
+                    let allocated = allocation_counter::measure(|| {
+                        if shared_sink {
+                            let cell = SinkCell::new(budget);
+                            result = Some(super::check_term(TermNode::from_ref(document.root()), &at, place, details, located.then_some(&id), &mut cell.reservation(Site::new(PackageReadStage::WireChecks, 7, "flat_wire"))));
+                        } else {
+                            let meter = Meter::new(budget);
+                            result = Some(super::check_term(TermNode::from_ref(document.root()), &at, place, details, located.then_some(&id), &mut meter.reservation(Site::new(PackageReadStage::WireChecks, 7, "flat_wire"))));
+                        }
+                    }).bytes_total;
+                    (result.unwrap(), allocated)
+                };
+                let budget = |limit| NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
+                let mut ample = budget(u64::MAX);
+                let (expected, allocated) = run(&mut ample);
+                let Err(ValidationFailure::Refused(refusal)) = &expected else { panic!("a grammar refusal") };
+                assert_eq!(refusal.code, code);
+                assert_eq!(refusal.cause, cause);
+                assert_eq!(refusal.primary_path().unwrap().as_str(), expected_path);
+                assert_eq!(refusal.locus.as_ref(), located.then_some(&id));
+                assert_eq!(ample.take_paid(), Some(CheckedPackagePendingOutcome::Refused(code)));
+                let required = ample.read_storage_consumed();
+                assert_eq!(allocated, required);
+                let mut exact = budget(required);
+                assert_eq!(run(&mut exact), (expected.clone(), required));
+                for limit in [0, required - 1] {
+                    let mut short = budget(limit);
+                    let (result, allocated) = run(&mut short);
+                    assert!(matches!(result, Err(ValidationFailure::Budget(_))));
+                    assert_eq!(allocated, short.read_storage_consumed());
+                    assert!(short.first_unpaid_read_storage().is_some());
+                    if limit != 0 {
+                        assert_eq!(short.first_unpaid_locus().unwrap().form, "diagnostic");
+                        assert_eq!(short.take_pending(), Some(CheckedPackagePendingOutcome::Refused(code)));
+                    }
+                }
+                let mut repeated = budget(2 * required);
+                assert_eq!(run(&mut repeated), (expected.clone(), required));
+                assert_eq!(run(&mut repeated), (expected, required));
+                assert_eq!(repeated.read_storage_consumed(), 2 * required);
+            }
+        }
+    }
+
     /// A term's stratum is the place it stands in: a binding stands at no body
     /// root, a Group's member is no aggregate, and a Tuple's member is no binding.
     #[trace("TC-048", "FR-038-AC-114")]
@@ -1277,7 +1431,7 @@ mod tests {
         let binding = |value: Value| json!({"term": "binding", "name": "n", "value": value});
         let aggregate = |members: Vec<Value>| json!({"term": "aggregate", "members": members});
         let refused_at = |term: Value, place: Place| {
-            unmetered(|walk| check_term(&term, &Trail::Base(&[]), place, false, walk))
+            unmetered(|walk| check_term(&term, &Trail::Base(&[]), place, false, None, walk))
                 .err()
                 .map(|failure| match failure {
                     crate::checked_package::common::ValidationFailure::Refused(refusal) => refusal
