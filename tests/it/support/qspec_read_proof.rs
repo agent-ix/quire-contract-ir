@@ -1410,6 +1410,29 @@ mod provider_scope_tests {
 
     #[cfg(feature = "test-support")]
     #[test]
+    fn native_event_serialization_preserves_u128_max_denied_diagnostic() {
+        let event = quire_contract_model::NativeBudgetEvent {
+            resource: quire_contract_model::NativeBudgetResource::ReadStorage,
+            amount: u128::MAX,
+            consumed_before: 17,
+            admitted: false,
+            allocation_class: None,
+            locus: Some(quire_contract_model::NativeJoinLocus {
+                source: quire_contract_model::NativeJoinLocusSource::PackageRead(
+                    quire_contract_model::PackageReadStage::Graph,
+                    0,
+                ),
+                form: "diagnostic",
+            }),
+        };
+        let value = super::native_event_json(&event);
+        assert_eq!(value["amount"], u128::MAX.to_string());
+        assert_eq!(value["consumed_before"], 17);
+        assert_eq!(value["admitted"], false);
+    }
+
+    #[cfg(feature = "test-support")]
+    #[test]
     fn provider_binding_rejects_nested_library_input_evidence_and_location() {
         use super::{provider_for_input, ReadInputBinding, ReadProvider};
         let bytes = b"null".to_vec();
