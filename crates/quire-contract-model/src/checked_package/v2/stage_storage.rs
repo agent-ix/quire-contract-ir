@@ -440,6 +440,47 @@ pub(super) fn node_id_clone_bytes(id: &CheckedNodeId) -> usize {
     )
 }
 
+/// The canonical writer's reservation, charged to a meter at one site. A
+/// denial leaves its failure here for the caller.
+pub(super) struct WriterCharges<'a, 'm, 'b> {
+    meter: &'a mut WorkMeter<'b>,
+    site: Site<'m>,
+    pub(super) failure: Option<ValidationFailure>,
+}
+
+impl<'a, 'm, 'b> WriterCharges<'a, 'm, 'b> {
+    pub(super) fn new(meter: &'a mut WorkMeter<'b>, site: Site<'m>) -> Self {
+        Self {
+            meter,
+            site,
+            failure: None,
+        }
+    }
+}
+
+impl quire_canonical::Reservation for WriterCharges<'_, '_, '_> {
+    fn reserve(&mut self, bytes: usize) -> Result<(), quire_canonical::ReservationDenied> {
+        match reserve(self.meter, &self.site, bytes) {
+            Ok(()) => Ok(()),
+            Err(failure) => {
+                self.failure = Some(failure);
+                Err(quire_canonical::ReservationDenied)
+            }
+        }
+    }
+}
+
+/// A canonical sink that keeps nothing and counts what it is given.
+#[derive(Default)]
+pub(super) struct CountingSink(pub(super) usize);
+
+impl quire_canonical::Sink for CountingSink {
+    fn write_bytes(&mut self, bytes: &[u8]) -> Result<(), quire_canonical::Error> {
+        self.0 = self.0.saturating_add(bytes.len());
+        Ok(())
+    }
+}
+
 /// What a refusal is about.
 #[derive(Clone, Copy)]
 pub(super) struct Refusal<'a> {
@@ -448,6 +489,11 @@ pub(super) struct Refusal<'a> {
     pub(super) path: Position<'a>,
     /// The node a refusal is located at; its clone is part of the diagnostic.
     pub(super) locus: Option<&'a CheckedNodeId>,
+    /// Heap the caller adds to the outcome after it is admitted (a detail).
+    pub(super) extra: usize,
+    /// The refusal of an extension node whose selected definition is not held,
+    /// which carries its pointer twice.
+    pub(super) unheld_definition: bool,
 }
 
 impl<'a> Refusal<'a> {
@@ -457,7 +503,27 @@ impl<'a> Refusal<'a> {
             cause: None,
             path: path.into(),
             locus: None,
+            extra: 0,
+            unheld_definition: false,
         }
+    }
+
+    /// The `unknown_required_capability` refusal of the extension node `locus`
+    /// whose selected definition is not held, at `path`.
+    pub(super) fn unheld_definition(
+        path: impl Into<Position<'a>>,
+        locus: &'a CheckedNodeId,
+    ) -> Self {
+        let mut refusal = Self::new(CheckedPackageRefusalCode::UnknownRequiredCapability, path);
+        refusal.locus = Some(locus);
+        refusal.unheld_definition = true;
+        refusal
+    }
+
+    /// Adds `bytes` of heap the caller builds into the outcome.
+    pub(super) fn with_extra(mut self, bytes: usize) -> Self {
+        self.extra = self.extra.saturating_add(bytes);
+        self
     }
 
     pub(super) fn because(mut self, cause: CheckedPackageRefusalCause) -> Self {
@@ -476,7 +542,13 @@ impl<'a> Refusal<'a> {
         size_of::<CheckedPackageRefusal>()
             .saturating_add(size_of::<CheckedPackageRefusalLocation>())
             .saturating_add(self.path.pointer_len())
+            .saturating_add(if self.unheld_definition {
+                self.path.pointer_len()
+            } else {
+                0
+            })
             .saturating_add(self.locus.map_or(0, node_id_clone_bytes))
+            .saturating_add(self.extra)
     }
 }
 
@@ -496,6 +568,9 @@ pub(super) fn refuse(
         return stop;
     }
     let path = refusal.path.build();
+    if let (true, Some(locus)) = (refusal.unheld_definition, refusal.locus) {
+        return ValidationFailure::unknown_extension_definition(path, locus.clone());
+    }
     match (refusal.cause, refusal.locus) {
         (cause, Some(locus)) => {
             ValidationFailure::refused_at(refusal.code, path, cause, locus.clone())

@@ -327,6 +327,7 @@ impl<'s> TermWalk<'_, '_, '_, 's, '_> {
 
     /// Validates the one term `term` without its subterms, as
     /// `common::validate_one` does, and returns the work it is charged.
+    #[ix_trace_rs::string_edge]
     fn check(
         &mut self,
         term: NodeRef<'s>,
@@ -516,6 +517,7 @@ enum Segment<'d> {
     Operand(u64),
 }
 
+#[ix_trace_rs::string_edge]
 fn segment(node: NodeRef<'_>) -> Option<Segment<'_>> {
     match node.node() {
         Node::String(name) => Some(Segment::Name(name)),
