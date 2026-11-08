@@ -384,7 +384,7 @@ pub(super) fn check(
                 let super::CheckedNodeKind::Hybrid(form) = kind else {
                     unreachable!("hybrid grammar is selected only for hybrid nodes")
                 };
-                super::hybrid::check_wire(node, form, position)
+                super::hybrid::check_wire(node, form, position, &mut meter.budget())
             }
             BodyGrammar::AbstractionRelation | BodyGrammar::FlatCorrespondence => {
                 if body.kind() == Some(BodyTerm::Application) {
