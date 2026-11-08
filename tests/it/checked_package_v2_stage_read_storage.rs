@@ -70,9 +70,8 @@ fn denial_at(read: Reader<'_>, limit: u64) -> Option<Request> {
 }
 
 /// Every request the read makes while it is in `stage`, found by raising the
-/// limit to exactly admit each request in turn. The first request of the stage
-/// is found by bisection, since the stage a read reaches never falls as the
-/// limit rises.
+/// limit to exactly admit each request in turn. Labels need not increase:
+/// retained tables built after the validators can charge the graph stage.
 fn stage_requests(read: Reader<'_>, stage: PackageReadStage) -> Vec<Request> {
     let total = {
         let (result, budget) = read_at(read, u64::MAX);
@@ -82,25 +81,25 @@ fn stage_requests(read: Reader<'_>, stage: PackageReadStage) -> Vec<Request> {
         );
         budget.read_storage_consumed()
     };
-    let (mut low, mut high) = (0_u64, total);
-    while low < high {
-        let middle = low + (high - low) / 2;
-        match denial_at(read, middle) {
-            Some(request) if request.stage < stage => low = middle + 1,
-            _ => high = middle,
-        }
-    }
-    let mut limit = low;
+    let mut limit = 0;
     let mut found = Vec::new();
     while let Some(mut request) = denial_at(read, limit) {
         request.before = limit;
-        limit += u64::try_from(request.amount).expect("amount fits");
+        let next = limit
+            .checked_add(u64::try_from(request.amount).expect("amount fits"))
+            .expect("request boundary fits");
+        assert!(
+            next > limit && next <= total,
+            "request boundary advances within the measured read"
+        );
+        limit = next;
         // The retained tables are charged after every stage, at the graph
         // stage's locus, so the requests of other stages are stepped over.
         if request.stage == stage {
             found.push(request);
         }
     }
+    assert_eq!(limit, total, "every charged request boundary is visited");
     found
 }
 
