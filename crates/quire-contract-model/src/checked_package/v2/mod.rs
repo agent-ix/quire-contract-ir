@@ -28,7 +28,6 @@ pub use model_operations::{
 mod checked_term_data;
 mod claim_terminal;
 mod closure_index;
-mod retained_index;
 mod comparison_operands;
 mod composite_operands;
 mod contract_package;
@@ -42,9 +41,9 @@ mod extension;
 mod extension_body;
 mod flat_wire;
 mod frame;
+mod graph_storage;
 mod guarantee_composition;
 mod guarantee_terms;
-mod graph_storage;
 mod hybrid;
 mod identity;
 mod intake;
@@ -62,6 +61,7 @@ mod native_join_storage;
 mod natural;
 mod node_index;
 mod node_lookup;
+mod retained_index;
 pub(in crate::checked_package) use node_index::StructuralOrder;
 mod operation_catalog;
 mod operation_catalog_index;
@@ -235,14 +235,14 @@ pub use vocabulary::*;
 
 use crate::identity::ExecutionPoint;
 use closure_index::ClosureIndex;
-pub(in crate::checked_package) use retained_index::{
-    source_index as retained_source_positions, PositionIndex,
-};
 use dependency_references::{admit_dependencies, check_derived_closure, SuppliedDependencies};
 use graph_storage::GraphIndex;
 use ix_trace_rs::string_edge;
 use operations::{validate_operations, OperationNodeOrder};
 use owner::{validate_owner_joins, validate_owner_schema};
+pub(in crate::checked_package) use retained_index::{
+    source_index as retained_source_positions, PositionIndex,
+};
 use source_map::validate_source_map_entries;
 use structural::{validate_derived_type_shapes, validate_selected_type_bounds};
 use temporal::{
@@ -1088,7 +1088,10 @@ impl CheckedPackageV2 {
     /// private unit fixture builders use the same construction invariant.
     /// Retains the original immutable fact buffers, their shared block charged to the
     /// read's budget first.
-    fn retain_admission(mut self, budget: &mut NativeJoinBudget) -> Result<Self, ValidationFailure> {
+    fn retain_admission(
+        mut self,
+        budget: &mut NativeJoinBudget,
+    ) -> Result<Self, ValidationFailure> {
         let site = read_charge::Site::new(PackageReadStage::Retained, 0, "admission_binding");
         let buffers = AdmissionBuffers {
             wire: Arc::clone(&self.wire),
@@ -1514,21 +1517,25 @@ impl CheckedPackageV2 {
             selected_documents,
             lowering_facts,
             structural_keys,
-        } = validate(&catalog, &wire, &bodies, &document, limits, evidence, budget)?;
+        } = validate(
+            &catalog, &wire, &bodies, &document, limits, evidence, budget,
+        )?;
         let site = |form| read_charge::Site::new(PackageReadStage::Retained, 0, form);
         let selections = &wire.lock.dependency_selections;
         let mut direct_dependencies: Vec<Arc<CheckedPackageV2>> =
             read_charge::with_capacity(budget, site("direct_dependencies"), selections.len())?;
         for (index, selection) in selections.iter().enumerate() {
-            direct_dependencies.push(evidence.retained_dependency(&selection.identity).ok_or_else(
-                || {
-                    ValidationFailure::refused_because(
-                        CheckedPackageRefusalCode::MissingImport,
-                        member_pointer(&["lock", "dependency_selections"]).index(index),
-                        CheckedPackageRefusalCause::MissingSelection,
-                    )
-                },
-            )?);
+            direct_dependencies.push(
+                evidence
+                    .retained_dependency(&selection.identity)
+                    .ok_or_else(|| {
+                        ValidationFailure::refused_because(
+                            CheckedPackageRefusalCode::MissingImport,
+                            member_pointer(&["lock", "dependency_selections"]).index(index),
+                            CheckedPackageRefusalCause::MissingSelection,
+                        )
+                    })?,
+            );
         }
         let closure_index = ClosureIndex::from_direct(&direct_dependencies, budget)?;
         let CheckedPackageEnvelope {
@@ -2037,7 +2044,8 @@ fn validate_lock<'a>(
     let unit_refs = if roots.is_empty() {
         no_unit_refs(meter)?
     } else {
-        checked_unit_refs(&wire.semantic_graph.nodes, meter)?
+        let duration_terms = identity::duration_terms(&wire.semantic_graph.nodes, meter)?;
+        checked_unit_refs(&wire.semantic_graph.nodes, &duration_terms, meter)?
     };
     let (mut models, documents) =
         validate_domain_packages(&roots, &wire.name, evidence, meter, bytes, &unit_refs)?;
@@ -2454,35 +2462,39 @@ fn declaration_forbidden(kind: CheckedNodeKind) -> bool {
     }
 }
 
-/// Retain an anchor's bare point through its dedicated body decoder.
+/// Decode a validated body directly from the retained package document.
 fn decode_admitted_body(
     kind: CheckedNodeKind,
-    body: &Value,
-) -> Result<CheckedTerm, typed_terms::TermConversionCause> {
-    if source_nominal_body(kind, body) {
-        identity::NominalBody::from_value(body, JsonPointer::root())
-            .map(|body| CheckedTerm::NominalBody(Box::new(body)))
-            .map_err(|_| typed_terms::TermConversionCause::MalformedMember {
-                member: "body",
-                category: serde_json::error::Category::Data,
-            })
-    } else if kind == CheckedNodeKind::State(StateForm::Frame) {
-        frame::read_frame_body(body, &Trail::Base(&[]))
-            .map(|(frame, _)| frame.into_checked_term())
-            .map_err(|_| typed_terms::TermConversionCause::MalformedMember {
-                member: "body",
-                category: serde_json::error::Category::Data,
-            })
-    } else if kind == CheckedNodeKind::State(StateForm::OperationAnchor) {
-        execution_point::decode_anchor_body(body)
-    } else {
-        CheckedTerm::decode_admitted(body)
+    body: &CheckedJson,
+    row: &[u64],
+    position: usize,
+    meter: &mut WorkMeter,
+) -> Result<CheckedTerm, ValidationFailure> {
+    let at = || node_pointer(position).key("body");
+    let node = TermNode::of(body);
+    if source_nominal_body(kind, node.get("term").and_then(TermNode::as_str)) {
+        let nominal = identity::NominalBody::from_document(node, row, &at, meter)?;
+        meter.reserve(std::mem::size_of::<identity::NominalBody>())?;
+        return Ok(CheckedTerm::NominalBody(Box::new(nominal)));
     }
+    let site = read_charge::Site::new(PackageReadStage::Graph, position, kind.tag().as_wire());
+    // Every graph read owns its caller's budget; authored V1 bodies use
+    // contract_package's separate decoder and never enter this function.
+    let budget = meter
+        .budget_mut()
+        .expect("the strict graph decoder has a caller budget");
+    let result = if kind == CheckedNodeKind::State(StateForm::OperationAnchor) {
+        node.decode_anchor_in(body.document(), budget, site, row)?
+    } else {
+        node.decode_in(body.document(), budget, site, row)?
+    };
+    result.map_err(|_| refuse(CheckedPackageRefusalCode::MalformedWire, at()))
 }
 
-fn source_nominal_body(kind: CheckedNodeKind, body: &Value) -> bool {
+#[ix_trace_rs::string_edge]
+fn source_nominal_body(kind: CheckedNodeKind, term: Option<&str>) -> bool {
     matches!(
-        (kind, body.get("term").and_then(Value::as_str)),
+        (kind, term),
         (
             CheckedNodeKind::ScalarType(ScalarTypeForm::Enum),
             Some("enum")
@@ -2518,6 +2530,7 @@ fn validate_body<'a, V: TermSource<'a>>(
     at: &Trail<'a>,
     visit: &mut ReferenceVisitor<'_>,
     ids: Ids<'_, '_>,
+    nominal: Option<&identity::NominalBody>,
 ) -> Result<u64, ValidationFailure> {
     #[cfg(test)]
     lower::BODY_WALKS.with(|walks| walks.set(walks.get() + 1));
@@ -2542,8 +2555,7 @@ fn validate_body<'a, V: TermSource<'a>>(
             ));
         }
     }
-    if source_nominal_body(kind, body) {
-        let nominal = identity::NominalBody::from_value(body, at.pointer())?;
+    if let Some(nominal) = nominal {
         let site = ReferenceSite {
             member: ReferenceMember::Target,
             is_body_root: false,
@@ -2629,7 +2641,14 @@ fn validate_value_body(
     at: &Trail<'_>,
     visit: &mut ReferenceVisitor<'_>,
 ) -> Result<u64, ValidationFailure> {
-    super::common::with_unmetered_ids(|ids| validate_body(kind, body, body, at, visit, ids))
+    let nominal = if source_nominal_body(kind, body.get("term").and_then(Value::as_str)) {
+        Some(identity::NominalBody::from_value(body, at.pointer())?)
+    } else {
+        None
+    };
+    super::common::with_unmetered_ids(|ids| {
+        validate_body(kind, body, body, at, visit, ids, nominal.as_ref())
+    })
 }
 
 /// The grammar a node's `body` is validated against (QSpec FR-322
@@ -3262,6 +3281,20 @@ fn validate_graph(
             Step::Key("body"),
         ];
         let mut frame_term = None;
+        let view = TermNode::of(&bodies[position]);
+        let nominal = if source_nominal_body(kind, view.get("term").and_then(TermNode::as_str)) {
+            Some(
+                identity::NominalBody::from_document(
+                    view,
+                    &wire.semantic_graph.operand_rows[position],
+                    &|| at("body"),
+                    meter,
+                )
+                .map_err(|failure| with_node_locus(failure, &node.node_id))?,
+            )
+        } else {
+            None
+        };
         let work = match body_grammar(kind) {
             BodyGrammar::Extension => {
                 let body = extension::read_body(
@@ -3328,6 +3361,7 @@ fn validate_graph(
                         .map_or("node", CheckedNodeTag::as_wire),
                     &wire.semantic_graph.operand_rows[position],
                 ),
+                nominal.as_ref(),
             )
             .map_err(|failure| with_node_locus(failure, &node.node_id))?,
         };
@@ -3351,24 +3385,25 @@ fn validate_graph(
         // step deliberately reports as InvalidSemanticGraph, so a failed
         // typed decode cannot preempt that step.
         let typed_term = match frame_term {
-            Some(term) => Ok(Ok(term)),
-            None if kind == CheckedNodeKind::State(StateForm::OperationAnchor) => {
-                let Some(budget) = meter.budget_mut() else {
-                    return Err(refuse(CheckedPackageRefusalCode::MalformedWire, at("body")));
-                };
-                let body = &bodies[position];
-                TermNode::of(body).decode_anchor_in(
-                    body.document(),
-                    budget,
-                    read_charge::Site::new(PackageReadStage::Graph, position, "term"),
-                    &wire.semantic_graph.operand_rows[position],
-                )
+            Some(term) => Ok(term),
+            None => {
+                if let Some(nominal) = nominal {
+                    meter.reserve(std::mem::size_of::<identity::NominalBody>())?;
+                    Ok(CheckedTerm::NominalBody(Box::new(nominal)))
+                } else {
+                    decode_admitted_body(
+                        kind,
+                        &bodies[position],
+                        &wire.semantic_graph.operand_rows[position],
+                        position,
+                        meter,
+                    )
+                }
             }
-            None => Ok(decode_admitted_body(kind, &node.body)),
         };
         terms.push(match typed_term {
-            Ok(Ok(term)) => Some(term),
-            Ok(Err(_))
+            Ok(term) => Some(term),
+            Err(ValidationFailure::Refused(_))
                 if matches!(
                     body_grammar(kind),
                     BodyGrammar::AbstractionRelation | BodyGrammar::FlatCorrespondence
@@ -3376,13 +3411,10 @@ fn validate_graph(
             {
                 None
             }
-            Ok(Err(_)) => {
-                return Err(refuse(CheckedPackageRefusalCode::MalformedWire, at("body")));
-            }
             Err(failure) => return Err(failure),
         });
     }
-    model_root::validate_shape(&graph.nodes, &kinds, &terms)?;
+    model_root::validate_shape(&graph.nodes, &kinds, &terms, meter)?;
     let missing_protocol_temporal_selection =
         protocol_body::has_missing_temporal_selection(&kinds, &terms, &index, &wire.lock);
     let binding_result = temporal_binding::validate(
@@ -3503,8 +3535,8 @@ fn validate_graph(
         &wire.lock,
         models,
         dependencies,
+        &terms,
         meter,
-        limits.bytes,
     )?;
     validate_declaration_names(&graph.nodes, &kinds, &index)?;
     validate_recursion_group_paths(&graph.nodes)?;
@@ -3591,7 +3623,7 @@ fn validate_graph(
     guarantee_composition::validate(&graph.nodes, &kinds, &index, &owners, dependencies, meter)?;
     claim_terminal::validate_terminal(&graph.nodes, &kinds, &terms, &index, &owners, meter)?;
     step_relation::validate_step_relations(&graph.nodes, &kinds, &terms, &index, &owners, meter)?;
-    validate_hyperproperties(&graph.nodes, &kinds, &index, &owners, meter)?;
+    validate_hyperproperties(&graph.nodes, &kinds, &terms, &index, &owners, meter)?;
     refinement::validate_step_rows(
         &graph.nodes,
         &kinds,
@@ -3820,7 +3852,7 @@ fn validate_graph(
                             | ScalarTypeForm::Unit
                             | ScalarTypeForm::DimensionEquivalence
                     )
-                ) || !imported_nominals.contains(dependency))
+                ) || imported_nominals.binary_search(dependency).is_err())
             {
                 return Err(refuse(
                     CheckedPackageRefusalCode::InvalidSemanticGraph,
@@ -3838,7 +3870,7 @@ fn validate_graph(
                             | ScalarTypeForm::DimensionEquivalence
                     )
                 )
-                && imported_nominals.contains(target)
+                && imported_nominals.binary_search(target).is_ok()
             {
                 // A selected nominal in an admitted dependency is validated
                 // by the nominal join above. It is outside this local graph's
@@ -3896,21 +3928,20 @@ fn validate_graph(
     };
     validate_recursion(&graph.nodes, &adjacency, meter, &edge_pointer)?;
     lower::assign_components(&mut lowering_facts);
-    let terms = terms
-        .into_iter()
-        .enumerate()
-        .map(|(position, term)| match term {
-            Some(term) => Ok(term),
-            None => {
-                decode_admitted_body(kinds[position], &graph.nodes[position].body).map_err(|_| {
-                    refuse(
-                        CheckedPackageRefusalCode::MalformedWire,
-                        node_pointer(position).key("body"),
-                    )
-                })
-            }
-        })
-        .collect::<Result<Vec<_>, _>>()?;
+    let mut retained_terms = meter.vec(terms.len())?;
+    for (position, term) in terms.into_iter().enumerate() {
+        retained_terms.push(match term {
+            Some(term) => term,
+            None => decode_admitted_body(
+                kinds[position],
+                &bodies[position],
+                &wire.semantic_graph.operand_rows[position],
+                position,
+                meter,
+            )?,
+        });
+    }
+    let terms = retained_terms;
     Ok(ValidatedGraph {
         kinds,
         schedulability_claim_index,
@@ -5204,6 +5235,204 @@ mod tests {
             [CheckedNodeKind::Correspondence(
                 CorrespondenceForm::AbstractionRelation
             )]
+        );
+    }
+}
+
+#[cfg(test)]
+mod admitted_document_bridge_tests {
+    use super::*;
+    use ix_trace_rs::trace;
+    use serde_json::json;
+
+    #[trace("TC-472", "FR-038-AC-504")]
+    #[test]
+    fn admitted_document_bridge_prepays_retention_and_preserves_operand_rows() {
+        let cases = [
+            (
+                CheckedNodeKind::Expression(ExpressionForm::Reference),
+                json!({"term":"reference","target":{"package":"fixture","path":[{"operand":0}],"ordinal":0}}),
+            ),
+            (
+                CheckedNodeKind::ScalarType(ScalarTypeForm::Dimension),
+                json!({"term":"dimension","base":true,"terms":[]}),
+            ),
+            (
+                CheckedNodeKind::ScalarType(ScalarTypeForm::Unit),
+                json!({"term":"unit",
+                "dimension_node_id":{"package":"fixture","path":[{"operand":0}],"ordinal":0},
+                "target_unit_node_id":null,"scale":{"numerator":"1","denominator":"1"},
+                "offset":{"numerator":"0","denominator":"1"}}),
+            ),
+            (
+                CheckedNodeKind::Correspondence(CorrespondenceForm::ImplementationGuarantee),
+                json!({"term":"implementation_guarantee",
+                "clause":{"package":"fixture","path":[{"operand":0}],"ordinal":0},
+                "relation":{"package":"fixture","path":[{"operand":0}],"ordinal":0},
+                "initial":["begin"],"progress":[],"environment":[]}),
+            ),
+            (
+                CheckedNodeKind::Correspondence(CorrespondenceForm::ComponentComposition),
+                json!({"term":"component_composition",
+                "rule":"interface","components":[],"guarantees":[],"relies":[],"liveness_dependencies":[],"supplies":[],"environment":[]}),
+            ),
+        ];
+        for (kind, wire) in cases {
+            let body = CheckedJson::from_value(&wire).expect("fixture document");
+            let run = |limit| {
+                let mut budget = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
+                let mut outcome = None;
+                let measured = allocation_counter::measure(|| {
+                    let mut meter = WorkMeter::over(&mut budget);
+                    meter.at_node(7, "body");
+                    outcome = Some(decode_admitted_body(kind, &body, &[19], 7, &mut meter));
+                });
+                (
+                    outcome.expect("ran"),
+                    measured.bytes_total,
+                    budget.read_storage_consumed(),
+                )
+            };
+            let (term, allocated, charged) = run(u64::MAX);
+            let term = term.expect("closed body");
+            assert!(charged > 0);
+            assert_eq!(allocated, charged, "{kind:?}");
+            match kind {
+                CheckedNodeKind::Expression(ExpressionForm::Reference) => {
+                    let CheckedTerm::Reference { target } = &term else {
+                        panic!("retained reference");
+                    };
+                    assert_eq!(target.path, [CheckedNodePathSegment::Index(19)]);
+                }
+                CheckedNodeKind::ScalarType(ScalarTypeForm::Dimension) => {
+                    let CheckedTerm::NominalBody(body) = &term else {
+                        panic!("retained dimension");
+                    };
+                    let identity::NominalBodyKind::Dimension { base, terms } = body.kind() else {
+                        panic!("dimension body");
+                    };
+                    assert!(*base);
+                    assert!(terms.is_empty());
+                }
+                CheckedNodeKind::ScalarType(ScalarTypeForm::Unit) => {
+                    let CheckedTerm::NominalBody(body) = &term else {
+                        panic!("retained unit");
+                    };
+                    let identity::NominalBodyKind::Unit {
+                        dimension_node_id,
+                        target_unit_node_id,
+                        ..
+                    } = body.kind()
+                    else {
+                        panic!("unit body");
+                    };
+                    assert_eq!(dimension_node_id.path, [CheckedNodePathSegment::Index(19)]);
+                    assert!(target_unit_node_id.is_none());
+                }
+                CheckedNodeKind::Correspondence(CorrespondenceForm::ImplementationGuarantee) => {
+                    let CheckedTerm::ImplementationGuarantee {
+                        clause,
+                        relation,
+                        initial,
+                        progress,
+                        environment,
+                    } = &term
+                    else {
+                        panic!("typed guarantee");
+                    };
+                    assert_eq!(clause.path, [CheckedNodePathSegment::Index(19)]);
+                    assert_eq!(relation.path, [CheckedNodePathSegment::Index(19)]);
+                    assert_eq!(
+                        initial.iter().map(AsRef::as_ref).collect::<Vec<&str>>(),
+                        ["begin"]
+                    );
+                    assert!(progress.is_empty() && environment.is_empty());
+                }
+                CheckedNodeKind::Correspondence(CorrespondenceForm::ComponentComposition) => {
+                    let CheckedTerm::ComponentComposition {
+                        rule,
+                        components,
+                        guarantees,
+                        relies,
+                        liveness_dependencies,
+                        supplies,
+                        environment,
+                    } = &term
+                    else {
+                        panic!("typed composition");
+                    };
+                    assert_eq!(rule.as_ref(), "interface");
+                    assert!(
+                        components.is_empty()
+                            && guarantees.is_empty()
+                            && relies.is_empty()
+                            && liveness_dependencies.is_empty()
+                            && supplies.is_empty()
+                            && environment.is_empty()
+                    );
+                }
+                _ => panic!("unexpected test kind"),
+            }
+            assert_eq!(run(charged).0.expect("exact allowance"), term);
+            assert!(
+                matches!(run(charged - 1).0, Err(ValidationFailure::Budget(_))),
+                "one short: {kind:?}"
+            );
+        }
+    }
+
+    #[trace("TC-472", "FR-038-AC-512")]
+    #[test]
+    fn malformed_nominal_bridge_preserves_the_body_member_refusal() {
+        let body = CheckedJson::from_value(&json!({"term":"unit",
+            "dimension_node_id":{"package":"fixture","path":["Time"],"ordinal":0},
+            "target_unit_node_id":null,"scale":{"numerator":1,"denominator":"1"},
+            "offset":{"numerator":"0","denominator":"1"}}))
+        .expect("document");
+        let failure = decode_admitted_body(
+            CheckedNodeKind::ScalarType(ScalarTypeForm::Unit),
+            &body,
+            &[],
+            3,
+            &mut WorkMeter::new(u64::MAX),
+        )
+        .expect_err("malformed scalar");
+        assert!(matches!(failure,ValidationFailure::Refused(refusal)
+            if refusal.code==CheckedPackageRefusalCode::MalformedWire && refusal.primary_path().is_some_and(|path|path.as_str()=="/semantic_graph/nodes/3/body/scale/numerator")));
+    }
+    #[trace("TC-472", "FR-038-AC-512")]
+    #[test]
+    fn lock_duration_partial_defers_shape_refusal_but_propagates_reservation_denial() {
+        let malformed = serde_json::json!({"term":"unit","dimension_node_id":{},"target_unit_node_id":null,
+            "scale":{"numerator":"1","denominator":"1"},"offset":{"numerator":"0","denominator":"1"}});
+        let id = test_support::node_id('1');
+        let nodes = [CheckedSemanticNodeV2 {
+            node_id: id.clone(),
+            schema_version: "test".into(),
+            node_tag: "scalar_type".into(),
+            semantic_form: "unit".into(),
+            semantic_type: id,
+            dependencies: vec![],
+            occurrences: vec![],
+            recursion_group: None,
+            declaration: None,
+            owner: None,
+            owner_model: None,
+            body: (),
+        }];
+        let bodies = graph_storage::OwnedBodies::of_values(&[malformed.clone()], vec![vec![]]);
+        let run = |limit| {
+            let mut budget = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
+            let mut meter = WorkMeter::over(&mut budget);
+            bodies.attach(&mut meter);
+            identity::duration_terms(&nodes, &mut meter)
+        };
+        assert!(run(u64::MAX).expect("shape is deferred")[0].is_none());
+        assert!(matches!(run(0), Err(ValidationFailure::Budget(_))));
+        let handle = CheckedJson::from_value(&malformed).expect("document");
+        assert!(
+            matches!(decode_admitted_body(CheckedNodeKind::ScalarType(ScalarTypeForm::Unit),&handle,&[],0,&mut WorkMeter::new(u64::MAX)),
+            Err(ValidationFailure::Refused(refusal)) if refusal.code==CheckedPackageRefusalCode::MalformedWire)
         );
     }
 }

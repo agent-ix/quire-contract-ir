@@ -21,7 +21,7 @@ use serde::{Deserialize, Serialize};
 pub enum CheckedGuaranteeMeasure {
     /// A well-founded measure every stutter step strictly decreases: a Rust
     /// path.
-    Decreases(Vec<Box<str>>),
+    Decreases(#[serde(deserialize_with = "super::document_de::exact_vec")] Vec<Box<str>>),
     /// A bound on consecutive stutter steps.
     Bound(u64),
 }

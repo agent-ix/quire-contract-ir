@@ -215,6 +215,21 @@ impl CheckedJson {
     }
 }
 
+/// Model declaration checks borrow the closed empty aggregate directly from
+/// the retained document; no authored tree or semantic term is reconstructed.
+impl super::model_members::EmptyAggregateBody for CheckedJson {
+    #[ix_trace_rs::string_edge]
+    fn is_empty_aggregate(&self) -> bool {
+        let node = super::TermNode::of(self);
+        node.exact_members(&["term", "members"])
+            && node.get("term").and_then(super::TermNode::as_str) == Some("aggregate")
+            && node
+                .get("members")
+                .and_then(super::TermNode::items)
+                .is_some_and(|members| members.len() == 0)
+    }
+}
+
 impl Encode for CheckedJson {
     fn encode_into<S: Sink + ?Sized>(
         &self,
@@ -495,5 +510,51 @@ mod tests {
             })
             .expect("spawn");
         handle.join().expect("no stack overflow");
+    }
+}
+
+#[cfg(test)]
+mod empty_aggregate_projection_tests {
+    use super::super::model_members::EmptyAggregateBody;
+    use super::*;
+    use ix_trace_rs::trace;
+    use serde_json::json;
+
+    #[trace("TC-472", "FR-038-AC-514")]
+    #[test]
+    fn closed_empty_aggregate_projection_borrows_the_shared_document_without_allocating() {
+        for (value, expected) in [
+            (json!({"term":"aggregate","members":[]}), true),
+            (json!({"term":"aggregate","members":[null]}), false),
+            (
+                json!({"term":"aggregate","members":[],"extra":false}),
+                false,
+            ),
+            (json!({"term":"aggregate"}), false),
+            (json!({"members":[]}), false),
+            (json!({"term":"binding","members":[]}), false),
+            (json!({"term":1,"members":[]}), false),
+            (json!({"term":"aggregate","members":null}), false),
+            (json!(null), false),
+            (json!([]), false),
+        ] {
+            let container =
+                CheckedJson::from_value(&json!({"body":value})).expect("fixture document");
+            let body_node = super::super::TermNode::of(&container)
+                .get("body")
+                .expect("body")
+                .node_ref()
+                .id();
+            let body = CheckedJson::new(Arc::clone(container.document()), body_node);
+            let mut observed = None;
+            let measured = allocation_counter::measure(|| {
+                let clone = body.clone();
+                observed = Some(clone.is_empty_aggregate());
+            });
+            assert_eq!(observed, Some(expected), "{value}");
+            assert!(Arc::ptr_eq(body.document(), container.document()));
+            assert_eq!(measured.bytes_total, 0);
+            assert_eq!(measured.count_total, 0);
+        }
     }
 }
