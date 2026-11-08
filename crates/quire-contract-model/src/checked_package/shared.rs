@@ -1701,6 +1701,7 @@ pub struct CheckedSourceMapEntry {
     /// Occurrence ordinal.
     pub ordinal: u64,
     /// One or more half-open source regions.
+    #[serde(deserialize_with = "crate::checked_package::v2::exact_vec")]
     pub regions: Vec<CheckedSourceRegion>,
 }
 

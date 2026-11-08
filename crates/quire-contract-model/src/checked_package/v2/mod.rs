@@ -19,7 +19,7 @@ mod checked_json;
 mod document_de;
 pub(in crate::checked_package) use budgeted_read::denial as decode_denial;
 pub use checked_json::{CheckedJson, CheckedJsonError};
-pub(in crate::checked_package) use document_de::DecodeContext;
+pub(in crate::checked_package) use document_de::{exact_vec, DecodeContext};
 mod model_operations;
 pub use model_operations::{
     CheckedModelOperation, CheckedModelOperations, CheckedOperationParameter,
@@ -328,6 +328,7 @@ impl TermBindingName {
 #[serde(deny_unknown_fields)]
 pub struct CheckedDeclaration {
     /// ASCII identifier segments.
+    #[serde(deserialize_with = "document_de::exact_vec")]
     pub qualified_name: Vec<Box<str>>,
 }
 
@@ -371,8 +372,10 @@ pub struct CheckedSemanticNodeV2<Body = CheckedTerm> {
     /// Checked semantic type identity.
     pub semantic_type: CheckedNodeId,
     /// Identity-based dependencies.
+    #[serde(deserialize_with = "document_de::exact_vec")]
     pub dependencies: Vec<CheckedNodeId>,
     /// Exact source occurrence keys.
+    #[serde(deserialize_with = "document_de::exact_vec")]
     pub occurrences: Vec<CheckedOccurrence>,
     /// Explicit recursion group when present.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -496,6 +499,7 @@ pub struct CheckedNodeProjectionV2<Body = CheckedTerm> {
     /// Checked semantic type identity.
     pub semantic_type: CheckedNodeId,
     /// Identity-based dependencies.
+    #[serde(deserialize_with = "document_de::exact_vec")]
     pub dependencies: Vec<CheckedNodeId>,
     /// Explicit recursion group when present.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -546,6 +550,7 @@ pub struct CheckedRefinementInternal {
     /// Qualified refinement declaration name.
     pub refinement: Box<str>,
     /// Step class spellings excluded from external obligations.
+    #[serde(deserialize_with = "document_de::exact_vec")]
     pub internal: Vec<Box<str>>,
 }
 
@@ -554,32 +559,40 @@ pub struct CheckedRefinementInternal {
 #[serde(deny_unknown_fields)]
 pub struct CheckedPackageLockV2 {
     /// Locked raw source documents.
+    #[serde(deserialize_with = "document_de::exact_vec")]
     pub sources: Vec<CheckedSourceRef>,
     /// Selected edition.
     pub edition: CheckedSelection,
     /// Selected profiles.
+    #[serde(deserialize_with = "document_de::exact_vec")]
     pub profile_selections: Vec<CheckedSelection>,
     /// Selected definitions.
+    #[serde(deserialize_with = "document_de::exact_vec")]
     pub definition_selections: Vec<CheckedArtifactRef>,
     /// Required features.
+    #[serde(deserialize_with = "document_de::exact_vec")]
     pub required_features: Vec<Box<str>>,
     /// Dependency selections: one per library identity, ascending.
+    #[serde(deserialize_with = "document_de::exact_vec")]
     pub dependency_selections: Vec<CheckedDependencySelection>,
     /// Nonempty refinement internal lists, omitted when no list is present.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "document_de::exact_optional_vec")]
     pub refinement_internals: Option<Vec<CheckedRefinementInternal>>,
 }
 
 /// A checked V2 graph.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[serde(deny_unknown_fields, bound(deserialize = "Body: Deserialize<'de>"))]
 pub struct CheckedSemanticGraphV2<Body = CheckedTerm> {
     /// Must be `quire.checked-semantic-graph/v2`.
     pub graph_version: Box<str>,
     /// Complete closed graph.
+    #[serde(deserialize_with = "document_de::exact_vec")]
     pub nodes: Vec<CheckedSemanticNodeV2<Body>>,
     /// One operand row per node, in graph order: slot `k` of node `i` names
     /// `nodes[operand_rows[i][k]]`. Required on read.
+    #[serde(deserialize_with = "document_de::exact_vec")]
     pub operand_rows: Vec<Vec<u64>>,
 }
 
@@ -686,8 +699,10 @@ pub struct CheckedDiagnosticV2 {
     /// Closed cause tag.
     pub cause_tag: CheckedDiagnosticCause,
     /// Typed semantic-term details.
+    #[serde(deserialize_with = "document_de::exact_vec")]
     pub details: Vec<CheckedJson>,
     /// Source loci under locked sources.
+    #[serde(deserialize_with = "document_de::exact_vec")]
     pub loci: Vec<CheckedSourceRegion>,
 }
 
@@ -698,6 +713,7 @@ pub struct CheckedDiagnosticsV2 {
     /// Diagnostic catalog definition.
     pub catalog: CheckedArtifactRef,
     /// Typed diagnostic records.
+    #[serde(deserialize_with = "document_de::exact_vec")]
     pub entries: Vec<CheckedDiagnosticV2>,
 }
 
