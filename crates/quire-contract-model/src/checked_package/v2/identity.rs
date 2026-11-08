@@ -2504,7 +2504,7 @@ mod tests {
         });
         let mut meter = WorkMeter::new(u64::MAX);
         let mut budget = super::super::model_members::Budget::new(&mut meter, 0, 1 << 20);
-        let unit_refs = std::sync::Arc::new(BTreeMap::new());
+        let unit_refs = crate::checked_package::v2::model_members::UnitRefs::default();
         let model = super::super::model_members::read_semantic_ir(
             super::super::model_members::view_of(&document),
             "example",

@@ -15,7 +15,6 @@ use quire_exact::{
     EffectiveId, MemberId, MemberOwner, NodeKey, OriginalDeclarationKey, PathSegment,
 };
 use serde_json::{json, Value};
-use std::collections::BTreeMap;
 
 /// Trace: FR-038-AC-475.
 #[trace("FR-038-AC-475")]
@@ -419,7 +418,7 @@ fn unbuilt(document: &Value) -> DomainModel {
         view_of(document),
         "checked",
         &mut Budget::new(&mut meter, 0, BYTES),
-        &Arc::new(BTreeMap::new()),
+        &crate::checked_package::v2::model_members::UnitRefs::default(),
     ) {
         Ok(model) => model,
         Err(_) => panic!("the document reads"),

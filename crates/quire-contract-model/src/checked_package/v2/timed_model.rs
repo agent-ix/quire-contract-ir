@@ -2826,7 +2826,7 @@ mod tests {
             super::super::model_members::view_of(&document),
             "example",
             &mut budget,
-            &std::sync::Arc::new(BTreeMap::new()),
+            &crate::checked_package::v2::model_members::UnitRefs::default(),
         )
         .expect("selected FCD dimensions");
         let models = BTreeMap::from([(model.identity.as_ref(), &model)]);

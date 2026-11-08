@@ -73,14 +73,14 @@ impl EmptyAggregateBody for CheckedTerm {
         matches!(self, Self::Aggregate { members } if members.is_empty())
     }
 }
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 
 /// The form of the graph-stage requests of the model checks: the tag of the
 /// selected package's `model_root` node.
 const MODEL: &str = "model";
 use std::sync::Arc;
 
-pub(super) type UnitRefs = Arc<BTreeMap<Box<str>, CheckedNodeId>>;
+pub(super) type UnitRefs = Arc<SortedMap<Box<str>, CheckedNodeId>>;
 pub(super) const DURATION_RESOLVED_PREFIX: &str = "ix://quire/resolved-duration/";
 
 mod charged;
@@ -1086,6 +1086,8 @@ enum Place {
     Lock(&'static str),
     /// The body of the graph node at the budget's index.
     Node,
+    /// The owner of the graph node at the budget's index.
+    NodeOwner,
 }
 
 impl Place {
@@ -1094,6 +1096,7 @@ impl Place {
             Self::Owner => crate::checked_package::common::node_pointer(root).key("owner"),
             Self::Lock(member) => JsonPointer::root().key("lock").key(member).index(index),
             Self::Node => crate::checked_package::common::node_pointer(index).key("body"),
+            Self::NodeOwner => crate::checked_package::common::node_pointer(index).key("owner"),
         }
     }
 }
@@ -1165,6 +1168,20 @@ impl<'w, 'b> Budget<'w, 'b> {
             stage: PackageReadStage::Lock,
             index: 0,
             place: Place::Lock(member),
+        }
+    }
+
+    /// A budget for the lock stage's tables over the graph: charges are
+    /// located at `PackageRead(Lock, node)` and refusals point at the body
+    /// (`owner` for `owner == true`) of the graph node at `node`.
+    pub(super) fn lock_node(meter: &'w mut WorkMeter<'b>, node: usize, owner: bool) -> Self {
+        Self {
+            meter,
+            root: 0,
+            bytes: 0,
+            stage: PackageReadStage::Lock,
+            index: node,
+            place: if owner { Place::NodeOwner } else { Place::Node },
         }
     }
 
@@ -5641,7 +5658,7 @@ mod structural_member_type_tests {
                 {"keyword":"maxDenominator","appliesTo":"ix://example/Ratio","operands":{"value":12}}
             ])
         };
-        let unit_refs = std::sync::Arc::new(std::collections::BTreeMap::new());
+        let unit_refs = crate::checked_package::v2::model_members::UnitRefs::default();
         let value = super::semantic_ir_value_type(
             super::view_of(&declared(constraints(json!(-3)))),
             &unit_refs,
@@ -5662,7 +5679,7 @@ mod structural_member_type_tests {
         let unit = super::derived_id("example", "scalar_type", "unit", Vec::new());
         let mut refs = std::collections::BTreeMap::new();
         refs.insert("ix://quire/unit/m".into(), unit.clone());
-        let refs = std::sync::Arc::new(refs);
+        let refs = super::tests::unit_refs_of(refs);
         let mut with_unit = declared(constraints(json!(-3)));
         with_unit["unit"] = json!("ix://quire/unit/m");
         let super::ValueBounds::Rational(carried_bounds, Some(actual_unit)) =

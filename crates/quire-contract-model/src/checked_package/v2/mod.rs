@@ -47,6 +47,7 @@ mod lossless;
 mod lower;
 mod model_enum_witness;
 mod model_fields;
+mod lock_tables;
 mod model_members;
 mod model_population_catalog;
 mod model_root;
@@ -228,10 +229,13 @@ use super::shared::{
     CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedSelection, CheckedSourceMapEntry,
     CheckedSourceRef, CheckedSourceRegion, JsonPointer,
 };
+use lock_tables::{
+    checked_unit_refs, no_unit_refs, resolve_model_durations, selected_model_roots,
+    validate_dependency_selections, validate_refinement_internals, validate_required_features,
+};
 use model_fields::{build_field_tables, DeclarationIndex, RetainedModels};
 use model_members::{
     admit_selection, Budget, DomainModel, ModelOwners, SelectionFailure, UnitRefs,
-    DURATION_RESOLVED_PREFIX,
 };
 use quire_canonical::FixedShape;
 use serde::{Deserialize, Deserializer, Serialize};
@@ -1859,67 +1863,6 @@ struct LockAdmission<'a> {
     dependencies: SuppliedDependencies<'a>,
 }
 
-/// Candidate unit references for model selection admission. The input byte
-/// limit bounds this one graph walk and its index before graph work is charged.
-/// The graph stage subsequently validates each node, name and key before the
-/// package admits.
-#[string_edge]
-fn checked_unit_refs(
-    nodes: &[RawSemanticNodeV2],
-    meter: &mut WorkMeter,
-) -> Result<UnitRefs, ValidationFailure> {
-    let mut refs: BTreeMap<Box<str>, CheckedNodeId> = BTreeMap::new();
-    for node in nodes {
-        if CheckedNodeTag::from_wire(&node.node_tag)
-            .and_then(|tag| CheckedNodeKind::decode(tag, &node.semantic_form))
-            != Some(CheckedNodeKind::ScalarType(ScalarTypeForm::Unit))
-        {
-            continue;
-        }
-        let name = match (&node.owner, &node.declaration) {
-            (Some(CheckedNodeOwner::Source { .. }), Some(declaration)) => {
-                let declared = declaration
-                    .qualified_name
-                    .iter()
-                    .map(AsRef::as_ref)
-                    .collect::<Vec<&str>>()
-                    .join("/");
-                format!("ix://quire/unit/{declared}")
-            }
-            (
-                Some(CheckedNodeOwner::Model {
-                    identity,
-                    node: owner_node,
-                }),
-                None,
-            ) => {
-                let prefix = format!("ix://{identity}/unit/");
-                let Some(unit_name) = owner_node.strip_prefix(&prefix) else {
-                    continue;
-                };
-                format!("ix://quire/unit/{identity}/{unit_name}")
-            }
-            _ => continue,
-        };
-        refs.entry(name.into())
-            .or_insert_with(|| node.node_id.clone());
-    }
-    // A Duration member can use its owner's s only when that unit has the
-    // exact one-second Time type. Keep the candidate's presence in `refs`
-    // even when invalid: an invalid selected s must not fall back to source s.
-    let candidates: Vec<_> = refs
-        .keys()
-        .filter(|name| name.ends_with("/s"))
-        .cloned()
-        .collect();
-    for name in candidates {
-        if let Some(unit_id) = identity::duration_unit_key(nodes, &name, meter)? {
-            refs.insert(format!("{DURATION_RESOLVED_PREFIX}{name}").into(), unit_id);
-        }
-    }
-    Ok(std::sync::Arc::new(refs))
-}
-
 /// Checks the lock and returns what it admits.
 fn validate_lock<'a>(
     wire: &'a RawCheckedPackageWireV2,
@@ -1949,38 +1892,22 @@ fn validate_lock<'a>(
                 .key("definition")
         })?;
     }
-    validate_dependency_selections(&lock.dependency_selections)?;
-    validate_refinement_internals(lock.refinement_internals.as_deref())?;
+    validate_dependency_selections(&lock.dependency_selections, meter)?;
+    validate_refinement_internals(lock.refinement_internals.as_deref(), meter)?;
     for (index, definition) in lock.definition_selections.iter().enumerate() {
         validate_definition_ref(definition, &|| {
             member_pointer(&["lock", "definition_selections"]).index(index)
         })?;
     }
-    let roots = selected_model_roots(&wire.semantic_graph.nodes)?;
+    let roots = selected_model_roots(&wire.semantic_graph.nodes, meter)?;
     let unit_refs = if roots.is_empty() {
-        std::sync::Arc::new(BTreeMap::new())
+        no_unit_refs(meter)?
     } else {
         checked_unit_refs(&wire.semantic_graph.nodes, meter)?
     };
     let (mut models, documents) =
         validate_domain_packages(&roots, &wire.name, evidence, meter, bytes, &unit_refs)?;
-    if !models.is_empty() {
-        let mut resolved = (*unit_refs).clone();
-        for model in &models {
-            let name = format!("ix://quire/unit/{}/s", model.identity);
-            if resolved.contains_key(name.as_str()) {
-                if let Some(unit_id) =
-                    identity::model_duration_unit_key(&wire.semantic_graph.nodes, model, meter)?
-                {
-                    resolved.insert(format!("{DURATION_RESOLVED_PREFIX}{name}").into(), unit_id);
-                }
-            }
-        }
-        let resolved = std::sync::Arc::new(resolved);
-        for model in &mut models {
-            model.unit_refs = resolved.clone();
-        }
-    }
+    resolve_model_durations(&unit_refs, &mut models, &wire.semantic_graph.nodes, meter)?;
     // Implements: FR-322. Every selected dependency's admitted package is supplied and
     // binds to its entry, before any `dependency_reference` is read.
     let dependencies = admit_dependencies(&lock.dependency_selections, evidence, meter)?;
@@ -1990,17 +1917,7 @@ fn validate_lock<'a>(
         JsonPointer::root(),
         meter,
     )?;
-    let mut features = BTreeSet::new();
-    if let Some(index) = lock
-        .required_features
-        .iter()
-        .position(|feature| !(is_nonempty(feature) && features.insert(feature)))
-    {
-        return Err(refuse(
-            CheckedPackageRefusalCode::MalformedWire,
-            member_pointer(&["lock", "required_features"]).index(index),
-        ));
-    }
+    validate_required_features(&lock.required_features, meter)?;
     validate_definition_ref(&wire.diagnostics.catalog, &|| {
         member_pointer(&["diagnostics", "catalog"])
     })?;
@@ -2016,139 +1933,13 @@ fn validate_lock<'a>(
     })
 }
 
-/// Checks `lock.dependency_selections` (FR-322): nonempty identity,
-/// uniqueness, then strictly ascending
-/// UTF-8 byte order of `identity`. Each condition sweeps the whole array
-/// before the next, so the refusal is decided by defect class and not by
-/// array position. A repeated identity refuses `invalid_package` /
-/// `conflicting-definition` at the repeating entry, the later of the two
-/// entries FR-322 names as loci; an entry not strictly after its
-/// predecessor refuses `invalid_package` / `invalid-value` at that entry.
-/// Only the lock carries selections.
-fn validate_dependency_selections(
-    selections: &[CheckedDependencySelection],
-) -> Result<(), ValidationFailure> {
-    let at = |index: usize| member_pointer(&["lock", "dependency_selections"]).index(index);
-    let malformed = selections.iter().enumerate().find_map(|(index, entry)| {
-        if !is_nonempty(&entry.identity) {
-            Some(at(index).key("identity"))
-        } else {
-            None
-        }
-    });
-    if let Some(path) = malformed {
-        return Err(refuse(CheckedPackageRefusalCode::MalformedWire, path));
-    }
-    let mut identities = BTreeMap::new();
-    for (index, entry) in selections.iter().enumerate() {
-        if let Some(&first) = identities.get(entry.identity.as_ref()) {
-            return Err(ValidationFailure::refused_because_at_two_paths(
-                CheckedPackageRefusalCode::InvalidPackage,
-                at(first),
-                at(index),
-                CheckedPackageRefusalCause::ConflictingDefinition,
-            ));
-        }
-        identities.insert(entry.identity.as_ref(), index);
-    }
-    if let Some(index) = selections
-        .windows(2)
-        .position(|pair| pair[0].identity >= pair[1].identity)
-    {
-        return Err(ValidationFailure::refused_because(
-            CheckedPackageRefusalCode::InvalidPackage,
-            at(index + 1),
-            CheckedPackageRefusalCause::InvalidValue,
-        ));
-    }
-    Ok(())
-}
-
-/// Enforce FR-322's canonical refinement internal lock rows and spellings.
-fn validate_refinement_internals(
-    rows: Option<&[CheckedRefinementInternal]>,
-) -> Result<(), ValidationFailure> {
-    let Some(rows) = rows else { return Ok(()) };
-    let at = |index: usize| member_pointer(&["lock", "refinement_internals"]).index(index);
-    if rows.is_empty() {
-        return Err(refuse(
-            CheckedPackageRefusalCode::MalformedWire,
-            member_pointer(&["lock", "refinement_internals"]),
-        ));
-    }
-    let mut seen_rows = BTreeMap::new();
-    for (index, row) in rows.iter().enumerate() {
-        if !is_nonempty(&row.refinement) || row.internal.is_empty() {
-            return Err(refuse(CheckedPackageRefusalCode::MalformedWire, at(index)));
-        }
-        if let Some(first) = seen_rows.insert(row.refinement.as_ref(), index) {
-            return Err(ValidationFailure::refused_because_at_two_paths(
-                CheckedPackageRefusalCode::InvalidPackage,
-                at(first).key("refinement"),
-                at(index).key("refinement"),
-                CheckedPackageRefusalCause::ConflictingDefinition,
-            ));
-        }
-        let mut seen_classes = BTreeMap::new();
-        for (class_index, class) in row.internal.iter().enumerate() {
-            let class_at = || at(index).key("internal").index(class_index);
-            if !is_nonempty(class) {
-                return Err(refuse(CheckedPackageRefusalCode::MalformedWire, class_at()));
-            }
-            if let Some(first) = seen_classes.insert(class.as_ref(), class_index) {
-                return Err(ValidationFailure::refused_because_at_two_paths(
-                    CheckedPackageRefusalCode::InvalidPackage,
-                    at(index).key("internal").index(first),
-                    class_at(),
-                    CheckedPackageRefusalCause::ConflictingDefinition,
-                ));
-            }
-            if class_index > 0 && row.internal[class_index - 1] >= *class {
-                return Err(ValidationFailure::refused_because(
-                    CheckedPackageRefusalCode::InvalidPackage,
-                    class_at(),
-                    CheckedPackageRefusalCause::InvalidValue,
-                ));
-            }
-        }
-        if index > 0 && rows[index - 1].refinement >= row.refinement {
-            return Err(ValidationFailure::refused_because(
-                CheckedPackageRefusalCode::InvalidPackage,
-                at(index).key("refinement"),
-                CheckedPackageRefusalCause::InvalidValue,
-            ));
-        }
-    }
-    Ok(())
-}
-
-/// The selected domain packages: one per `model_root` node owner, in
-/// ascending identity order. Each is the node position of its root. Two roots
-/// naming one identity refuse as an invalid graph at the later root's owner.
-fn selected_model_roots(
-    nodes: &[RawSemanticNodeV2],
-) -> Result<Vec<(Box<str>, usize)>, ValidationFailure> {
-    let mut roots: BTreeMap<Box<str>, usize> = BTreeMap::new();
-    for (position, node) in nodes.iter().enumerate() {
-        if let Some(CheckedNodeOwner::ModelRoot { identity }) = &node.owner {
-            if roots.insert(identity.clone(), position).is_some() {
-                return Err(refuse(
-                    CheckedPackageRefusalCode::InvalidSemanticGraph,
-                    node_pointer(position).key("owner"),
-                ));
-            }
-        }
-    }
-    Ok(roots.into_iter().collect())
-}
-
 /// Admits the document supplied under each selected domain package identity
 /// (FR-322 "Model-owned members" step 1) and returns its declarations, in
 /// ascending identity order. Each document is charged to `meter` at its
 /// root's owner (`/semantic_graph/nodes/<i>/owner`), and an exhausted `work`
 /// limit is `incomplete` there.
 fn validate_domain_packages(
-    roots: &[(Box<str>, usize)],
+    roots: &[(&str, usize)],
     checked_package: &str,
     evidence: &CheckedPackageEvidence,
     meter: &mut WorkMeter,
@@ -4288,6 +4079,18 @@ mod tests {
     use ix_trace_rs::trace;
     use serde_json::json;
 
+    fn refinement_internals(
+        rows: Option<&[super::CheckedRefinementInternal]>,
+    ) -> Result<(), ValidationFailure> {
+        super::validate_refinement_internals(rows, &mut super::WorkMeter::new(u64::MAX))
+    }
+
+    fn dependency_selections(
+        rows: &[super::CheckedDependencySelection],
+    ) -> Result<(), ValidationFailure> {
+        super::validate_dependency_selections(rows, &mut super::WorkMeter::new(u64::MAX))
+    }
+
     /// Trace: FR-322-AC-77, TC-233.
     #[test]
     fn refinement_internal_lock_rows_are_nonempty_ordered_and_unique() {
@@ -4296,8 +4099,8 @@ mod tests {
             refinement: refinement.into(),
             internal: internal.iter().map(|name| (*name).into()).collect(),
         };
-        assert!(super::validate_refinement_internals(None).is_ok());
-        assert!(super::validate_refinement_internals(Some(&[
+        assert!(refinement_internals(None).is_ok());
+        assert!(refinement_internals(Some(&[
             row("A", &["memory drain", "memory flush"]),
             row("B", &["protocol call"]),
         ]))
@@ -4327,7 +4130,7 @@ mod tests {
         ];
         for (rows, expected) in invalid {
             let Err(ValidationFailure::Refused(refusal)) =
-                super::validate_refinement_internals(Some(&rows))
+                refinement_internals(Some(&rows))
             else {
                 panic!("expected lock refusal");
             };
@@ -4365,7 +4168,7 @@ mod tests {
             internal: internal.iter().map(|name| (*name).into()).collect(),
         };
         let repeated_row =
-            super::validate_refinement_internals(Some(&[row("R", &["a"]), row("R", &["b"])]))
+            refinement_internals(Some(&[row("R", &["a"]), row("R", &["b"])]))
                 .expect_err("repeated refinement");
         assert_eq!(
             paths(repeated_row),
@@ -4377,7 +4180,7 @@ mod tests {
             .to_vec()
         );
         let repeated_spelling =
-            super::validate_refinement_internals(Some(&[row("R", &["a", "a"])]))
+            refinement_internals(Some(&[row("R", &["a", "a"])]))
                 .expect_err("repeated internal spelling");
         assert_eq!(
             paths(repeated_spelling),
@@ -4388,7 +4191,7 @@ mod tests {
             .map(str::to_owned)
             .to_vec()
         );
-        let repeated_dependency = super::validate_dependency_selections(&[
+        let repeated_dependency = dependency_selections(&[
             CheckedDependencySelection {
                 identity: "lib".into(),
             },
@@ -4406,7 +4209,7 @@ mod tests {
             .map(str::to_owned)
             .to_vec()
         );
-        let one_location = super::validate_refinement_internals(Some(&[row("R", &[])]))
+        let one_location = refinement_internals(Some(&[row("R", &[])]))
             .expect_err("empty internal list");
         assert_eq!(
             paths(one_location),
