@@ -289,7 +289,7 @@ pub(super) fn validate_carrier(
     structural_keys: &[std::sync::Arc<CheckedNodeId>],
     meter: &mut WorkMeter,
 ) -> Result<Vec<(usize, usize)>, ValidationFailure> {
-    let root = JsonPointer::root().key("schedulability_claims");
+    let root = || JsonPointer::root().key("schedulability_claims");
     // Per claim node (ascending position): its claim occurrences as
     // `(ordinal, occurrence position)` sorted, the last of equal ordinals
     // being the one a later insertion would have kept.
@@ -315,12 +315,12 @@ pub(super) fn validate_carrier(
         by_ordinal.sort_unstable();
         occurrences.push((p, by_ordinal));
     }
-    let mut joined = Vec::with_capacity(rows.map_or(0, <[CheckedSchedulabilityClaimRow]>::len));
+    let mut joined = meter.vec(rows.map_or(0, <[CheckedSchedulabilityClaimRow]>::len))?;
     let mut seen: Vec<(ResolvedKey<'_>, u64)> = Vec::new();
     let mut previous: Option<(ResolvedKey<'_>, u64)> = None;
     for (i, row) in rows.unwrap_or_default().iter().enumerate() {
-        let at = root.clone().index(i);
-        meter.charge(1, || at.clone())?;
+        let at = || root().index(i);
+        meter.charge(1, at)?;
         let Some(&position) = index
             .get(&row.declaration)
             .filter(|&&p| row.declaration.package.as_ref() == package_name && claim(kinds[p]))
@@ -328,7 +328,7 @@ pub(super) fn validate_carrier(
             return Err(invalid(
                 Code::InvalidPackage,
                 Some(Cause::InvalidValue),
-                at.key("declaration"),
+                at().key("declaration"),
                 &row.declaration,
             ));
         };
@@ -346,7 +346,7 @@ pub(super) fn validate_carrier(
             return Err(invalid(
                 Code::InvalidPackage,
                 Some(Cause::InvalidValue),
-                at.key("occurrence"),
+                at().key("occurrence"),
                 &row.declaration,
             ));
         };
@@ -356,7 +356,7 @@ pub(super) fn validate_carrier(
                 return Err(invalid(
                     Code::InvalidPackage,
                     Some(Cause::ConflictingDefinition),
-                    at,
+                    at(),
                     &row.declaration,
                 ));
             }
@@ -369,7 +369,7 @@ pub(super) fn validate_carrier(
                 return Err(invalid(
                     Code::InvalidPackage,
                     Some(Cause::InvalidValue),
-                    at,
+                    at(),
                     &row.declaration,
                 ));
             }
@@ -387,7 +387,7 @@ pub(super) fn validate_carrier(
             if search_keys(&seen, &key, meter)?.is_err() {
                 return Err(ValidationFailure::refused_because(
                     Code::InvalidPackage,
-                    root,
+                    root(),
                     Cause::InvalidValue,
                 ));
             }
@@ -819,4 +819,144 @@ fn validate_literal_values(
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::NativeJoinBudget;
+    use ix_trace_rs::trace;
+    use serde_json::json;
+
+    /// The claim carrier join requests every table before it makes it: the
+    /// bytes the allocator is asked for equal the bytes charged, the measured
+    /// requirement admits and one byte below is denied (FR-038-AC-504). The
+    /// carrier holds only flat wire IDs, so the join's comparisons never
+    /// allocate.
+    #[trace("TC-472", "FR-038-AC-504")]
+    #[test]
+    fn claim_carrier_join_allocates_exactly_what_it_charges() {
+        let claim = |name: &str, occurrences: u64| -> super::super::RawSemanticNodeV2 {
+            serde_json::from_value(json!({
+                "node_id":{"package":"example","path":[name],"ordinal":0},
+                "schema_version":"quire.checked-semantic-graph/v2",
+                "node_tag":"claim", "semantic_form":"schedulability",
+                "semantic_type":{"package":"example","path":["boolean"],"ordinal":0},
+                "dependencies":[],
+                "occurrences":(0..occurrences)
+                    .map(|ordinal| json!({"role":"claim","ordinal":ordinal}))
+                    .collect::<Vec<_>>(),
+                "body":{"term":"aggregate","members":[]}
+            }))
+            .expect("claim node")
+        };
+        let nodes = [claim("a", 2), claim("b", 1), claim("c", 3)];
+        let kinds = [CheckedNodeKind::Claim(ClaimForm::Schedulability); 3];
+        let index = nodes
+            .iter()
+            .enumerate()
+            .map(|(position, node)| (&node.node_id, position))
+            .collect::<GraphIndex<'_>>();
+        let keys: Vec<std::sync::Arc<CheckedNodeId>> = nodes
+            .iter()
+            .map(|node| std::sync::Arc::new(node.node_id.clone()))
+            .collect();
+        let rows: Vec<CheckedSchedulabilityClaimRow> =
+            [(0, 0), (0, 1), (1, 0), (2, 0), (2, 1), (2, 2)]
+                .into_iter()
+                .map(|(position, occurrence)| CheckedSchedulabilityClaimRow {
+                    declaration: nodes[position].node_id.clone(),
+                    occurrence,
+                })
+                .collect();
+        let run = |limit: u64| {
+            let mut budget = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
+            let mut joined = None;
+            let measured = allocation_counter::measure(|| {
+                let mut meter = WorkMeter::over(&mut budget);
+                joined = Some(validate_carrier(
+                    "example",
+                    Some(&rows),
+                    &nodes,
+                    &kinds,
+                    &index,
+                    &keys,
+                    &mut meter,
+                ));
+            });
+            (
+                joined.expect("ran").ok(),
+                measured.bytes_total,
+                budget.read_storage_consumed(),
+            )
+        };
+        let (joined, allocated, charged) = run(u64::MAX);
+        assert_eq!(
+            joined,
+            Some(vec![(0, 0), (0, 1), (1, 0), (2, 0), (2, 1), (2, 2)])
+        );
+        assert!(charged > 0);
+        assert_eq!(allocated, charged, "allocated == requested");
+        assert_eq!(run(charged).0, joined, "the measured limit admits");
+        assert_eq!(run(charged - 1).0, None, "one byte short is denied");
+    }
+
+    /// The model table is one charged exact block the table keeps without
+    /// copying: for several models, two sharing an identity, the bytes the
+    /// allocator is asked for equal the bytes charged, the measured
+    /// requirement admits and one byte below is denied (FR-038-AC-504). The
+    /// claim order and priority set are charged the same way and are reached
+    /// by the graph-stage exactness fixtures, not by this model-only call.
+    #[trace("TC-472", "FR-038-AC-504")]
+    #[test]
+    fn model_table_allocates_exactly_what_it_charges() {
+        let document = |identity: &str| {
+            json!({
+                "contractVersion":"2.0.0",
+                "package":{"identity":identity,"version":"1.0.0"},
+                "constructs":[], "types":[], "dimensions":[], "units":[]
+            })
+        };
+        let unit_refs = std::sync::Arc::new(std::collections::BTreeMap::new());
+        let read = |identity: &str| {
+            let mut meter = WorkMeter::new(u64::MAX);
+            let mut budget = super::super::model_members::Budget::new(&mut meter, 0, 1 << 20);
+            super::super::model_members::read_semantic_ir(
+                &document(identity),
+                "example",
+                &mut budget,
+                &unit_refs,
+            )
+            .expect("selected declarations")
+        };
+        let models = [read("acme/one"), read("acme/two"), read("acme/one")];
+        let index = std::iter::empty::<(&CheckedNodeId, usize)>().collect::<GraphIndex<'_>>();
+        let run = |limit: u64| {
+            let mut budget = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
+            let mut outcome = None;
+            let measured = allocation_counter::measure(|| {
+                let mut meter = WorkMeter::over(&mut budget);
+                outcome = Some(validate_bodies(
+                    &[],
+                    &[],
+                    &[],
+                    &index,
+                    &[],
+                    &models,
+                    &mut meter,
+                ));
+            });
+            (
+                outcome.expect("ran").ok(),
+                measured.bytes_total,
+                budget.read_storage_consumed(),
+            )
+        };
+        let (outcome, allocated, charged) = run(u64::MAX);
+        assert_eq!(outcome, Some(()));
+        assert!(charged > 0);
+        assert_eq!(allocated, charged, "allocated == requested");
+        assert_eq!(run(charged).0, outcome, "the measured limit admits");
+        assert_eq!(run(charged - 1).0, None, "one byte short is denied");
+    }
 }

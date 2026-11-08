@@ -787,7 +787,9 @@ impl<'a, 'g> IntoIterator for &'a GraphIndex<'g> {
 /// A sorted exact-capacity table of keyed entries, searched by binary search,
 /// that stands for an ordered map the stage would otherwise build.
 pub(super) struct SortedTable<K, V> {
-    entries: Box<[(K, V)]>,
+    /// Held as the caller's charged vector: dropping duplicates leaves its
+    /// capacity, since shrinking would request a block the caller did not charge.
+    entries: Vec<(K, V)>,
 }
 
 #[allow(dead_code)] // map-shaped accessors the other read groups fold in
@@ -800,9 +802,7 @@ impl<K: Ord, V> SortedTable<K, V> {
             left.0.cmp(&right.0).then_with(|| tie(&left.1, &right.1))
         });
         entries.dedup_by(|later, earlier| later.0 == earlier.0);
-        Self {
-            entries: entries.into_boxed_slice(),
-        }
+        Self { entries }
     }
 
     pub(super) fn get(&self, key: &K) -> Option<&V> {
