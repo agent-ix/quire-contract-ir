@@ -153,6 +153,10 @@ fn measure_seeded(
 
 fn same_observation(left: &Observation, right: &Observation) {
     assert_eq!(
+        left.budget, right.budget,
+        "entire repeated caller-budget state"
+    );
+    assert_eq!(
         left.result, right.result,
         "complete repeated budgeted outcome"
     );
@@ -312,6 +316,64 @@ fn native_event_json(event: &quire_contract_model::NativeBudgetEvent) -> serde_j
     })
 }
 
+#[cfg(feature = "test-support")]
+fn assert_native_denial(
+    observation: &Observation,
+    event: quire_contract_model::NativeBudgetEvent,
+    bound: u64,
+) -> serde_json::Value {
+    use quire_contract_model::NativeBudgetResource as Resource;
+    let resource = match event.resource {
+        Resource::Work => {
+            let unpaid = observation
+                .budget
+                .first_unpaid()
+                .expect("first unpaid work");
+            assert_eq!(
+                unpaid.kind,
+                quire_contract_model::NativeJoinChargeKind::Work
+            );
+            assert_eq!(unpaid.amount, event.amount);
+            assert!(observation.budget.first_unpaid_read_storage().is_none());
+            PackageReadResource::Work
+        }
+        Resource::ReadStorage => {
+            assert_eq!(
+                observation.budget.first_unpaid_read_storage(),
+                Some(event.amount)
+            );
+            assert!(observation.budget.first_unpaid().is_none());
+            PackageReadResource::ReadStorage
+        }
+        Resource::LogicalStorage => panic!("reader consumed logical storage"),
+    };
+    assert_eq!(observation.budget.first_unpaid_locus(), event.locus);
+    let outcome = match &observation.result {
+        Budgeted::BudgetIncomplete(value) => {
+            assert_eq!(value.denied.resource, resource);
+            assert_eq!(value.denied.amount, event.amount);
+            assert_eq!(value.limit, bound);
+            assert_eq!(
+                value.consumed,
+                event
+                    .consumed_before
+                    .saturating_add(u64::try_from(event.amount).expect("admitted request fits"))
+            );
+            "budget-incomplete"
+        }
+        Budgeted::Exhausted(value) => {
+            assert_eq!(value.denied.resource, resource);
+            assert_eq!(value.denied.amount, event.amount);
+            assert_eq!(value.configured_bound, bound);
+            assert_eq!(Some(value.locus), event.locus);
+            "exhausted"
+        }
+        _ => panic!("a denied native charge must return a typed budget outcome"),
+    };
+    serde_json::json!({"outcome":outcome,"resource":format!("{resource:?}"),"amount":event.amount,
+        "configured_bound":bound,"locus":native_event_json(&event)["locus"],"entire_repeat_budget_equal":true})
+}
+
 /// These endpoints are selected from actual events, never inferred from byte
 /// amounts or a fixed number of stages. Designated growth cases additionally
 /// supply source-grounded exhaustive classes at their original provider site.
@@ -403,10 +465,42 @@ fn full_native_boundaries(
         "exact complete requirement preserves every native event"
     );
     drop_without_request::<DriverCounter>(exact);
+    let above_work = work
+        .checked_add(1)
+        .expect("above-work bound is representable");
+    let above_storage = storage
+        .checked_add(1)
+        .expect("above-storage bound is representable");
+    let above_seed =
+        unlimited_seed
+            .read_proof_snapshot()
+            .read_proof_rebound(above_work, above_storage, false);
+    let (above, above_events) =
+        native_budget_trace::checked_seeded(bytes, evidence, limits, &above_seed);
+    assert_eq!(
+        complete.result, above.result,
+        "above complete requirement preserves full outcome"
+    );
+    assert_eq!(complete.requested, above.requested);
+    assert_eq!(events, above_events);
+    assert_eq!(
+        complete
+            .budget
+            .read_proof_snapshot()
+            .read_proof_rebound(above_work, above_storage, false),
+        above.budget
+    );
+    drop_without_request::<DriverCounter>(above);
+    let refusal_code = match &complete.result {
+        Budgeted::Refused(value) => Some(format!("{:?}", value.code)),
+        _ => None,
+    };
     let complete_reference = serde_json::json!({"native_budget":"unlimited","outcome":budgeted_kind(&complete.result),
         "prior_work":prior_work,"prior_read_storage":prior_read,"work":work,"read_storage":storage,
         "requested":complete.requested,"logical_storage_delta":0,"exact_work_limit":work,"exact_read_storage_limit":storage,
         "exact_outcome_equal":true,"exact_counts_equal":true,"complete_repeat_equal":true,
+        "above_work_limit":above_work,"above_read_storage_limit":above_storage,"above_outcome_equal":true,"above_counts_equal":true,
+        "above_budget_equal":true,"refusal_code":refusal_code,
         "original_context_outcome":budgeted_kind(&reference.result),
         "original_context_work_limit":reference.budget.work_limit(),
         "original_context_read_storage_limit":reference.budget.read_storage_limit()});
@@ -428,10 +522,12 @@ fn full_native_boundaries(
             panic!("actual native event is outside strict-reader stage context")
         };
         if resource == 1 {
-            let class = event
+            // None stays unknown. Independent canonical class denial evidence
+            // supplies class-specific proof; amounts never manufacture labels.
+            if event
                 .allocation_class
-                .expect("full proof needs genuine source-derived reservation class");
-            if exhaustive_classes.contains(&class) {
+                .is_some_and(|class| exhaustive_classes.contains(&class))
+            {
                 selected.insert(index);
             }
         }
@@ -471,6 +567,15 @@ fn full_native_boundaries(
             events.get(..=index),
             "exact bound admits the same entire event prefix"
         );
+        let above_bound = bound
+            .checked_add(1)
+            .expect("above event bound is representable");
+        let (above, above_events) = probe(above_bound);
+        assert_eq!(
+            above_events.get(..=index),
+            events.get(..=index),
+            "above bound admits the same entire event prefix"
+        );
         let (short, short_events) = probe(bound - 1);
         assert_eq!(
             short_events.get(..index),
@@ -484,6 +589,7 @@ fn full_native_boundaries(
             Some(&denied),
             "one below denies this actual amount/locus/class"
         );
+        let denial = assert_native_denial(&short, event, bound - 1);
         let (repeated, repeated_events) = probe(bound - 1);
         same_observation(&short, &repeated);
         assert_eq!(
@@ -495,6 +601,9 @@ fn full_native_boundaries(
         object.insert("event_index".into(), index.into());
         object.insert("exact_bound".into(), bound.into());
         object.insert("one_below_bound".into(), (bound - 1).into());
+        object.insert("above_bound".into(), above_bound.into());
+        object.insert("above_event_admitted".into(), true.into());
+        object.insert("denial".into(), denial);
         for key in [
             "exact_event_admitted",
             "one_below_event_denied",
@@ -504,7 +613,7 @@ fn full_native_boundaries(
             object.insert(key.into(), true.into());
         }
         results.push(row);
-        for observation in [exact, short, repeated] {
+        for observation in [exact, above, short, repeated] {
             drop_without_request::<DriverCounter>(observation);
         }
     }
@@ -950,6 +1059,48 @@ mod caller_budget_tests {
         CheckedPackageEvidence, CheckedPackageReadLimits, CheckedPackageV2, NativeJoinBudget,
         NativeJoinChargeKind,
     };
+
+    #[cfg(feature = "test-support")]
+    #[ix_trace_rs::trace("TC-472", "FR-038-AC-511")]
+    #[test]
+    fn full_reference_rebounds_finite_caller_limits_and_checks_typed_denials() {
+        let mut seed = NativeJoinBudget::new(3, 2).with_read_storage_limit(u64::MAX);
+        let locus = quire_contract_model::NativeJoinLocus {
+            source: quire_contract_model::NativeJoinLocusSource::Package,
+            form: "prior_caller_charge",
+        };
+        seed.accounted_charge(NativeJoinChargeKind::Work, 3, locus)
+            .expect("prior work");
+        seed.accounted_charge(NativeJoinChargeKind::Storage, 2, locus)
+            .expect("prior logical storage");
+        let evidence = CheckedPackageEvidence::new();
+        let limits = CheckedPackageReadLimits::bounded();
+        let reference =
+            super::measure_seeded(b"null", &evidence, limits, seed.read_proof_snapshot());
+        assert!(matches!(
+            reference.result,
+            quire_contract_model::CheckedPackageV2BudgetedReadResult::BudgetIncomplete(_)
+                | quire_contract_model::CheckedPackageV2BudgetedReadResult::Exhausted(_)
+        ));
+        let (events, results, complete) =
+            super::full_native_boundaries(b"null", limits, &evidence, &reference, &[], Some(&seed));
+        assert_eq!(complete["prior_work"], 3);
+        assert_eq!(complete["prior_read_storage"], 0);
+        assert_eq!(complete["outcome"], "refused");
+        assert!(complete["work"].as_u64().expect("work") > 3);
+        assert!(!events.is_empty());
+        assert!(!results.is_empty());
+        assert!(results
+            .iter()
+            .all(|row| row["denial"]["entire_repeat_budget_equal"] == true));
+        assert_eq!(
+            seed.consumed().work,
+            3,
+            "the actual caller snapshot remains unchanged"
+        );
+        assert_eq!(seed.consumed().storage, 2);
+        super::drop_without_request::<DriverCounter>(reference);
+    }
 
     #[ix_trace_rs::trace("TC-472", "FR-038-AC-511", "FR-038-AC-512")]
     #[test]

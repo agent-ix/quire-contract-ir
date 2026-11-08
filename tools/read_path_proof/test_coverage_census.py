@@ -170,7 +170,8 @@ class FullCorpusCompletion(unittest.TestCase):
                    "prior_work": 0, "prior_read_storage": 0, "work": 0, "read_storage": 0,
                    "requested": 0, "logical_storage_delta": 0, "exact_work_limit": 0,
                    "exact_read_storage_limit": 0, "exact_outcome_equal": True,
-                   "exact_counts_equal": True, "complete_repeat_equal": True}}
+                   "exact_counts_equal": True, "complete_repeat_equal": True, "above_work_limit": 1,
+                   "above_read_storage_limit": 1, "above_outcome_equal": True, "above_counts_equal": True, "above_budget_equal": True}}
         runs = []
         for corpus in ("qspec", "tc048"):
             runs.append({"config": dict(cohort, corpus=corpus, mode="full", original_tests=[],
@@ -198,12 +199,15 @@ class FullCorpusCompletion(unittest.TestCase):
             for i in range(4)]
         row["boundary_results"] = [
             dict(event, event_index=i, exact_bound=(i + 1) * 8, one_below_bound=(i + 1) * 8 - 1,
-                 exact_event_admitted=True, one_below_event_denied=True, full_repeat_equal=True, accounting_equal=True)
+                 exact_event_admitted=True, above_bound=(i + 1) * 8 + 1, above_event_admitted=True,
+                 denial={"outcome":"exhausted","resource":"ReadStorage","amount":8,"configured_bound":(i+1)*8-1,
+                         "locus":event["locus"],"entire_repeat_budget_equal":True},
+                 one_below_event_denied=True, full_repeat_equal=True, accounting_equal=True)
             for i, event in enumerate(row["native_budget_events"])]
         row["designated_growth_case"] = {"test": "original", "driver": "original.rs", "line": 7,
             "provider": "unit-schema-provider", "classes": {"walker_growth": "walker_growth", "exact_reservation": "exact_reservation"}}
         row["complete_reference"].update(read_storage=32, requested=32, exact_read_storage_limit=32,
-                                          outcome="refused", refusal_code="UnitRefusal")
+                                          outcome="refused", refusal_code="UnitRefusal", above_read_storage_limit=33)
         row["provider_obligation_evidence"] = [
             {"role": role, "source": {"file": "original.rs", "line": 7, "symbol": "unit_schema_provider"},
              "input_facts": {field: minimum}, "request_event_indices": [0, 1, 2] if role == "term_walk_multigrowth" else [3],
@@ -283,10 +287,14 @@ class DesignatedGrowthEvidence(unittest.TestCase):
                       "complete_reference":{"native_budget":"unlimited","outcome":"admitted",
                         "prior_work":0,"prior_read_storage":0,"work":0,"read_storage":24,"requested":24,
                         "logical_storage_delta":0,"exact_work_limit":0,"exact_read_storage_limit":24,
-                        "exact_outcome_equal":True,"exact_counts_equal":True,"complete_repeat_equal":True}}
+                        "exact_outcome_equal":True,"exact_counts_equal":True,"complete_repeat_equal":True,
+                        "above_work_limit":1,"above_read_storage_limit":25,"above_outcome_equal":True,"above_counts_equal":True,"above_budget_equal":True}}
             def result(i):
                 e = events[i]
                 return {"event_index": i, "exact_bound": (i+1)*8, "one_below_bound": (i+1)*8-1,
+                        "above_bound": (i+1)*8+1, "above_event_admitted": True,
+                        "denial":{"outcome":"exhausted","resource":"ReadStorage","amount":8,"configured_bound":(i+1)*8-1,
+                                  "locus":e["locus"],"entire_repeat_budget_equal":True},
                         "exact_event_admitted": True, "one_below_event_denied": True,
                         "full_repeat_equal": True, "accounting_equal": True,
                         "amount": 8, "locus": e["locus"], "allocation_class": e["allocation_class"]}

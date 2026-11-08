@@ -183,7 +183,9 @@ def validate_normative_boundaries(record):
             or any(type(complete.get(key)) is not int or complete[key]<0 for key in counters)
             or complete.get("logical_storage_delta")!=0
             or not complete.get("exact_outcome_equal") or not complete.get("exact_counts_equal")
-            or not complete.get("complete_repeat_equal")):
+            or not complete.get("complete_repeat_equal")
+            or not complete.get("above_outcome_equal") or not complete.get("above_counts_equal")
+            or not complete.get("above_budget_equal")):
         raise CensusError("full proof lacks measured unlimited complete-reference/exact-repeat evidence")
     if any(type(event.get("amount")) is not int or not 0 <= event["amount"] < 2**128 for event in events):
         raise CensusError("invalid full native event amount")
@@ -195,7 +197,9 @@ def validate_normative_boundaries(record):
             or complete["read_storage"]!=complete["prior_read_storage"]+storage
             or complete["requested"]!=storage
             or complete.get("exact_work_limit")!=complete["work"]
-            or complete.get("exact_read_storage_limit")!=complete["read_storage"]):
+            or complete.get("exact_read_storage_limit")!=complete["read_storage"]
+            or complete.get("above_work_limit")!=complete["work"]+1
+            or complete.get("above_read_storage_limit")!=complete["read_storage"]+1):
         raise CensusError("unlimited complete-reference totals disagree with actual native events")
     selected = set()
     stage_last, class_first, class_last = {}, {}, {}
@@ -233,8 +237,8 @@ def validate_normative_boundaries(record):
         if not match or not locus.get("form"):
             raise CensusError("native event lacks a genuine package-read stage/form")
         allocation_class = event.get("allocation_class")
-        if resource == "ReadStorage" and not allocation_class:
-            raise CensusError("native reservation has no source-derived allocation class")
+        # Unknown remains unknown. Canonical class proof is independently
+        # required at full completion, not inferred from these byte amounts.
         if resource == "ReadStorage" and allocation_class in exhaustive:
             selected.add(index)
             seen_exhaustive.add(allocation_class)
@@ -257,7 +261,14 @@ def validate_normative_boundaries(record):
         observed.add(index)
         event = events[index]
         next_bound = event["consumed_before"] + event["amount"]
+        denial = result.get("denial", {})
+        if (denial.get("outcome") not in {"budget-incomplete", "exhausted"}
+                or denial.get("resource") != event["resource"] or denial.get("amount") != event["amount"]
+                or denial.get("configured_bound") != next_bound - 1 or denial.get("locus") != event["locus"]
+                or denial.get("entire_repeat_budget_equal") is not True):
+            raise CensusError("normative one-below lacks exact typed first-denial outcome/state")
         if (result.get("exact_bound") != next_bound or result.get("one_below_bound") != next_bound - 1
+                or result.get("above_bound") != next_bound + 1 or not result.get("above_event_admitted")
                 or not result.get("exact_event_admitted") or not result.get("one_below_event_denied")
                 or not result.get("full_repeat_equal") or not result.get("accounting_equal")
                 or result.get("amount") != event["amount"] or result.get("locus") != event["locus"]
