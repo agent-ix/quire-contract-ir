@@ -99,7 +99,9 @@ struct MemberProjection<'a> {
     node: quire_canonical::NodeRef<'a>,
     ids: &'a CheckedOperationMemberIds,
     scope: MemberScope,
-    remapped: Option<&'a [(CheckedNodeId, CheckedNodeId)]>,
+    /// Replacements keyed by the document slot they replace, so equal old
+    /// IDs in different slots each take their own replacement.
+    remapped: Option<&'a [(quire_canonical::NodeId, CheckedNodeId)]>,
 }
 #[derive(Clone, Copy)]
 enum MemberScope {
@@ -108,9 +110,13 @@ enum MemberScope {
     Raw,
 }
 impl<'a> MemberProjection<'a> {
-    fn mapped(&self, id: &'a CheckedNodeId) -> &'a CheckedNodeId {
+    fn mapped(&self, slot: quire_canonical::NodeId, id: &'a CheckedNodeId) -> &'a CheckedNodeId {
         self.remapped
-            .and_then(|rows| rows.iter().find(|(old, _)| old == id).map(|(_, new)| new))
+            .and_then(|rows| {
+                rows.iter()
+                    .find(|(old, _)| *old == slot)
+                    .map(|(_, new)| new)
+            })
             .unwrap_or(id)
     }
 
@@ -143,10 +149,9 @@ impl<'a> MemberProjection<'a> {
 impl Serialize for MemberProjection<'_> {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         if let Some(remapped) = self.remapped {
-            if let Some(id) = structural_member_id(super::TermNode::from_ref(self.node)) {
-                if let Some((_, mapped)) = remapped.iter().find(|(old, _)| old == &id) {
-                    return mapped.serialize(serializer);
-                }
+            let slot = self.node.id();
+            if let Some((_, mapped)) = remapped.iter().find(|(old, _)| *old == slot) {
+                return mapped.serialize(serializer);
             }
         }
         if matches!(self.scope, MemberScope::Raw) && self.remapped.is_none() {
@@ -158,7 +163,7 @@ impl Serialize for MemberProjection<'_> {
         let mut map = serializer.serialize_map(Some(members.len()))?;
         for (name, node) in members {
             if let Some(id) = self.id(name) {
-                map.serialize_entry(name, self.mapped(id))?;
+                map.serialize_entry(name, self.mapped(node.id(), id))?;
             } else {
                 map.serialize_entry(name, &self.child(name, node))?;
             }
@@ -178,7 +183,7 @@ impl Encode for MemberProjection<'_> {
         for (name, node) in members {
             writer.name(name)?;
             if let Some(id) = self.id(name) {
-                self.mapped(id).encode_into(writer)?;
+                self.mapped(node.id(), id).encode_into(writer)?;
             } else {
                 self.child(name, node).encode_into(writer)?;
             }
@@ -849,6 +854,17 @@ impl CheckedFairnessTarget {
             },
             _ => return None,
         })
+    }
+
+    /// The member name that holds `node_mut` in the target's wire form.
+    fn slot_name(&self) -> &'static str {
+        match self {
+            Self::Operation { .. } | Self::HybridTransition { .. } => "declaration",
+            Self::ProtocolRoot { .. }
+            | Self::AttemptNode { .. }
+            | Self::CompensationTemplate { .. } => "node",
+            Self::ParallelBranch { .. } => "parallel",
+        }
     }
 
     pub(super) fn node_mut(&mut self) -> &mut CheckedNodeId {
@@ -2299,7 +2315,7 @@ fn map_operation_ids(
     operation: &mut CheckedApplicationOperation,
     map: &mut impl FnMut(&CheckedNodeId) -> Option<CheckedNodeId>,
 ) {
-    let Some(member_handle) = operation.record.member.as_ref() else {
+    let Some(member_handle) = operation.record.member.clone() else {
         return;
     };
     let root = MemberProjection {
@@ -2313,22 +2329,30 @@ fn map_operation_ids(
     while let Some((node, typed_id)) = pending.pop() {
         if let Some(id) = typed_id {
             if let Some(replacement) = map(id) {
-                remapped_ids.push((id.clone(), replacement));
+                remapped_ids.push((node.node.id(), replacement));
             }
             continue;
         }
         if let Some(id) = structural_member_id(super::TermNode::from_ref(node.node)) {
             if let Some(replacement) = map(&id) {
-                remapped_ids.push((id, replacement));
+                remapped_ids.push((node.node.id(), replacement));
                 continue;
             }
         }
         match node.node.node() {
+            // The stack pops last-in first, so push children reversed to
+            // call `map` in document order.
             quire_canonical::Node::Array(items) => {
-                pending.extend(items.map(|item| (node.child("", item), None)))
+                let start = pending.len();
+                pending.extend(items.map(|item| (node.child("", item), None)));
+                pending[start..].reverse();
             }
-            quire_canonical::Node::Object(members) => pending
-                .extend(members.map(|(name, value)| (node.child(name, value), node.id(name)))),
+            quire_canonical::Node::Object(members) => {
+                let start = pending.len();
+                pending
+                    .extend(members.map(|(name, value)| (node.child(name, value), node.id(name))));
+                pending[start..].reverse();
+            }
             _ => {}
         }
     }
@@ -2354,8 +2378,24 @@ fn map_operation_ids(
     };
     // Apply the simultaneous map once per original field. Sequential old/new
     // substitution can otherwise remap a destination again when IDs permute.
-    let replace = |id: &mut CheckedNodeId| {
-        if let Some((_, new)) = remapped_ids.iter().find(|(old, _)| old == id) {
+    // Each view slot takes the replacement recorded for its own document slot,
+    // not the first one recorded for an equal old ID.
+    let slot_new = |path: &[&str]| -> Option<&CheckedNodeId> {
+        let mut node = member_handle.node();
+        for step in path {
+            let quire_canonical::Node::Object(mut members) = node.node() else {
+                return None;
+            };
+            node = members.find(|(name, _)| name == step)?.1;
+        }
+        let slot = node.id();
+        remapped_ids
+            .iter()
+            .find(|(old, _)| *old == slot)
+            .map(|(_, new)| new)
+    };
+    let replace = |id: &mut CheckedNodeId, path: &[&str]| {
+        if let Some(new) = slot_new(path) {
             *id = new.clone();
         }
     };
@@ -2369,18 +2409,23 @@ fn map_operation_ids(
             | CheckedOperationMember::Position { declaration, .. }
             | CheckedOperationMember::Element { declaration }
             | CheckedOperationMember::Operation { declaration, .. }
-            | CheckedOperationMember::TypeArgument { declaration } => replace(declaration),
-            CheckedOperationMember::Fairness { target, .. } => replace(target.node_mut()),
+            | CheckedOperationMember::TypeArgument { declaration } => {
+                replace(declaration, &["declaration"])
+            }
+            CheckedOperationMember::Fairness { target, .. } => {
+                let slot = target.slot_name();
+                replace(target.node_mut(), &["target", slot])
+            }
             CheckedOperationMember::RelationshipEnd {
                 declaration,
                 destination_type,
                 population,
                 ..
             } => {
-                replace(declaration);
-                replace(destination_type);
+                replace(declaration, &["declaration"]);
+                replace(destination_type, &["destination_type"]);
                 if let Some(population) = population {
-                    replace(population);
+                    replace(population, &["population"]);
                 }
             }
             CheckedOperationMember::ProfileOperator { .. }
@@ -2389,10 +2434,15 @@ fn map_operation_ids(
         }
     }
     if let Some((declaration, _)) = &mut views.projection_field {
-        replace(declaration);
+        replace(declaration, &["declaration"]);
     }
     if let Some(declaration) = &mut views.member_declaration {
-        replace(declaration);
+        // A fairness member's declaring identity is its target's.
+        if let Some(new) =
+            slot_new(&["target", "declaration"]).or_else(|| slot_new(&["declaration"]))
+        {
+            *declaration = new.clone();
+        }
     }
 }
 
@@ -3956,6 +4006,16 @@ mod tests {
             (1, 2, 3)
         );
         assert_eq!(result_type.ordinal, 4);
+        let wire = serde_json::to_value(operation.record()).expect("operation record");
+        assert_eq!(
+            [
+                &wire["member"]["declaration"]["ordinal"],
+                &wire["member"]["destination_type"]["ordinal"],
+                &wire["member"]["population"]["ordinal"],
+            ],
+            [&json!(1), &json!(2), &json!(3)],
+            "the retained wire takes each slot's own replacement"
+        );
         assert_eq!(operation.member_declaration(), Ok(Some(declaration)));
         assert_eq!(name.as_ref(), "original");
         let wire = serde_json::to_value(&operation).expect("operation wire");
