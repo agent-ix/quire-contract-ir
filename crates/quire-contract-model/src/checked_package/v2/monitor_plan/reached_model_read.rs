@@ -841,6 +841,7 @@ mod tests {
     use crate::checked_package::v2::{
         ExactTypeProjectionErrorCode, SelectedExactDeclarationForm, SelectedExactIdentity,
     };
+    use crate::SelectedMonitorClosureRows;
     use ix_trace_rs::trace;
     use quire_exact::{
         CollectionKind, CollectionType, EffectiveId, Location, MemberId, MemberOwner, NodeKey,
@@ -926,7 +927,29 @@ mod tests {
         bounded_sequence: bool,
         maps: bool,
     ) -> CheckedPackageV2 {
-        let (mut wire, document) =
+        admitted_closure_monitor(status, equality_occurrences, bounded_sequence, maps, false)
+    }
+
+    /// The closure fixture whose tick unit is the selected model-owned unit,
+    /// whose model dimension is the base `Time`.
+    fn admitted_monitor_for_closure_with_model_tick_unit() -> CheckedPackageV2 {
+        admitted_closure_monitor(
+            "integer",
+            serde_json::json!([{"role":"expression","ordinal":0}]),
+            false,
+            false,
+            true,
+        )
+    }
+
+    fn admitted_closure_monitor(
+        status: &str,
+        equality_occurrences: serde_json::Value,
+        bounded_sequence: bool,
+        maps: bool,
+        model_tick_unit: bool,
+    ) -> CheckedPackageV2 {
+        let (mut wire, mut document) =
             monitor_plan_fixtures::model_fact_monitor_with_status(false, status);
         let boolean = monitor_plan_fixtures::find(&wire, "boolean");
         let equality = monitor_plan_fixtures::append(
@@ -1115,6 +1138,31 @@ mod tests {
                     monitor_plan_fixtures::reference(&map),
                 ));
             inputs["dependencies"].as_array_mut().unwrap().push(map);
+        }
+        if model_tick_unit {
+            document["dimensions"][0]["name"] = serde_json::json!("Time");
+            let nodes = wire["semantic_graph"]["nodes"].as_array().unwrap();
+            let model_unit = nodes
+                .iter()
+                .find(|node| node["owner"]["node"] == "ix://test/families/unit/Foot")
+                .expect("model unit")["node_id"]
+                .clone();
+            let plan_at = nodes
+                .iter()
+                .position(|node| node["semantic_form"] == "monitor_plan")
+                .expect("monitor plan");
+            let plan = &mut wire["semantic_graph"]["nodes"][plan_at];
+            let binding = plan["body"]["members"]
+                .as_array_mut()
+                .unwrap()
+                .iter_mut()
+                .find(|member| member["name"] == "tick_unit")
+                .expect("tick_unit binding");
+            let source_unit = std::mem::replace(&mut binding["value"]["target"], model_unit.clone());
+            let dependencies = plan["dependencies"].as_array_mut().unwrap();
+            dependencies.retain(|dependency| *dependency != source_unit);
+            dependencies.push(model_unit);
+            monitor_plan_fixtures::rekey(&mut wire, plan_at);
         }
         use_model_time(&mut wire);
         fixture_support::rebuild_complete_source_map(&mut wire);
@@ -1407,6 +1455,146 @@ mod tests {
         let bounded = row.value_type.clone();
         let (_, projected) = project_closure(&package, vec![row]).expect("wrapper row alone");
         assert!(projected.contains(&bounded));
+    }
+
+    struct TickRows {
+        declarations: Vec<SelectedExactDeclarationRow>,
+        fields: Vec<SelectedExactFieldRow>,
+        units: Vec<SelectedSourceUnitRow>,
+        equalities: Vec<crate::SelectedEqualityApplicationRow>,
+        records: Vec<crate::SelectedSourceRecordRow>,
+        tuples: Vec<crate::SelectedSourceTupleRow>,
+        unions: Vec<crate::SelectedSourceUnionRow>,
+        collections: Vec<crate::SelectedSourceCollectionRow>,
+    }
+
+    impl TickRows {
+        fn new(package: &CheckedPackageV2) -> Self {
+            let (declarations, fields, units) = producer_rows(package);
+            let (records, tuples, unions, collections) = source_rows(package);
+            Self {
+                declarations,
+                fields,
+                units,
+                equalities: equality_rows(package),
+                records,
+                tuples,
+                unions,
+                collections,
+            }
+        }
+
+        fn view<'a>(
+            &'a self,
+            authority: &'a crate::SelectedMonitorAuthorityRow<'a>,
+        ) -> SelectedMonitorClosureRows<'a> {
+            SelectedMonitorClosureRows {
+                declarations: &self.declarations,
+                fields: &self.fields,
+                model_tuples: &[],
+                source_units: &self.units,
+                model_enum_declarations: &[],
+                model_enum_members: &[],
+                model_enum_shapes: &[],
+                source_records: &self.records,
+                source_tuples: &self.tuples,
+                source_unions: &self.unions,
+                source_enums: &[],
+                source_collections: &self.collections,
+                equality_applications: &self.equalities,
+                equality_facts: &[],
+                authority,
+            }
+        }
+    }
+
+    #[trace("TC-471", "FR-357-AC-18")]
+    #[test]
+    fn closure_seeds_the_source_and_the_model_tick_unit_with_their_own_dimension() {
+        for model in [false, true] {
+            let package = if model {
+                admitted_monitor_for_closure_with_model_tick_unit()
+            } else {
+                admitted_monitor_for_closure()
+            };
+            let plan = package.monitor_plans().next().unwrap();
+            let tick = plan.tick_unit().clone();
+            let dimension = package.node(&tick).unwrap().semantic_type.clone();
+            let parts = TickRows::new(&package);
+            let authority = test_authority(&package);
+            let rows = parts.view(&authority);
+            let mut measured = NativeJoinBudget::new(u64::MAX, u64::MAX);
+            let closure = plan
+                .project_selected_type_closure(rows, &mut measured)
+                .unwrap_or_else(|error| panic!("model={model}: {error:?}"));
+            assert_eq!(closure.tick_unit_dimension(), &dimension, "model={model}");
+            let types = closure.model_types();
+            if model {
+                assert!(types
+                    .model_units()
+                    .iter()
+                    .any(|unit| unit.structural_node == tick));
+            } else {
+                assert!(types.units().iter().any(|unit| unit.structural_node == tick));
+            }
+            assert!(
+                types
+                    .dimensions()
+                    .iter()
+                    .any(|row| row.structural_node == dimension),
+                "model={model}"
+            );
+            // The repeat read of the same package agrees (a clone included).
+            let again = package.clone();
+            let plan = again.monitor_plans().next().unwrap();
+            let rows = parts.view(&authority);
+            let closure = plan
+                .project_selected_type_closure(rows, &mut NativeJoinBudget::new(u64::MAX, u64::MAX))
+                .unwrap();
+            assert_eq!(closure.tick_unit_dimension(), &dimension);
+            // The seed charge is the first unpaid charge at some small allowance.
+            let spent = measured.consumed();
+            // Some work allowance makes the tick-unit seed the first unpaid
+            // charge: its own charge is denied with the seed's locus, and one
+            // unit more pays it.
+            let tick_index = 8 + [plan.init(), plan.on_event(), plan.on_watermark(), plan.on_gap()]
+                .iter()
+                .map(|entry| entry.parameter_types().len() + 1)
+                .sum::<usize>();
+            let tick_seed = crate::NativeJoinLocusSource::MonitorSeed(tick_index);
+            let mut first = None;
+            for work in 0..spent.work {
+                let mut walk = NativeJoinBudget::new(work, u64::MAX);
+                assert!(plan.selected_graph_walk(&mut walk).is_err());
+                if walk.first_unpaid_locus().map(|locus| locus.source) == Some(tick_seed) {
+                    first = Some((work, walk.first_unpaid()));
+                    break;
+                }
+            }
+            let (work, denied) = first.expect("the tick-unit seed is charged");
+            assert_eq!(denied.map(|d| d.kind), Some(NativeJoinChargeKind::Work));
+            let mut below = NativeJoinBudget::new(work, u64::MAX);
+            assert!(plan.selected_graph_walk(&mut below).is_err());
+            assert_eq!(below.consumed().work, work, "refused before overspending");
+            // Exact allowance succeeds; one unit below either resource refuses.
+            let rows = parts.view(&authority);
+            plan_for(&package)
+                .project_selected_type_closure(
+                    rows,
+                    &mut NativeJoinBudget::new(spent.work, spent.storage),
+                )
+                .expect("exact allowance");
+            for (w, s) in [(spent.work - 1, spent.storage), (spent.work, spent.storage - 1)] {
+                let rows = parts.view(&authority);
+                assert!(plan_for(&package)
+                    .project_selected_type_closure(rows, &mut NativeJoinBudget::new(w, s))
+                    .is_err());
+            }
+        }
+    }
+
+    fn plan_for(package: &CheckedPackageV2) -> crate::CheckedMonitorPlanRef<'_> {
+        package.monitor_plans().next().unwrap()
     }
 
     #[trace("TC-470", "FR-357-AC-1")]
@@ -2357,15 +2545,16 @@ mod tests {
             result.types.model_units()[0].original_identity.as_ref(),
             "ix://test/families/unit/Foot"
         );
-        assert_eq!(result.types.units().len(), 1);
-        assert_eq!(
-            result.types.units()[0]
-                .qualified_declaration
-                .last()
-                .unwrap()
-                .as_ref(),
-            "Metre"
-        );
+        // The reached Metre and, since the plan's tick unit seeds the read
+        // (FR-357-AC-18), the source tick unit Second.
+        assert_eq!(result.types.units().len(), 2);
+        let names: Vec<_> = result
+            .types
+            .units()
+            .iter()
+            .map(|unit| unit.qualified_declaration.last().unwrap().as_ref())
+            .collect();
+        assert!(names.contains(&"Metre") && names.contains(&"Second"), "{names:?}");
         assert_eq!(result.types.objects()[0].operations().len(), 2);
         assert_eq!(result.types.objects()[0].operations()[0].name(), "deposit");
         assert_eq!(
@@ -2404,13 +2593,19 @@ mod tests {
             result.types.model_units()[1].target_node.as_ref(),
             Some(&result.types.model_units()[0].structural_node)
         );
+        let metre = result
+            .types
+            .units()
+            .iter()
+            .find(|unit| unit.qualified_declaration.last().unwrap().as_ref() == "Metre")
+            .expect("reached Metre");
         assert_eq!(
-            result.types.units()[0].unit_id,
+            metre.unit_id,
             UnitId::Declared(key("Metre"))
         );
         assert!(matches!(
             package
-                .node(&result.types.units()[0].structural_node)
+                .node(&metre.structural_node)
                 .unwrap()
                 .owner,
             Some(CheckedNodeOwner::Source { .. })
@@ -2422,8 +2617,8 @@ mod tests {
                 .owner,
             Some(CheckedNodeOwner::Model { .. })
         ));
-        assert_eq!(result.types.units()[0].scale.numerator.as_ref(), "1");
-        assert_eq!(result.types.units()[0].offset.numerator.as_ref(), "0");
+        assert_eq!(metre.scale.numerator.as_ref(), "1");
+        assert_eq!(metre.offset.numerator.as_ref(), "0");
         assert_eq!(result.types.model_units()[0].offset.numerator.as_ref(), "0");
         assert!(result.enums.is_empty());
         assert_eq!(result.work, result.types.work());

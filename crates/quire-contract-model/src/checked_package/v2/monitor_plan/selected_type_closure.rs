@@ -121,6 +121,17 @@ impl<'a> SelectedMonitorTypeClosure<'a> {
     pub fn clocks(&self) -> &[CheckedMonitorClockRead<'a>] {
         &self.clocks
     }
+    /// The admitted dimension node of the plan's tick unit (FR-357-AC-18).
+    ///
+    /// A source and a model tick unit each return their own admitted dimension.
+    pub fn tick_unit_dimension(&self) -> &'a CheckedNodeId {
+        &self
+            .plan
+            .package
+            .node(self.plan.tick_unit())
+            .expect("admitted tick unit")
+            .semantic_type
+    }
     /// The receipt binding QSL's same-emission order and progress authority.
     pub fn authority(&self) -> &SelectedMonitorAuthorityReceipt<'a> {
         &self.authority

@@ -267,6 +267,14 @@ impl CheckedMonitorPlanRef<'_> {
             walk.seed(entry.result_type())?;
             seed_index += 1;
         }
+        // FR-357-AC-18: the tick unit premise seeds its unit and, through the
+        // unit's semantic type, its dimension. It is last so that every other
+        // seed keeps its index and locus.
+        walk.budget.set_active_locus(Some(NativeJoinLocus {
+            source: NativeJoinLocusSource::MonitorSeed(seed_index),
+            form: "monitor_tick_unit_seed",
+        }));
+        walk.seed(self.tick_unit())?;
         walk.visit()?;
         Ok(SelectedGraphWalk {
             nodes: walk.nodes,
