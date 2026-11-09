@@ -594,9 +594,12 @@ pub(super) struct ContractPackageTraversalIndex<'a> {
 }
 
 fn decode_admitted_body(
-    _kind: CheckedNodeKind,
+    nominal: Option<super::identity::NominalBody>,
     body: &super::CheckedJson,
 ) -> Result<super::CheckedTerm, ()> {
+    if let Some(nominal) = nominal {
+        return Ok(super::CheckedTerm::NominalBody(Box::new(nominal)));
+    }
     let mut budget = super::NativeJoinBudget::unlimited();
     let site = super::read_charge::Site::new(super::PackageReadStage::Graph, 0, "body");
     super::TermNode::of(body)
@@ -855,6 +858,7 @@ impl ContractPackageV1 {
                 Step::Index(position),
                 Step::Key("body"),
             ];
+            let nominal = super::wire_nominal_body(kind, &node.body, position)?;
             let body = super::TermNode::of(&node.body);
             let body_work = crate::checked_package::common::with_unmetered_ids_row(&[], |ids| {
                 super::validate_body(
@@ -867,7 +871,7 @@ impl ContractPackageV1 {
                         Ok(())
                     },
                     ids,
-                    None,
+                    nominal.as_ref(),
                 )
             })?;
             work.charge(body_work.saturating_mul(4))
@@ -1569,11 +1573,11 @@ impl ContractPackageWireV1 {
                 {
                     return Ok(Some(source_term));
                 }
-                let mut term = decode_admitted_body(
-                    node_kinds[position],
-                    &wire.semantic_graph.nodes[position].body,
-                )
-                .map_err(|_| ceiling.saturating_add(1))?;
+                let body = &wire.semantic_graph.nodes[position].body;
+                let nominal = super::wire_nominal_body(node_kinds[position], body, position)
+                    .map_err(|_| ceiling.saturating_add(1))?;
+                let mut term =
+                    decode_admitted_body(nominal, body).map_err(|_| ceiling.saturating_add(1))?;
                 restore_operation_views(&source_term, &mut term, &projected_positions)
                     .map_err(|()| ceiling.saturating_add(1))?;
                 Ok(Some(term))
@@ -2910,6 +2914,7 @@ impl ContractPackageWireV1 {
                 Step::Index(index),
                 Step::Key("body"),
             ];
+            let nominal = super::wire_nominal_body(kind, &node.body, index)?;
             let body = super::TermNode::of(&node.body);
             let work = crate::checked_package::common::with_unmetered_ids_row(&[], |ids| {
                 super::validate_body(
@@ -2919,7 +2924,7 @@ impl ContractPackageWireV1 {
                     &Trail::Base(&steps),
                     &mut |_, _, _, _, _| Ok(()),
                     ids,
-                    None,
+                    nominal.as_ref(),
                 )
             })?;
             work_meter.charge(work, || at.clone().key("body"))?;
@@ -3372,6 +3377,7 @@ impl ContractPackageWireV1 {
             let mut body_references = Vec::new();
             let mut edges = node.dependencies.clone();
             edges.push(node.semantic_type.clone());
+            let nominal = super::wire_nominal_body(kind, &node.body, index)?;
             let body = super::TermNode::of(&node.body);
             crate::checked_package::common::with_unmetered_ids_row(&[], |ids| {
                 super::validate_body(
@@ -3390,13 +3396,13 @@ impl ContractPackageWireV1 {
                         Ok(())
                     },
                     ids,
-                    None,
+                    nominal.as_ref(),
                 )
             })?;
             if let Some(pointer) = missing {
                 return Err(malformed(pointer, CheckedPackageRefusalCause::InvalidValue));
             }
-            terms.push(match decode_admitted_body(kind, &node.body) {
+            terms.push(match decode_admitted_body(nominal, &node.body) {
                 Ok(term) => Some(term),
                 Err(_)
                     if matches!(
@@ -3620,6 +3626,9 @@ fn body_reference_pointer(
     let mut seen = 0_usize;
     let mut found = None;
     // The walk already succeeded once; a failure here only means no pointer.
+    let nominal = super::wire_nominal_body(kind, &node.body, position)
+        .ok()
+        .flatten();
     let body = super::TermNode::of(&node.body);
     let _ = crate::checked_package::common::with_unmetered_ids_row(row, |ids| {
         super::validate_body(
@@ -3635,7 +3644,7 @@ fn body_reference_pointer(
                 Ok(())
             },
             ids,
-            None,
+            nominal.as_ref(),
         )
     });
     found.unwrap_or_else(|| super::node_pointer(position).key("body"))
