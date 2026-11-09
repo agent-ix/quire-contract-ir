@@ -2,7 +2,9 @@
 
 use super::graph_storage::{GraphIndex, ResolvedKey, SortedTable};
 use super::protocol_body::ChannelDelivery;
-use super::stage_storage::{node_path, refuse_at, refuse_unlocated, Path};
+use super::stage_storage::{
+    charge_amount_at, charge_at, node_path, refuse_at, refuse_unlocated, Path,
+};
 use super::CheckedTerm;
 use crate::checked_package::common::{
     validate_term, Ids, ReferenceVisitor, TermGrammar, Trail, ValidationFailure,
@@ -1290,21 +1292,6 @@ impl RefinementKey {
             Self::External(_) => None,
         }
     }
-}
-
-/// Charges one unit of work at `at`; a denial pays for its pointer first.
-fn charge_at(meter: &mut super::WorkMeter, at: Path<'_>) -> Result<(), ValidationFailure> {
-    charge_amount_at(meter, at, 1)
-}
-
-/// Charges `amount` units of work at `at`; a denial pays for its pointer first.
-fn charge_amount_at(
-    meter: &mut super::WorkMeter,
-    at: Path<'_>,
-    amount: u64,
-) -> Result<(), ValidationFailure> {
-    let site = super::natural::site(meter, at);
-    super::natural::work_at(meter, site, amount)
 }
 
 /// A refusal about the value at `at` with the `cause` this stage determined,

@@ -47,14 +47,13 @@ pub(crate) fn measure_at<C: Counter>(
 /// Heap a read may request beyond the read storage its budget admitted, in
 /// bytes. The allowance does not depend on the size of the input.
 ///
-/// Measured over the reads that run under `make test`, unpaid heap is zero
-/// everywhere except the step-relation fixture of the frame-entries tests
-/// (15479 bytes in its denied reads, which fails the bound). There is no
-/// measured nonzero constant to derive the value from: four kibibytes is
-/// headroom for one constant-size diagnostic carrier (a refusal record, its
-/// location, its pointer and a node clone, under one kibibyte), and under half
-/// a percent of a one-mebibyte input.
-pub(crate) const UNPAID_BOUND: u64 = 4_096;
+/// Measured over the reads that run under `make test`, unpaid heap is zero in
+/// every read except the known failure named in the spec. There is no measured
+/// nonzero constant to derive the value from: one kibibyte is headroom for one
+/// constant-size diagnostic carrier (a refusal record, its location, its
+/// pointer and a node clone, about a kibibyte at most), and a tenth of a
+/// percent of a one-mebibyte input.
+pub(crate) const UNPAID_BOUND: u64 = 1_024;
 
 /// Bytes requested during the read that the budget did not admit.
 pub(crate) fn unpaid(observation: &Observation) -> u64 {

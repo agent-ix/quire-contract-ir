@@ -684,6 +684,21 @@ pub(super) fn refuse_unlocated<'a>(
     refuse(meter, &site, Refusal::new(code, at))
 }
 
+/// Charges one unit of work at `at`; a denial pays for its pointer first.
+pub(super) fn charge_at(meter: &mut WorkMeter<'_>, at: Path<'_>) -> Result<(), ValidationFailure> {
+    charge_amount_at(meter, at, 1)
+}
+
+/// Charges `amount` units of work at `at`; a denial pays for its pointer first.
+pub(super) fn charge_amount_at(
+    meter: &mut WorkMeter<'_>,
+    at: Path<'_>,
+    amount: u64,
+) -> Result<(), ValidationFailure> {
+    let site = super::natural::site(meter, at);
+    super::natural::work_at(meter, site, amount)
+}
+
 /// Moves a pointer whose String buffer was already paid by the canonical
 /// reader. Only new record/location storage and an actual String-to-Box shrink
 /// request are charged here; the original buffer is never charged twice.
