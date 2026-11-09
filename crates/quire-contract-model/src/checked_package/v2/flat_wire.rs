@@ -39,7 +39,7 @@ use super::{
     TemporalForm, ValueForm,
 };
 use super::{ApplicationOperator, BodyTerm, RawCheckedPackageWireV2 as CheckedPackageWireV2};
-use crate::checked_package::common::{node_pointer, Step, Trail, ValidationFailure};
+use crate::checked_package::common::{Step, Trail, ValidationFailure};
 use crate::checked_package::shared::CheckedOperandEntry;
 use crate::checked_package::shared::{CheckedPackageRefusalCause, CheckedPackageRefusalCode};
 use crate::checked_package::terms::{At, Cursor, TermSource};
@@ -49,6 +49,43 @@ use std::ops::ControlFlow;
 /// The charge site of the flat-wire check at graph node `index`.
 fn flat_site(index: usize) -> Site {
     Site::new(PackageReadStage::WireChecks, index, "flat_wire")
+}
+
+/// A refusal about `at`, its whole owned diagnostic charged to the read
+/// before any of it is built.
+fn flat_refusal<'a>(
+    meter: &Meter<'_>,
+    position: usize,
+    code: CheckedPackageRefusalCode,
+    at: impl Into<stage_storage::Position<'a>>,
+) -> ValidationFailure {
+    stage_storage::refuse_charged(meter, flat_site(position), Refusal::new(code, at))
+}
+
+/// [`flat_refusal`] located at `node`, with the `cause` this stage determined.
+fn flat_refusal_at<'a>(
+    meter: &Meter<'_>,
+    position: usize,
+    code: CheckedPackageRefusalCode,
+    cause: Option<CheckedPackageRefusalCause>,
+    at: impl Into<stage_storage::Position<'a>>,
+    node: &'a crate::checked_package::shared::CheckedNodeId,
+) -> ValidationFailure {
+    flat_refusal_at_site(meter, flat_site(position), code, cause, at, node)
+}
+
+/// [`flat_refusal_at`] charged at `site`.
+fn flat_refusal_at_site<'a>(
+    meter: &Meter<'_>,
+    site: Site,
+    code: CheckedPackageRefusalCode,
+    cause: Option<CheckedPackageRefusalCause>,
+    at: impl Into<stage_storage::Position<'a>>,
+    node: &'a crate::checked_package::shared::CheckedNodeId,
+) -> ValidationFailure {
+    let mut refusal = Refusal::new(code, at).at_node(node);
+    refusal.cause = cause;
+    stage_storage::refuse_charged(meter, site, refusal)
 }
 
 /// The charge site of the interval-bound checks at graph node `index`.
@@ -131,10 +168,7 @@ pub(super) fn check(
         wire.semantic_graph.nodes.len(),
     )?;
     for (position, node) in wire.semantic_graph.nodes.iter().enumerate() {
-        let kind = super::decode_node_kind(node, |member| {
-            crate::checked_package::common::node_pointer(position).key(member)
-        })
-        .map_err(|failure| {
+        let kind = super::node_kind_or_fault(node).map_err(|(code, member)| {
             // These families' malformed forms precede even a bad schema
             // version. Decode the successful header only once; inspect the
             // typed vocabulary again solely to preserve that refusal order.
@@ -145,12 +179,19 @@ pub(super) fn check(
                 ) && CheckedNodeKind::decode(tag, &node.semantic_form).is_none()
             });
             if malformed_form {
-                ValidationFailure::refused(
+                flat_refusal(
+                    &meter,
+                    position,
                     CheckedPackageRefusalCode::MalformedWire,
-                    crate::checked_package::common::node_pointer(position).key("semantic_form"),
+                    stage_storage::node_path(position).key("semantic_form"),
                 )
             } else {
-                failure
+                flat_refusal(
+                    &meter,
+                    position,
+                    code,
+                    stage_storage::node_path(position).key(member),
+                )
             }
         })?;
         if let CheckedNodeKind::Protocol(form) = kind {
@@ -168,9 +209,11 @@ pub(super) fn check(
                     .any(|occurrence| occurrence.role != expected_role)
                     || node.declaration.is_some() != (form != super::ProtocolForm::Queue)
                 {
-                    return Err(ValidationFailure::refused(
+                    return Err(flat_refusal(
+                        &meter,
+                        position,
                         CheckedPackageRefusalCode::MalformedWire,
-                        crate::checked_package::common::node_pointer(position),
+                        stage_storage::node_path(position),
                     ));
                 }
             }
@@ -187,9 +230,11 @@ pub(super) fn check(
         let checked = match body_grammar(kind) {
             BodyGrammar::Literal => {
                 if body.kind() != Some(BodyTerm::Literal) {
-                    Err(ValidationFailure::refused(
+                    Err(flat_refusal(
+                        &meter,
+                        position,
                         CheckedPackageRefusalCode::MalformedWire,
-                        at.pointer(),
+                        at,
                     ))
                 } else {
                     check_term(
@@ -204,18 +249,22 @@ pub(super) fn check(
             }
             BodyGrammar::Extension => {
                 if node.declaration.is_none() || node.owner.is_none() {
-                    Err(ValidationFailure::refused(
+                    Err(flat_refusal(
+                        &meter,
+                        position,
                         CheckedPackageRefusalCode::MalformedWire,
-                        crate::checked_package::common::node_pointer(position),
+                        stage_storage::node_path(position),
                     ))
                 } else if node.occurrences.len() != 1
                     || node.occurrences[0].role
                         != crate::checked_package::shared::CheckedOccurrenceRole::Declaration
                     || node.occurrences[0].ordinal != 0
                 {
-                    Err(ValidationFailure::refused(
+                    Err(flat_refusal(
+                        &meter,
+                        position,
                         CheckedPackageRefusalCode::MalformedWire,
-                        crate::checked_package::common::node_pointer(position).key("occurrences"),
+                        stage_storage::node_path(position).key("occurrences"),
                     ))
                 } else {
                     super::extension::read_body(
@@ -271,9 +320,11 @@ pub(super) fn check(
                     && body.kind() == Some(BodyTerm::Application)
                     && body.operator() == Some(ApplicationOperator::ProtocolControl)
                 {
-                    Err(ValidationFailure::refused(
+                    Err(flat_refusal(
+                        &meter,
+                        position,
                         CheckedPackageRefusalCode::MalformedWire,
-                        at.pointer(),
+                        at,
                     ))
                 } else {
                     check_term(
@@ -291,10 +342,7 @@ pub(super) fn check(
                         // the operation step can decide the outcome.
                         let operation = body.get("operation");
                         if wrong_profile_member(operation) {
-                            return Err(ValidationFailure::refused(
-                                CheckedPackageRefusalCode::MalformedWire,
-                                at.key("operation").key("member").key("operator").pointer(),
-                            ));
+                            return Err(flat_refusal(&meter, position, CheckedPackageRefusalCode::MalformedWire, at.key("operation").key("member").key("operator")));
                         }
                         let member = member_of(operation, "member");
                         if member_of(member, "kind").and_then(TermNode::as_str)
@@ -308,13 +356,10 @@ pub(super) fn check(
                                 None => true,
                             }
                         {
-                            return Err(ValidationFailure::refused(
-                                CheckedPackageRefusalCode::MalformedWire,
-                                at.key("operation")
+                            return Err(flat_refusal(&meter, position, CheckedPackageRefusalCode::MalformedWire, at.key("operation")
                                     .key("member")
                                     .key("destination_type")
-                                    .pointer(),
-                            ));
+                                    ));
                         }
                         if kind == CheckedNodeKind::State(super::StateForm::Transition) {
                             let decoded = body
@@ -326,22 +371,16 @@ pub(super) fn check(
                                 .is_some()
                                 && transition_profile_wire_shape(operation);
                             if !transition_shape {
-                                return Err(ValidationFailure::refused(
-                                    CheckedPackageRefusalCode::MalformedWire,
-                                    at.pointer(),
-                                ));
+                                return Err(flat_refusal(&meter, position, CheckedPackageRefusalCode::MalformedWire, at));
                             }
                             if let Some(ordinal) = node.occurrences.iter().position(|occurrence| {
                                 occurrence.role
                                     != crate::checked_package::shared::CheckedOccurrenceRole::Claim
                             }) {
-                                return Err(ValidationFailure::refused(
-                                    CheckedPackageRefusalCode::MalformedWire,
-                                    node_pointer(position)
+                                return Err(flat_refusal(&meter, position, CheckedPackageRefusalCode::MalformedWire, stage_storage::node_path(position)
                                         .key("occurrences")
                                         .index(ordinal)
-                                        .key("role"),
-                                ));
+                                        .key("role")));
                             }
                         }
                         let CheckedNodeKind::Protocol(form) = kind else {
@@ -356,38 +395,63 @@ pub(super) fn check(
                         if let Some(defect) =
                             super::protocol_body::wire_layout_defect(form, &decoded)
                         {
-                            let path = match defect {
-                                super::protocol_body::ProtocolLayoutWireDefect::Body => {
-                                    node_pointer(position)
+                            let invalid = Some(CheckedPackageRefusalCause::InvalidValue);
+                            Err(match defect {
+                                super::protocol_body::ProtocolLayoutWireDefect::Body
+                                | super::protocol_body::ProtocolLayoutWireDefect::EnumValue => {
+                                    flat_refusal(
+                                        &meter,
+                                        position,
+                                        CheckedPackageRefusalCode::MalformedWire,
+                                        stage_storage::node_path(position),
+                                    )
                                 }
                                 super::protocol_body::ProtocolLayoutWireDefect::NegativeQueueCapacity => {
-                                    return Err(ValidationFailure::refused_at(
+                                    flat_refusal_at(
+                                        &meter,
+                                        position,
                                         CheckedPackageRefusalCode::InvalidPackage,
-                                        at.pointer().key("arguments").index(1).key("value")
-                                            .key("members").index(1).key("value"),
-                                        Some(super::super::shared::CheckedPackageRefusalCause::InvalidValue),
-                                        node.node_id.clone(),
-                                    ));
+                                        invalid,
+                                        at.key("arguments")
+                                            .index(1)
+                                            .key("value")
+                                            .key("members")
+                                            .index(1)
+                                            .key("value"),
+                                        &node.node_id,
+                                    )
                                 }
-                                super::protocol_body::ProtocolLayoutWireDefect::NegativeBound { argument, member, binding } => {
-                                    let mut path = at.pointer().key("arguments").index(argument).key("value")
-                                        .key("members").index(member);
-                                    if binding { path = path.key("value"); }
-                                    return Err(ValidationFailure::refused_at(
-                                        CheckedPackageRefusalCode::InvalidPackage,
-                                        path,
-                                        Some(super::super::shared::CheckedPackageRefusalCause::InvalidValue),
-                                        node.node_id.clone(),
-                                    ));
+                                super::protocol_body::ProtocolLayoutWireDefect::NegativeBound {
+                                    argument,
+                                    member,
+                                    binding,
+                                } => {
+                                    let arguments = at.key("arguments");
+                                    let argument_at = arguments.index(argument);
+                                    let value_at = argument_at.key("value");
+                                    let members_at = value_at.key("members");
+                                    let member_at = members_at.index(member);
+                                    if binding {
+                                        flat_refusal_at(
+                                            &meter,
+                                            position,
+                                            CheckedPackageRefusalCode::InvalidPackage,
+                                            invalid,
+                                            member_at.key("value"),
+                                            &node.node_id,
+                                        )
+                                    } else {
+                                        flat_refusal_at(
+                                            &meter,
+                                            position,
+                                            CheckedPackageRefusalCode::InvalidPackage,
+                                            invalid,
+                                            member_at,
+                                            &node.node_id,
+                                        )
+                                    }
                                 }
-                                super::protocol_body::ProtocolLayoutWireDefect::EnumValue => {
-                                    crate::checked_package::common::node_pointer(position)
-                                }
-                            };
-                            Err(ValidationFailure::refused(
-                                CheckedPackageRefusalCode::MalformedWire,
-                                path,
-                            ))
+                            })
                         } else {
                             Ok(())
                         }
@@ -543,23 +607,21 @@ pub(super) fn check_interval_bounds(
                 .is_none_or(|formulas| !formulas.contains(&node.node_id));
         }
         if let Some(bound) = outside_pattern.or(nonhybrid_open_upper.then_some("upper")) {
-            let steps = [
-                Step::Key("semantic_graph"),
-                Step::Key("nodes"),
-                Step::Index(position),
-                Step::Key("body"),
-            ];
-            let failure = ValidationFailure::refused_because(
+            let interval = stage_storage::node_path(position)
+                .key("body")
+                .key("operation")
+                .key("member")
+                .key("interval")
+                .key(bound);
+            let meter = Meter::new(&mut *budget);
+            return Err(flat_refusal_at_site(
+                &meter,
+                interval_site(position),
                 CheckedPackageRefusalCode::InvalidPackage,
-                Trail::Base(&steps)
-                    .key("operation")
-                    .key("member")
-                    .key("interval")
-                    .key(bound)
-                    .pointer(),
-                CheckedPackageRefusalCause::InvalidValue,
-            );
-            return Err(super::with_node_locus(failure, &node.node_id));
+                Some(CheckedPackageRefusalCause::InvalidValue),
+                interval,
+                &node.node_id,
+            ));
         }
     }
     read_charge::end_stage(budget);

@@ -1131,6 +1131,9 @@ struct OperationWork<'a, 'b> {
 
 /// A stored test pointer or a borrowed strict-reader position. Healthy reads
 /// carry fixed steps; diagnostic strings are constructed only after denial.
+// The stack path is the point of the variant; boxing it would be a heap
+// request of its own.
+#[allow(clippy::large_enum_variant)]
 #[derive(Clone)]
 enum OperationPath {
     Held(JsonPointer),
