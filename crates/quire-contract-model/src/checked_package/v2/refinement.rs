@@ -738,7 +738,7 @@ pub(super) fn replace_node_ids(body: &mut CheckedTerm, old: &CheckedNodeId, new:
     }
 }
 
-fn invalid(at: &Trail<'_>) -> ValidationFailure {
+pub(super) fn invalid(at: &Trail<'_>) -> ValidationFailure {
     ValidationFailure::refused(
         CheckedPackageRefusalCode::InvalidSemanticGraph,
         at.pointer(),
@@ -746,14 +746,14 @@ fn invalid(at: &Trail<'_>) -> ValidationFailure {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum RefinementClassKind {
+pub(super) enum RefinementClassKind {
     Declared,
     Memory,
 }
 
 /// Convert a raw source class spelling before graph admission.
 #[ix_trace_rs::string_edge]
-fn class_kind(class: &str) -> Option<RefinementClassKind> {
+pub(super) fn class_kind(class: &str) -> Option<RefinementClassKind> {
     if class.is_empty() {
         None
     } else if class.starts_with("memory ") {
@@ -1155,12 +1155,19 @@ fn row_terms<'a, V: TermSource<'a>>(
 
 /// Check the complete closed body before graph admission, including the
 /// nested flat-term rule that applies to each row expression independently.
-pub(super) fn check_wire<'a, V: TermSource<'a>>(
-    body: V,
+pub(super) fn check_wire<'a>(
+    body: super::term_view::TermNode<'a>,
     typed: Option<&CheckedTerm>,
     at: &Trail<'_>,
     walk: &mut super::read_charge::WalkReservation<'_>,
 ) -> Result<(), ValidationFailure> {
+    super::term_view::refinement_header(body, at)?;
+    if let Some(catalog) = body.get("class_catalog") {
+        super::term_view::refinement_catalog_wire(catalog, &at.key("class_catalog"))?;
+    }
+    if typed.is_none() {
+        return Err(super::term_view::refinement_rows_fault(body, at, walk));
+    }
     let Some(CheckedTerm::Refinement {
         steps,
         histories,

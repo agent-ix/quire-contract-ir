@@ -704,25 +704,25 @@ mod early_refusal_allocation_tests {
             (
                 b"null".as_slice(),
                 CheckedPackageRefusalCode::MalformedWire,
-                "/contract_version",
+                "",
                 None,
             ),
             (
                 br#""text""#.as_slice(),
                 CheckedPackageRefusalCode::MalformedWire,
-                "/contract_version",
+                "",
                 None,
             ),
             (
                 b"[]".as_slice(),
                 CheckedPackageRefusalCode::MalformedWire,
-                "/contract_version",
+                "",
                 None,
             ),
             (
                 b"[null]".as_slice(),
                 CheckedPackageRefusalCode::MalformedWire,
-                "/contract_version",
+                "",
                 None,
             ),
             (

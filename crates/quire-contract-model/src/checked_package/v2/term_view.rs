@@ -1012,6 +1012,382 @@ impl<'d> RefinementDocument<'_, 'd> {
     }
 }
 
+/// Where a refinement body departs from its closed wire, found on the refusal
+/// path only. A healthy body never reaches these walks; each borrows the
+/// document and builds nothing but the refusal it returns.
+mod refinement_fault {
+    use super::super::refinement::{
+        class_kind, invalid, RefinementClassKind, RefinementFairnessKind, RefinementGranularity,
+        RefinementMemoryModel,
+    };
+    use super::{flat_shape, FlatShape, RefinementAtom, TermNode};
+    use crate::checked_package::common::{Trail, ValidationFailure};
+    use crate::checked_package::shared::CheckedPackageRefusalCode;
+    use crate::checked_package::v2::read_charge::WalkReservation;
+
+    type Found = Result<(), ValidationFailure>;
+
+    fn malformed(at: &Trail<'_>) -> ValidationFailure {
+        ValidationFailure::refused(CheckedPackageRefusalCode::MalformedWire, at.pointer())
+    }
+
+    /// An object whose members are exactly `required` plus any of `optional`.
+    fn shape(node: TermNode<'_>, required: &[&str], optional: &[&str], at: &Trail<'_>) -> Found {
+        let Some(mut members) = node.members() else {
+            return Err(invalid(at));
+        };
+        if let Some(name) = required.iter().find(|name| node.get(name).is_none()) {
+            return Err(invalid(&at.key(name)));
+        }
+        if let Some((extra, _)) =
+            members.find(|(name, _)| !required.contains(name) && !optional.contains(name))
+        {
+            return Err(invalid(&at.key(extra)));
+        }
+        Ok(())
+    }
+
+    fn member<'d>(
+        node: TermNode<'d>,
+        name: &str,
+        at: &Trail<'_>,
+    ) -> Result<TermNode<'d>, ValidationFailure> {
+        node.get(name).ok_or_else(|| invalid(&at.key(name)))
+    }
+
+    fn atom<'d, T: RefinementAtom<'d>>(node: TermNode<'d>, at: &Trail<'_>) -> Found {
+        if T::accepts(node) {
+            Ok(())
+        } else {
+            Err(invalid(at))
+        }
+    }
+
+    fn text(node: TermNode<'_>, at: &Trail<'_>) -> Found {
+        node.as_str().map(|_| ()).ok_or_else(|| invalid(at))
+    }
+
+    fn id(node: TermNode<'_>, at: &Trail<'_>) -> Found {
+        if flat_shape(node, FlatShape::Id) {
+            Ok(())
+        } else {
+            Err(invalid(at))
+        }
+    }
+
+    fn key(node: TermNode<'_>, at: &Trail<'_>) -> Found {
+        if node.get("node").is_some() {
+            shape(node, &["package", "node"], &[], at)?;
+            text(member(node, "package", at)?, &at.key("package"))?;
+            id(member(node, "node", at)?, &at.key("node"))
+        } else {
+            id(node, at)
+        }
+    }
+
+    fn rows<'d>(
+        node: TermNode<'d>,
+        name: &str,
+        at: &Trail<'_>,
+        mut visit: impl FnMut(TermNode<'d>, &Trail<'_>) -> Found,
+    ) -> Found {
+        let rows_at = at.key(name);
+        let items = member(node, name, at)?
+            .items()
+            .ok_or_else(|| invalid(&rows_at))?;
+        for (index, row) in items.enumerate() {
+            visit(row, &rows_at.index(index))?;
+        }
+        Ok(())
+    }
+
+    fn term(node: TermNode<'_>, at: &Trail<'_>, walk: &mut WalkReservation<'_>) -> Found {
+        super::super::flat_wire::check_refinement_term(node, at, walk)?;
+        if node.kind().is_none() {
+            return Err(invalid(at));
+        }
+        Ok(())
+    }
+
+    fn argument(node: TermNode<'_>, at: &Trail<'_>, walk: &mut WalkReservation<'_>) -> Found {
+        if node.get("term").and_then(TermNode::as_str) == Some("open") {
+            shape(node, &["term"], &[], at)
+        } else {
+            term(node, at, walk)
+        }
+    }
+
+    fn target(node: TermNode<'_>, at: &Trail<'_>, walk: &mut WalkReservation<'_>) -> Found {
+        let kind = member(node, "kind", at)?
+            .as_str()
+            .ok_or_else(|| invalid(&at.key("kind")))?;
+        match kind {
+            "operation" => {
+                shape(
+                    node,
+                    &["kind", "operation", "receiver", "arguments"],
+                    &[],
+                    at,
+                )?;
+                key(member(node, "operation", at)?, &at.key("operation"))?;
+                term(member(node, "receiver", at)?, &at.key("receiver"), walk)?;
+                rows(node, "arguments", at, |row, row_at| {
+                    argument(row, row_at, walk)
+                })
+            }
+            "protocol_step" => {
+                shape(node, &["kind", "class", "arguments"], &["node"], at)?;
+                text(member(node, "class", at)?, &at.key("class"))?;
+                if let Some(value) = node.get("node") {
+                    key(value, &at.key("node"))?;
+                }
+                rows(node, "arguments", at, |row, row_at| {
+                    argument(row, row_at, walk)
+                })
+            }
+            "stutter" | "any" => shape(node, &["kind"], &[], at),
+            _ => Err(invalid(&at.key("kind"))),
+        }
+    }
+
+    fn concrete_class(node: TermNode<'_>, at: &Trail<'_>) -> Found {
+        if node.get("node").is_none() {
+            // A memory entry passed the closed catalog wire before this walk.
+            return Ok(());
+        }
+        shape(node, &["class", "node", "binder_types"], &[], at)?;
+        text(member(node, "class", at)?, &at.key("class"))?;
+        id(member(node, "node", at)?, &at.key("node"))?;
+        rows(node, "binder_types", at, id)
+    }
+
+    fn abstract_class(node: TermNode<'_>, at: &Trail<'_>) -> Found {
+        if node.get("node").is_none() {
+            // A memory entry passed the closed catalog wire before this walk.
+            return Ok(());
+        }
+        shape(node, &["class", "node", "binder_types"], &[], at)?;
+        text(member(node, "class", at)?, &at.key("class"))?;
+        key(member(node, "node", at)?, &at.key("node"))?;
+        rows(node, "binder_types", at, key)
+    }
+
+    /// The outer object of a refinement body.
+    pub(in super::super) fn header(body: TermNode<'_>, at: &Trail<'_>) -> Found {
+        const REQUIRED: [&str; 9] = [
+            "term",
+            "abstract",
+            "profile",
+            "populations",
+            "objects",
+            "steps",
+            "histories",
+            "assume",
+            "ensure",
+        ];
+        let Some(mut members) = body.members() else {
+            return Err(invalid(at));
+        };
+        if body.get("term").and_then(TermNode::as_str) != Some("refinement")
+            || REQUIRED.iter().any(|name| body.get(name).is_none())
+            || members.any(|(name, _)| {
+                !REQUIRED.contains(&name)
+                    && name != "protocol"
+                    && name != "abstract_internal"
+                    && name != "class_catalog"
+            })
+        {
+            return Err(invalid(at));
+        }
+        Ok(())
+    }
+
+    /// The class catalog's closed wire: memory entries refuse as malformed
+    /// wire at the offending member, declared entries as an invalid graph.
+    pub(in super::super) fn catalog(catalog: TermNode<'_>, at: &Trail<'_>) -> Found {
+        if !catalog.exact_members(&["concrete", "abstract"]) {
+            return Err(invalid(at));
+        }
+        for side in ["concrete", "abstract"] {
+            rows(catalog, side, at, |entry, entry_at| {
+                if entry.members().is_none() {
+                    return Err(invalid(entry_at));
+                }
+                let Some(class) = entry.get("class").and_then(TermNode::as_str) else {
+                    return Err(invalid(&entry_at.key("class")));
+                };
+                if class_kind(class) == Some(RefinementClassKind::Memory) {
+                    if !matches!(class, "memory drain" | "memory flush") {
+                        return Err(malformed(&entry_at.key("class")));
+                    }
+                    let model_at = entry_at.key("memory_model");
+                    let Some(model) = entry.get("memory_model") else {
+                        return Err(malformed(&model_at));
+                    };
+                    if !RefinementMemoryModel::accepts(model)
+                        || (class == "memory flush" && model.as_str() != Some("tso"))
+                    {
+                        return Err(malformed(&model_at));
+                    }
+                    if class == "memory drain"
+                        && entry.get("drain").and_then(TermNode::as_str)
+                            != Some("store-buffer-flush")
+                    {
+                        return Err(malformed(&entry_at.key("drain")));
+                    }
+                    let allowed: &[&str] = if class == "memory drain" {
+                        &["class", "memory_model", "drain"]
+                    } else {
+                        &["class", "memory_model"]
+                    };
+                    if let Some((extra, _)) = entry
+                        .members()
+                        .and_then(|mut members| members.find(|(name, _)| !allowed.contains(name)))
+                    {
+                        return Err(malformed(&entry_at.key(extra)));
+                    }
+                } else if class.is_empty()
+                    || entry.members().is_none_or(|members| members.len() != 3)
+                    || entry.get("node").is_none()
+                    || entry.get("binder_types").is_none()
+                {
+                    return Err(invalid(entry_at));
+                }
+                Ok(())
+            })?;
+        }
+        Ok(())
+    }
+
+    /// The first row, in decode order, that the typed decode refused.
+    pub(in super::super) fn rows_fault(
+        body: TermNode<'_>,
+        at: &Trail<'_>,
+        walk: &mut WalkReservation<'_>,
+    ) -> ValidationFailure {
+        let found = (|| -> Found {
+            rows(body, "populations", at, |row, row_at| {
+                shape(row, &["abstract", "concrete"], &[], row_at)?;
+                key(member(row, "abstract", row_at)?, &row_at.key("abstract"))?;
+                id(member(row, "concrete", row_at)?, &row_at.key("concrete"))
+            })?;
+            rows(body, "objects", at, |row, row_at| {
+                shape(
+                    row,
+                    &["abstract_type", "concrete_type", "fields"],
+                    &[],
+                    row_at,
+                )?;
+                key(
+                    member(row, "abstract_type", row_at)?,
+                    &row_at.key("abstract_type"),
+                )?;
+                id(
+                    member(row, "concrete_type", row_at)?,
+                    &row_at.key("concrete_type"),
+                )?;
+                rows(row, "fields", row_at, |field, field_at| {
+                    shape(field, &["name", "expression"], &[], field_at)?;
+                    text(member(field, "name", field_at)?, &field_at.key("name"))?;
+                    term(
+                        member(field, "expression", field_at)?,
+                        &field_at.key("expression"),
+                        walk,
+                    )
+                })
+            })?;
+            rows(body, "steps", at, |row, row_at| {
+                shape(row, &["source_class", "target"], &["source_node"], row_at)?;
+                text(
+                    member(row, "source_class", row_at)?,
+                    &row_at.key("source_class"),
+                )?;
+                if let Some(value) = row.get("source_node") {
+                    id(value, &row_at.key("source_node"))?;
+                }
+                target(member(row, "target", row_at)?, &row_at.key("target"), walk)
+            })?;
+            rows(body, "histories", at, |row, row_at| {
+                shape(
+                    row,
+                    &["concrete_type", "name", "type", "initial", "updates"],
+                    &[],
+                    row_at,
+                )?;
+                id(
+                    member(row, "concrete_type", row_at)?,
+                    &row_at.key("concrete_type"),
+                )?;
+                text(member(row, "name", row_at)?, &row_at.key("name"))?;
+                id(member(row, "type", row_at)?, &row_at.key("type"))?;
+                term(
+                    member(row, "initial", row_at)?,
+                    &row_at.key("initial"),
+                    walk,
+                )?;
+                rows(row, "updates", row_at, |update, update_at| {
+                    shape(update, &["operation", "expression"], &[], update_at)?;
+                    id(
+                        member(update, "operation", update_at)?,
+                        &update_at.key("operation"),
+                    )?;
+                    term(
+                        member(update, "expression", update_at)?,
+                        &update_at.key("expression"),
+                        walk,
+                    )
+                })
+            })?;
+            for (name, abstract_operation) in [("assume", false), ("ensure", true)] {
+                rows(body, name, at, |row, row_at| {
+                    shape(row, &["operation", "kind", "granularity"], &[], row_at)?;
+                    let operation = member(row, "operation", row_at)?;
+                    if abstract_operation {
+                        key(operation, &row_at.key("operation"))?;
+                    } else {
+                        id(operation, &row_at.key("operation"))?;
+                    }
+                    atom::<RefinementFairnessKind>(
+                        member(row, "kind", row_at)?,
+                        &row_at.key("kind"),
+                    )?;
+                    atom::<RefinementGranularity>(
+                        member(row, "granularity", row_at)?,
+                        &row_at.key("granularity"),
+                    )
+                })?;
+            }
+            if let Some(catalog) = body.get("class_catalog") {
+                let catalog_at = at.key("class_catalog");
+                shape(catalog, &["concrete", "abstract"], &[], &catalog_at)?;
+                rows(catalog, "concrete", &catalog_at, concrete_class)?;
+                rows(catalog, "abstract", &catalog_at, abstract_class)?;
+            }
+            key(member(body, "abstract", at)?, &at.key("abstract"))?;
+            atom::<super::super::CheckedArtifactRef>(
+                member(body, "profile", at)?,
+                &at.key("profile"),
+            )?;
+            if let Some(protocol) = body.get("protocol") {
+                key(protocol, &at.key("protocol"))?;
+            }
+            if body.get("abstract_internal").is_some() {
+                rows(body, "abstract_internal", at, text)?;
+            }
+            Ok(())
+        })();
+        match found {
+            Err(failure) => failure,
+            Ok(()) => invalid(at),
+        }
+    }
+}
+
+pub(super) use refinement_fault::{
+    catalog as refinement_catalog_wire, header as refinement_header,
+    rows_fault as refinement_rows_fault,
+};
+
 // Check closed flat shapes by borrowing the document. Serde's owned schema
 // errors are never constructed for these bodies; malformed bodies retain the
 // existing deferred flat-correspondence refusal in the graph validator.

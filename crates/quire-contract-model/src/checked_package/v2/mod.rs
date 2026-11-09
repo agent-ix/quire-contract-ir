@@ -1523,19 +1523,19 @@ impl CheckedPackageV2 {
                 return Err(failure);
             }
             None => {
+                // A present member of the wrong kind is refused at the member;
+                // an absent member, or a document that is no object, at the
+                // document.
+                let path = if package.get("contract_version").is_some() {
+                    version_path
+                } else {
+                    stage_storage::Path::root()
+                };
                 let mut meter = WorkMeter::over(budget);
                 return Err(stage_storage::refuse(
                     &mut meter,
-                    &stage_storage::Site::new(
-                        PackageReadStage::WireDecode,
-                        0,
-                        "wire",
-                        version_path,
-                    ),
-                    stage_storage::Refusal::new(
-                        CheckedPackageRefusalCode::MalformedWire,
-                        version_path,
-                    ),
+                    &stage_storage::Site::new(PackageReadStage::WireDecode, 0, "wire", path),
+                    stage_storage::Refusal::new(CheckedPackageRefusalCode::MalformedWire, path),
                 ));
             }
         }
