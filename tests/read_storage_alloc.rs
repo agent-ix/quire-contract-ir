@@ -72,9 +72,10 @@ static ALLOCATOR: Counting = Counting;
 
 #[path = "it/support/read_allocation_proof.rs"]
 mod read_allocation_proof;
+use qspec_read_proof::observation::{unpaid, UNPAID_BOUND};
 use read_allocation_proof::{
-    accounted, drop_without_request, every_request, generous_limits, measure_read, unpaid, Counter,
-    Expected, UNPAID_BOUND,
+    accounted, drop_without_request, every_request, generous_limits, measure_read, Counter,
+    Expected,
 };
 
 struct ThreadCounter;

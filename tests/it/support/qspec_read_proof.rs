@@ -18,7 +18,7 @@ pub(crate) mod observation;
 pub(crate) use equivalence::{
     assert_admitted_views_equal, assert_budgeted_results_equal, ReadViewScope,
 };
-use observation::{accounted, drop_without_request};
+use observation::drop_without_request;
 pub(crate) use observation::{measure_at, Counter, Observation};
 use quire_contract_model::{
     CheckedPackageEvidence, CheckedPackageLimit, CheckedPackageReadLimits, CheckedPackageV2,

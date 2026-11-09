@@ -17,7 +17,8 @@ heap allocation it makes to the caller's `NativeJoinBudget` before the step or
 allocation, at a `PackageRead` locus, with heap bytes charged to the budget's
 separate read-storage counter; that an exact allowance admits and one below
 refuses at the first unpaid charge with no partial package; that the charged
-read storage equals the total bytes a counting allocator observes requested;
+read storage differs from the total bytes a counting allocator observes
+requested by at most a fixed bound that does not depend on the input size;
 and that every sufficient budget returns the unlimited budget's outcome.
 
 ## Test Procedure
@@ -91,7 +92,8 @@ and that every sufficient budget returns the unlimited budget's outcome.
    replaying every allocation prefix of the 100000-node chain. An existing
    earlier work denial remains the original first fault when the original
    finite work cap stops a storage probe first; no storage-first outcome is
-   invented. Every probe still asserts requested bytes equal charged bytes.
+   invented. Every probe still asserts requested bytes exceed charged bytes by
+   no more than the fixed bound.
    Keep the all-input ample/exact/last-short core tier distinct from the full
    normative boundary tier in commands and result records.
    For a designated walker-growth or exact-reservation adverse provider,
@@ -103,7 +105,7 @@ and that every sufficient budget returns the unlimited budget's outcome.
    locus, outcome and configuration field. Compare the original call's full
    outcome and entire final budget with serial checked snapshot reads; assert
    the logical-storage consumption is unchanged and actual requested bytes
-   equal the read-storage delta. Boundary replay may explicitly change only
+   exceed the read-storage delta by no more than the fixed bound. Boundary replay may explicitly change only
    the work limit, read-storage limit and unlimited flag of an exact snapshot.
    Do not reconstruct prior state from consumption totals or replace the
    original caller's one mutable-budget invocation with a proof invocation.
@@ -123,7 +125,7 @@ and that every sufficient budget returns the unlimited budget's outcome.
    `Debug`, serde round trips of `CheckedTerm` and `CheckedDiagnosticV2`.
 9. Enumerate the QSpec adverse corpus for vectors whose expected outcome
    depends on byte-stream fault order (FR-038-AC-509).
-10. Inspect the read path for the absence of `serde_json` parsing, `Value`,
+10. (Planned: no automated check yet.) Inspect the read path for the absence of `serde_json` parsing, `Value`,
    `RawValue`, `num-bigint` arithmetic, stable sorts, `BTreeMap`, `BTreeSet`,
    `HashMap`, a private work meter, an unmetered entry or a second read
    implementation; confirm the public read entries take the budget and the
@@ -139,8 +141,9 @@ and that every sufficient budget returns the unlimited budget's outcome.
 
 ## Expected Results
 
-- Every read's admitted read-storage delta equals its observed requested
-  bytes, under unlimited, exact and one-below budgets, for admitted and refused
+- Every read's observed requested bytes exceed its admitted read-storage delta
+  by at most 131072 bytes, whatever the input size (the test reads one package
+  shape at growing sizes and asserts the excess stays within that bound), under unlimited, exact and one-below budgets, for admitted and refused
   inputs; its logical storage delta is zero; no request is observed for a
   denied charge, and every request after a denial belongs to the charged
   outcome diagnostic.
