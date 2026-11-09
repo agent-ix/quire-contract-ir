@@ -28,3 +28,9 @@ CONDITIONAL. AC-511 is tagged and exercised by the counting-allocator tests. AC-
 - `FR-358-AC-12` (examined): `quire trace` reports one structural claim, document_de.rs:1222.
 - Deleted names `measure_at_unchecked`, `read_path_graph` and `read_path_inspection` have no remaining reference in tools, tests, crates or the Makefile.
 - Plan completion: not assessed
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | Fix commit 6f055ec deletes the compiler-reachability tool and its tagged tests. `quire trace` now shows no Python claim on FR-038-AC-513. One Rust claim remains, at crates/quire-contract-model/src/checked_package/v2/frame.rs:1092; it is a storage test, not a source-path inspection, and was outside this finding. |

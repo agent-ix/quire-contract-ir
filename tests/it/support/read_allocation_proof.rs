@@ -178,8 +178,8 @@ pub(crate) fn every_request<C: Counter>(bytes: &[u8], evidence: &CheckedPackageE
         // diagnostic cannot allocate after the denied request.
         assert_eq!(stopped.budget.read_storage_consumed(), before);
         assert!(
-            unpaid(&stopped) <= UNPAID_BOUND,
-            "a denied request allocates nothing beyond the fixed bound"
+            unpaid(&stopped) <= unpaid(&reference),
+            "a denied request allocates nothing beyond the ample read's own unpaid memory"
         );
         let next = before
             .checked_add(u64::try_from(asked).expect("bounded request"))

@@ -147,7 +147,11 @@ and that every sufficient budget returns the unlimited budget's outcome.
   that bound and does not grow from the smallest to the largest input),
   the 4096-byte bound being about three and a half times the largest constant
   unpaid amount (1175 bytes) observed across the reads that run under plain
-  `make test`, under unlimited, exact and one-below budgets, for admitted and refused
+  `make test`, except three reads that exceed it and fail: 15479 unpaid bytes
+  (`frame_entries` step relation tables), 13073 (`refinement` tables) and 5101
+  (`refinement` local dependencies); the failing
+  `read_storage_alloc::duplicate_member_precedes_a_later_out_of_range_number`
+  is a separate precedence defect, under unlimited, exact and one-below budgets, for admitted and refused
   inputs; its logical storage delta is zero; no request is observed for a
   denied charge, and every request after a denial belongs to the charged
   outcome diagnostic.

@@ -32,3 +32,20 @@ CHANGES REQUIRED. The bound itself is stated and testable, and no stale whole-re
 - `FR-358-AC-12` (examined): see FND-005. The per-allocation equality in its first sentence is a per-class claim, not the whole-read equality the owner removed.
 - `TC-472` (examined): see FND-002, FND-003 and FND-004.
 - `spec/checked_package/matrix/tests.md` (examined): see FND-001.
+
+## New findings (disposition pass 1)
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-006 | medium | The FR-038-AC-511 status text understates known bound failures. The matrix row says only the QSpec corpus is "not verified", which implies the rest holds, yet three reads under plain `make test` request 5101 to 15479 unpaid bytes and `duplicate_member_precedes_a_later_out_of_range_number` in the named binary fails. TC-472 calls 1175 bytes the "largest constant unpaid amount" observed under `make test`, while the code comment admits those three reads exceed it. Name these failures in the row and in TC-472. | spec/checked_package/matrix/tests.md:20; spec/checked_package/matrix/TC-472-strict-v2-read-exact-budget-charging.md:149 |
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | The row now reads "Partly tested" and marks the corpus part not verified. FND-006 records what it still omits. |
+| FND-002 | fixed | The AC names the two shapes and their size ranges. |
+| FND-003 | fixed | TC-472 now says "falls short of". |
+| FND-004 | fixed | `every_request` now asserts the bound, matching the step text. |
+| FND-005 | fixed | The AC states a checkable relation tied to FR-038-AC-511. |
+| FND-006 | still-open | New this round; no fix has landed. |

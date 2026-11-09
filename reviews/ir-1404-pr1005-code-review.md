@@ -36,3 +36,21 @@ CHANGES REQUIRED. One re-enabled test fails deterministically, contrary to the P
 - tests/it/support/qspec_read_proof.rs (examined): the removed `accounted` call is owner direction.
 - Deleted inspection files (examined): no remaining reference.
 - The ten un-ignored tests (examined): nine pass; FND-001 for the tenth.
+
+## New findings (disposition pass 1)
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-007 | medium | The fix for FND-005 weakened `every_request` at the denied prefix from `stopped.requested == before` to `unpaid(&stopped) <= UNPAID_BOUND`. That assertion was the corpus-wide proof of the FR-038-AC-511 clause "no request is observed for a denied charge", which still stands. A denied charge of up to 4096 bytes that allocates anyway now passes the probe; only the named fixtures that assert `requested` exactly still catch it. FND-005's suggestion was wrong for this line. Compare against the read's own constant, for example `unpaid(&stopped) <= unpaid(&reference)`. | tests/it/support/read_allocation_proof.rs:180 |
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | deferred | The code lead routed tc_048_a_clock_row_precedes_a_malformed_temporal_law_definition to the follow-on PR. The PR body now states nine pass and this one stays red, so the false claim is gone; the ignore is not restored. The pointer defect itself is unfixed. |
+| FND-002 | fixed | Fix commit 6f055ec adds a smallest-to-largest comparison and a string shape. |
+| FND-003 | fixed | UNPAID_BOUND is 4096, with its derivation in the doc comment. |
+| FND-004 | fixed | The test now calls `accounted`. |
+| FND-005 | fixed | Both sites use the bound. FND-007 records a consequence at line 180. |
+| FND-006 | fixed | Renamed to `..._is_accounted_within_the_bound`. |
+| FND-007 | still-open | New this round; no fix has landed. |
