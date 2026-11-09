@@ -386,14 +386,15 @@ fn static_context_and_each_candidate_stay_bound_to_the_selected_family() {
 }
 
 /// Any owner effective type refuses `unsupported_construct` at the candidate's
-/// selection key, whatever the length of the owner chain.
+/// selection key, whatever the length of the owner chain the strict parse
+/// admits (the shared reader refuses nesting past its own depth cap).
 #[trace("TC-472", "FR-354-AC-13", "FR-038-AC-117")]
 #[test]
 fn an_owner_chain_of_any_depth_refuses_at_its_selection_key() {
     let document = family_document();
     let package = family_package(&document, PRIORITY_ORDER);
     let mut seen = Vec::new();
-    for depth in [1_usize, 3, 2000] {
+    for depth in [1_usize, 3, 100] {
         let mut owner = json!({"owner_effective_type": null,
             "original": {"package": IDENTITY, "node": ORDER}});
         for _ in 1..depth {
