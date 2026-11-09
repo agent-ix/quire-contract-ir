@@ -41,9 +41,9 @@ pub(super) struct Path<'a> {
 
 impl<'a> Path<'a> {
     /// The deepest position a stage names.
-    // A protocol clause capture initializer target reaches thirteen
-    // closed-shape steps. Arbitrary-depth expressions use Position::Trail
-    // instead.
+    // A binder or control-reference target reaches thirteen closed-shape
+    // steps, as `argument_path(2)/members/{entry}/members/0/value/target`
+    // does. Arbitrary-depth expressions use Position::Trail instead.
     const CAPACITY: usize = 16;
 
     /// The document root.

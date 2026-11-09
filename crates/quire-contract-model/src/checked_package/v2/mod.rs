@@ -3221,30 +3221,34 @@ fn check_graph_version(graph: &RawSemanticGraphV2) -> Result<(), ValidationFailu
 }
 
 /// Checks a node's fixed schema version and decodes its tag and form once.
+/// A failure names the refusal code and the node member it is about, so a
+/// caller that charges its diagnostics builds nothing before paying.
 // Intake: checks the fixed schema version and decodes the node tag and form.
 #[string_edge]
+fn node_kind_or_fault<Body>(
+    node: &CheckedSemanticNodeV2<Body>,
+) -> Result<CheckedNodeKind, (CheckedPackageRefusalCode, &'static str)> {
+    if node.schema_version.as_ref() != GRAPH_V2 {
+        return Err((
+            CheckedPackageRefusalCode::InvalidSemanticGraph,
+            "schema_version",
+        ));
+    }
+    let Some(tag) = CheckedNodeTag::from_wire(&node.node_tag) else {
+        return Err((CheckedPackageRefusalCode::UnsupportedNodeTag, "node_tag"));
+    };
+    CheckedNodeKind::decode(tag, &node.semantic_form).ok_or((
+        CheckedPackageRefusalCode::InvalidSemanticGraph,
+        "semantic_form",
+    ))
+}
+
+/// [`node_kind_or_fault`] with the failure built at `at(member)`.
 fn decode_node_kind<Body>(
     node: &CheckedSemanticNodeV2<Body>,
     at: impl Fn(&str) -> JsonPointer,
 ) -> Result<CheckedNodeKind, ValidationFailure> {
-    if node.schema_version.as_ref() != GRAPH_V2 {
-        return Err(refuse(
-            CheckedPackageRefusalCode::InvalidSemanticGraph,
-            at("schema_version"),
-        ));
-    }
-    let Some(tag) = CheckedNodeTag::from_wire(&node.node_tag) else {
-        return Err(refuse(
-            CheckedPackageRefusalCode::UnsupportedNodeTag,
-            at("node_tag"),
-        ));
-    };
-    CheckedNodeKind::decode(tag, &node.semantic_form).ok_or_else(|| {
-        refuse(
-            CheckedPackageRefusalCode::InvalidSemanticGraph,
-            at("semantic_form"),
-        )
-    })
+    node_kind_or_fault(node).map_err(|(code, member)| refuse(code, at(member)))
 }
 
 /// Compare a selected import's complete content after resolving each graph-

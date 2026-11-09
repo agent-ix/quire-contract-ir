@@ -39,11 +39,10 @@ fn refuse_detailed<'a>(
 ) -> ValidationFailure {
     let at = at.into();
     let site = super::natural::site(meter, at);
-    let mut refusal = Refusal::new(code, at)
+    let refusal = Refusal::new(code, at)
         .at_node(node)
         .because(cause)
         .with_extra(size_of::<CheckedProtocolRefusalDetail>().saturating_add(detail_bytes));
-    refusal.cause = Some(cause);
     let mut failure = super::stage_storage::refuse(meter, &site, refusal);
     if let ValidationFailure::Refused(refused) = &mut failure {
         refused.protocol_detail = Some(Box::new(detail()));
