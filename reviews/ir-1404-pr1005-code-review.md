@@ -64,3 +64,5 @@ CHANGES REQUIRED. One re-enabled test fails deterministically, contrary to the P
 | FND-007 | fixed | Commit ec7931d5 holds each denied-prefix read to the ample read's own unpaid memory. |
 | FND-008 | still-open | New this round; no fix has landed. |
 | FND-009 | still-open | New this round; the PR body is unchanged. |
+| FND-008 | fixed | Commit ced1a8a bounds a refused refinement and a refused step relation and asserts the ample reads admit. Its power is against exceeding the bound and growth; a constant unpaid refusal under 1024 bytes passes, which the code lead recorded as what AC-511 allows. |
+| FND-009 | fixed | The PR body now states 1024 bytes and names the production fixes. |
