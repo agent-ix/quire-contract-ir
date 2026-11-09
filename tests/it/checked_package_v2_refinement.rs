@@ -8824,3 +8824,50 @@ fn refinement_local_dependencies_are_charged_exactly() {
         "history, population and object rows add requests to the dependency vector"
     );
 }
+
+/// Reading a refinement with population, object and history rows under a
+/// read-storage allowance that denies part-way leaves no more unpaid memory
+/// than reading the row-empty refinement does, and both stay within the fixed
+/// bound.
+#[trace("TC-472", "FR-038-AC-511")]
+#[test]
+fn refinement_rows_leave_no_more_unpaid_memory_than_the_empty_refinement() {
+    use crate::qspec_read_proof::observation::{measure_at, unpaid, Counter, UNPAID_BOUND};
+    struct Allocations;
+    impl Counter for Allocations {
+        fn measure(read: impl FnOnce()) -> u64 {
+            allocation_counter::measure(read).bytes_total
+        }
+    }
+    let worst_unpaid = |package: &Value, evidence: &CheckedPackageEvidence| {
+        let bytes = canonical_indexed(package);
+        let limits = CheckedPackageReadLimits::bounded();
+        let whole = measure_at::<Allocations>(&bytes, evidence, limits, u64::MAX, u64::MAX);
+        let total = whole.budget.read_storage_consumed();
+        let mut worst = unpaid(&whole);
+        for numerator in 1..8 {
+            let read = measure_at::<Allocations>(
+                &bytes,
+                evidence,
+                limits,
+                u64::MAX,
+                total / 8 * numerator,
+            );
+            worst = worst.max(unpaid(&read));
+        }
+        worst
+    };
+    let (mut empty, empty_evidence) = machine_package();
+    row_empty_refinement(&mut empty);
+    let (history, history_evidence, _, _, _, _) = ac5_history_package();
+    let control = worst_unpaid(&empty, &empty_evidence);
+    let rows = worst_unpaid(&history, &history_evidence);
+    assert!(
+        control <= UNPAID_BOUND && rows <= UNPAID_BOUND,
+        "unpaid memory stays within the fixed bound: control {control}, rows {rows}"
+    );
+    assert!(
+        rows <= control,
+        "rows add unpaid memory: control {control}, rows {rows}"
+    );
+}
