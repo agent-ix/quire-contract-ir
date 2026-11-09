@@ -43,6 +43,13 @@ CHANGES REQUIRED. One re-enabled test fails deterministically, contrary to the P
 | --- | --- | --- | --- |
 | FND-007 | medium | The fix for FND-005 weakened `every_request` at the denied prefix from `stopped.requested == before` to `unpaid(&stopped) <= UNPAID_BOUND`. That assertion was the corpus-wide proof of the FR-038-AC-511 clause "no request is observed for a denied charge", which still stands. A denied charge of up to 4096 bytes that allocates anyway now passes the probe; only the named fixtures that assert `requested` exactly still catch it. FND-005's suggestion was wrong for this line. Compare against the read's own constant, for example `unpaid(&stopped) <= unpaid(&reference)`. | tests/it/support/read_allocation_proof.rs:180 |
 
+## New findings (disposition pass 2)
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-008 | medium | No test bounds the unpaid memory of a refinement or step-relation refusal, which is what this round rewrote. `refinement_rows_leave_no_more_unpaid_memory_than_the_empty_refinement` reads only well-formed packages under storage denials, and the refusal tests go through `read_and_account`, whose `observe` no longer calls `accounted`. Putting one site back to an unpaid `ValidationFailure::refused_at` would pass every test. The new test also never asserts that the fixtures admit. Add a refused refinement and a refused step relation to a bound check, and assert Admitted on the ample reads. | tests/it/checked_package_v2_refinement.rs:8833; tests/it/support/qspec_read_proof.rs:295 |
+| FND-009 | low | The PR body is stale and now false: it says the bound is 4096 bytes and "no production fix beyond the stacked #1004 was needed", while this round rewrites refinement.rs and step_relation.rs after a probe found unpaid memory growing with content and sets the bound to 1024. | PR #1005 description |
+
 ## Dispositions
 
 | FND | outcome | reason |
@@ -54,3 +61,6 @@ CHANGES REQUIRED. One re-enabled test fails deterministically, contrary to the P
 | FND-005 | fixed | Both sites use the bound. FND-007 records a consequence at line 180. |
 | FND-006 | fixed | Renamed to `..._is_accounted_within_the_bound`. |
 | FND-007 | still-open | New this round; no fix has landed. |
+| FND-007 | fixed | Commit ec7931d5 holds each denied-prefix read to the ample read's own unpaid memory. |
+| FND-008 | still-open | New this round; no fix has landed. |
+| FND-009 | still-open | New this round; the PR body is unchanged. |

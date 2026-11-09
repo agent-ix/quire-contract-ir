@@ -8859,9 +8859,34 @@ fn refinement_rows_leave_no_more_unpaid_memory_than_the_empty_refinement() {
     };
     let (mut empty, empty_evidence) = machine_package();
     row_empty_refinement(&mut empty);
-    let (history, history_evidence, _, _, _, _) = ac5_history_package();
+    let (history, history_evidence, position, _, _, _) = ac5_history_package();
     let control = worst_unpaid(&empty, &empty_evidence);
     let rows = worst_unpaid(&history, &history_evidence);
+    for (package, evidence) in [(&empty, &empty_evidence), (&history, &history_evidence)] {
+        let result = read(package, evidence);
+        assert!(
+            matches!(result, CheckedPackageV2ReadResult::Admitted(_)),
+            "the ample read admits: {result:?}"
+        );
+    }
+    let mut refused = history.clone();
+    inject_refinement_row_defect(&mut refused, position);
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&refused, &history_evidence) else {
+        panic!("the wrong operation refuses");
+    };
+    assert!(
+        refusal.loci[0]
+            .path
+            .as_ref()
+            .is_some_and(|path| path.as_str().starts_with("/semantic_graph/nodes/")),
+        "the refusal is a graph refusal: {:?}",
+        refusal.loci
+    );
+    let refusal_unpaid = worst_unpaid(&refused, &history_evidence);
+    assert!(
+        refusal_unpaid <= UNPAID_BOUND,
+        "a refused refinement leaves {refusal_unpaid} unpaid bytes, over the fixed bound"
+    );
     assert!(
         control <= UNPAID_BOUND && rows <= UNPAID_BOUND,
         "unpaid memory stays within the fixed bound: control {control}, rows {rows}"

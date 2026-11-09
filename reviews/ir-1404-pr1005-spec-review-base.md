@@ -49,3 +49,4 @@ CHANGES REQUIRED. The bound itself is stated and testable, and no stale whole-re
 | FND-004 | fixed | `every_request` now asserts the bound, matching the step text. |
 | FND-005 | fixed | The AC states a checkable relation tied to FR-038-AC-511. |
 | FND-006 | still-open | New this round; no fix has landed. |
+| FND-006 | fixed | The bound failures are fixed by this round's production change, and the one remaining failure is named in the matrix row and in TC-472. |

@@ -5655,6 +5655,69 @@ fn model_operation_callable_joins_selected_body_and_frame() {
     );
 }
 
+/// A step relation that reads whole, and one whose execution alias is not text,
+/// request no unpaid heap beyond the fixed bound at the full requirement and at
+/// part-way read-storage allowances; the refusal is the step's own.
+#[trace("TC-472", "FR-038-AC-511")]
+#[test]
+fn step_relation_reads_and_refusals_stay_within_the_unpaid_bound() {
+    use crate::qspec_read_proof::observation::{measure_at, unpaid, Counter, UNPAID_BOUND};
+    use quire_contract_model::CheckedPackageV2BudgetedReadResult as Budgeted;
+    struct Allocations;
+    impl Counter for Allocations {
+        fn measure(read: impl FnOnce()) -> u64 {
+            allocation_counter::measure(read).bytes_total
+        }
+    }
+    let worst_unpaid = |package: &Value, evidence: &CheckedPackageEvidence| {
+        let bytes = canonical(package);
+        let limits = CheckedPackageReadLimits::bounded();
+        let whole = measure_at::<Allocations>(&bytes, evidence, limits, u64::MAX, u64::MAX);
+        let total = whole.budget.read_storage_consumed();
+        let mut worst = unpaid(&whole);
+        for numerator in 1..8 {
+            let part = measure_at::<Allocations>(
+                &bytes,
+                evidence,
+                limits,
+                u64::MAX,
+                total / 8 * numerator,
+            );
+            worst = worst.max(unpaid(&part));
+        }
+        (whole.result, worst)
+    };
+    let package = step_relation_package();
+    let relation = position(&package, "claim", "step_relation");
+    let evidence = step_relation_evidence(&package);
+    let (result, whole) = worst_unpaid(&package, &evidence);
+    assert!(
+        matches!(result, Budgeted::Admitted(_)),
+        "the relation admits"
+    );
+    let mut refused = package.clone();
+    let alias = &mut refused["semantic_graph"]["nodes"][relation]["body"]["members"][1]["value"]
+        ["members"][0]["value"]["members"][0]["value"];
+    alias["value_kind"] = json!("boolean");
+    alias["value"] = json!(true);
+    settle_step_relation(&mut refused);
+    let (result, bad) = worst_unpaid(&refused, &evidence);
+    let Budgeted::Refused(refusal) = result else {
+        panic!("an execution alias that is not text refuses: {result:?}");
+    };
+    assert!(
+        refusal.loci[0].path.as_ref().is_some_and(|path| path
+            .as_str()
+            .starts_with(&format!("/semantic_graph/nodes/{relation}/body"))),
+        "the refusal is the step relation's own: {:?}",
+        refusal.loci
+    );
+    assert!(
+        whole <= UNPAID_BOUND && bad <= UNPAID_BOUND,
+        "unpaid memory stays within the fixed bound: read {whole}, refusal {bad}"
+    );
+}
+
 /// The step relation body step builds its alias, variable and binder tables,
 /// its walk worklist and its seen-set on the caller's budget, each charged
 /// before it is made at the relation's node (FR-038-AC-504).
