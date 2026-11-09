@@ -42,3 +42,13 @@ Style note, not a finding: several rewritten calls in `flat_wire.rs` (around lin
 - `cargo test --locked --test it <one test>`: exit 101, compile error, `crate::support::corpus` needs feature `conformance-cli`. No test ran.
 - `cargo test --locked --all-features --test it tc_048_a_bound_not_in_lowest_terms_is_refused_at_the_bound_before_the_temporal_step`: exit 101, one test run, failed as recorded in FND-001.
 - `cargo tree` license listing: exit 0.
+
+## Dispositions
+
+Round 1, checked against 77eb685a.
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | Both flat-wire sites now pay through `flat_refusal` / `flat_refusal_at_site` before building. Refusal identity holds: the header refusal keeps its code, member pointer and absence of cause and locus, and the interval refusal keeps code, cause, bound pointer and node locus. No eager refusal remains in the production part of `flat_wire.rs`. |
+| FND-002 | fixed | The comment now names a binder or control-reference target and the 13-step path. |
+| FND-003 | fixed | The duplicate assignment is removed; `.because(cause)` remains. |
