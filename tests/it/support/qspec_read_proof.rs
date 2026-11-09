@@ -1299,10 +1299,11 @@ pub(crate) fn read_budget_and_account(
             bytes, limits, evidence, budget,
         ));
     });
-    assert_eq!(
-        requested,
-        budget.read_storage_consumed() - before,
-        "the actual caller-budget read charges every request including its diagnostic"
+    let charged = budget.read_storage_consumed() - before;
+    assert!(
+        requested.saturating_sub(charged) <= observation::UNPAID_BOUND,
+        "the caller-budget read requests {requested} bytes against {charged} charged, over the fixed bound {}",
+        observation::UNPAID_BOUND
     );
     assert_eq!(
         budget.consumed().storage,

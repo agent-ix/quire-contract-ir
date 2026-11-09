@@ -111,6 +111,12 @@ pub fn dependencies_10000() -> Input {
 }
 
 pub fn string_one_mebibyte() -> Input {
+    string_of(1 << 20)
+}
+
+/// The all-families package whose first lock source identity is a string of
+/// `length` bytes.
+pub fn string_of(length: usize) -> Input {
     fn replace(value: &mut Value, old: &str, new: &str) {
         match value {
             Value::String(s) if s == old => *s = new.to_owned(),
@@ -132,14 +138,14 @@ pub fn string_one_mebibyte() -> Input {
         .as_str()
         .expect("source identity")
         .to_owned();
-    let large = "s".repeat(1 << 20);
+    let large = "s".repeat(length);
     replace(&mut value, &old, &large);
     assert_eq!(
         value["lock"]["sources"][0]["identity"]
             .as_str()
             .expect("single string")
             .len(),
-        1 << 20
+        length
     );
     input(value)
 }

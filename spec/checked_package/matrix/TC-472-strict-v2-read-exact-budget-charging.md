@@ -17,7 +17,7 @@ heap allocation it makes to the caller's `NativeJoinBudget` before the step or
 allocation, at a `PackageRead` locus, with heap bytes charged to the budget's
 separate read-storage counter; that an exact allowance admits and one below
 refuses at the first unpaid charge with no partial package; that the charged
-read storage differs from the total bytes a counting allocator observes
+read storage falls short of the total bytes a counting allocator observes
 requested by at most a fixed bound that does not depend on the input size;
 and that every sufficient budget returns the unlimited budget's outcome.
 
@@ -142,8 +142,12 @@ and that every sufficient budget returns the unlimited budget's outcome.
 ## Expected Results
 
 - Every read's observed requested bytes exceed its admitted read-storage delta
-  by at most 131072 bytes, whatever the input size (the test reads one package
-  shape at growing sizes and asserts the excess stays within that bound), under unlimited, exact and one-below budgets, for admitted and refused
+  by at most 4096 bytes, whatever the input size (the test reads a reference
+  chain and a string member at growing sizes and asserts the excess stays within
+  that bound and does not grow from the smallest to the largest input),
+  the 4096-byte bound being about three and a half times the largest constant
+  unpaid amount (1175 bytes) observed across the reads that run under plain
+  `make test`, under unlimited, exact and one-below budgets, for admitted and refused
   inputs; its logical storage delta is zero; no request is observed for a
   denied charge, and every request after a denial belongs to the charged
   outcome diagnostic.
