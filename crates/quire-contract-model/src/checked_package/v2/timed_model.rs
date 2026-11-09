@@ -2845,6 +2845,7 @@ pub(super) fn tick_source_references<'a>(
 }
 
 /// The `operation` text of an admitted `operation_anchor` node.
+#[ix_trace_rs::string_edge]
 pub(super) fn anchor_operation_text<'a>(
     package: &'a super::CheckedPackageV2,
     node: &CheckedNodeId,
