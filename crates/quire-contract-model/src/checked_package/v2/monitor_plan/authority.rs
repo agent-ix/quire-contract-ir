@@ -61,6 +61,9 @@ pub enum SelectedMonitorAuthorityErrorCode {
     OccurrenceMismatch,
     /// The occurrence's admitted time source differs from the row's.
     TimeSourceMismatch,
+    /// The Exact identity of the clause's model subject or of the time source's
+    /// unit is missing, ambiguous, or not a supported kind (FR-361).
+    LayoutIdentityUnavailable,
 }
 
 /// The same-emission authority QSL admitted for one monitor root, as IR checks it.
@@ -161,7 +164,7 @@ fn work(budget: &mut NativeJoinBudget) -> Result<(), SelectedMonitorTypeClosureE
     read_charge(budget, NativeJoinChargeKind::Work, 1).map_err(|_| native_error(budget))
 }
 
-fn refusal(
+pub(super) fn refusal(
     code: SelectedMonitorAuthorityErrorCode,
     at: &CheckedNodeId,
     occurrence: Option<&CheckedOccurrence>,
@@ -303,7 +306,7 @@ impl<'a> CheckedMonitorPlanRef<'a> {
         row: &'a SelectedMonitorAuthorityRow<'a>,
         clocks: &[CheckedMonitorClockRead<'a>],
         budget: &mut NativeJoinBudget,
-    ) -> Result<SelectedMonitorAuthorityReceipt<'a>, SelectedMonitorTypeClosureError> {
+    ) -> Result<(SelectedMonitorAuthorityReceipt<'a>, usize), SelectedMonitorTypeClosureError> {
         let root = self.node_id();
         locus(NativeJoinLocusSource::MonitorAuthority, budget);
         work(budget)?;
@@ -368,13 +371,16 @@ impl<'a> CheckedMonitorPlanRef<'a> {
             return Err(mismatch(budget));
         }
         read_charge(budget, NativeJoinChargeKind::Storage, 1).map_err(|_| native_error(budget))?;
-        Ok(SelectedMonitorAuthorityReceipt {
-            clause: self.clause(),
-            occurrence: row.occurrence.clone(),
-            clock: clock.clone(),
-            order_value: row.order_value,
-            progress_association: row.progress_association,
-        })
+        Ok((
+            SelectedMonitorAuthorityReceipt {
+                clause: self.clause(),
+                occurrence: row.occurrence.clone(),
+                clock: clock.clone(),
+                order_value: row.order_value,
+                progress_association: row.progress_association,
+            },
+            index,
+        ))
     }
 }
 

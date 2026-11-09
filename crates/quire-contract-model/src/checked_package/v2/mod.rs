@@ -172,8 +172,9 @@ pub use monitor_plan::{
     CheckedMonitorClockReadError, CheckedMonitorClockReadErrorCode, CheckedMonitorEntryRef,
     CheckedMonitorPlanRef, SelectedMonitorAuthorityComponent, SelectedMonitorAuthorityErrorCode,
     SelectedMonitorAuthorityReceipt, SelectedMonitorAuthorityRow, SelectedMonitorAuthorityRowError,
-    SelectedMonitorClosureRows, SelectedMonitorTimeSource, SelectedMonitorTypeClosure,
-    SelectedMonitorTypeClosureError, SelectedMonitorTypeClosureErrorCode,
+    SelectedMonitorClosureRows, SelectedMonitorLayoutContext, SelectedMonitorTimeSource,
+    SelectedMonitorTypeClosure, SelectedMonitorTypeClosureError,
+    SelectedMonitorTypeClosureErrorCode,
 };
 #[cfg(feature = "test-support")]
 mod native_budget_observer;
@@ -2638,6 +2639,31 @@ fn decode_admitted_body(
         node.decode_in(body.document(), budget, site, row)?
     };
     result.map_err(|_| refuse(CheckedPackageRefusalCode::MalformedWire, at()))
+}
+
+/// The nominal body a V1 package's graph node `position` carries, validated
+/// as the checked-package reader validates it. The V1 readers hold no read
+/// storage account (their other body walks are unmetered), so the meter here
+/// has a limit of its own and charges nothing.
+fn wire_nominal_body(
+    kind: CheckedNodeKind,
+    body: &CheckedJson,
+    position: usize,
+) -> Result<Option<identity::NominalBody>, ValidationFailure> {
+    let node = TermNode::of(body);
+    if !source_nominal_body(kind, node.get("term").and_then(TermNode::as_str)) {
+        return Ok(None);
+    }
+    // Unmetered on purpose: the V1 readers hold no read-storage account, and
+    // the body is bounded by the already-parsed document, as in the other V1
+    // body walks.
+    identity::NominalBody::from_document(
+        node,
+        &[],
+        &|| node_pointer(position).key("body"),
+        &mut WorkMeter::new(u64::MAX),
+    )
+    .map(Some)
 }
 
 #[ix_trace_rs::string_edge]

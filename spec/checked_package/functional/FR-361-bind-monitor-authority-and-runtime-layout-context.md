@@ -115,7 +115,7 @@ closure read:
 | `package_lock() -> &[u8]` | The RFC 8785 encoding of the admitted `CheckedPackageLockV2` produced by IR's V2 envelope writer for the `lock` member (the fixed-shape member encoding of `encode_checked_package_v2`). |
 | `occurrence() -> &[u8]` | The RFC 8785 encoding, by its `quire_canonical::Encode` implementation, of the admitted `CheckedSourceMapEntry` for the selected claim occurrence. |
 | `profile() -> &str` | The RFC 8785 text of the object `{"authority", "identity", "role"}` holding the selected clause profile's `CheckedSelection` definition authority, definition identity and the role's wire spelling. |
-| `subject() -> &str` | The `Display` text of the canonical Exact `NodeKey` of the clause's admitted subject (`over`) parameter. |
+| `subject() -> &str` | The identity text of the clause's admitted subject (`over`) model, read from its one `declarations` row of the closure rows: the `Display` text of a `Record` row's `NodeKey`, or for an `Object` row the RFC 8785 text of its `EffectiveId` in the FR-150 form IR's `CheckedEffectiveId` encodes (`{"original":{"node","package"},"owner_effective_type":null|{...}}`). |
 | `clock_binding() -> &[u8]` | The canonical clock-binding value (below). |
 
 The strict V2 reader refuses noncanonical input, so the admitted package's
@@ -132,8 +132,8 @@ timed-model facts of the selected occurrence:
 | --- | --- |
 | `binding_kind` | `"model-time"` |
 | `selected_profile_identity` | The same object as `profile()`, as a JSON object. |
-| `time_source` | An object with `kind` (`"dense"` or `"tick"`), `model` (the model's qualified name: the admitted declaration path, segments joined by `.`, of the model named by one source per kind: for `tick`, the time-source node's own `model` binding; for `dense`, which has no such binding, the timed-model root's `model` binding), and, for `tick` only, `operation` (the admitted declaration path of the time source's `operation` binding, joined by `.`). |
-| `unit` | The `Display` text of the canonical Exact `NodeKey` of the time source's admitted `unit`. |
+| `time_source` | An object with `kind` (`"dense"` or `"tick"`), `model` (the model's qualified name: the admitted declaration path, segments joined by `.`, or, for a node with no `declaration`, the original identity of its owning model declaration (`owner.node`) verbatim, of the model named by one source per kind: for `tick`, the time-source node's own `model` binding; for `dense`, which has no such binding, the timed-model root's `model` binding), and, for `tick` only, `operation` (the admitted declaration path of the time source's `operation` binding, joined by `.`; an `operation_anchor` has no declaration and contributes its own `operation` binding text verbatim). |
+| `unit` | The `Display` text of the `NodeKey` of the time source's admitted `unit`, read from its one Declared-domain `UnitId` among the `declarations` (`DeclaredUnit`) and `source_units` rows. |
 | `period` | For `tick` only: `{"denominator", "numerator"}` canonical decimal strings of the time source's admitted `period` rational. Absent for `dense`. |
 | `sequence_authority` | `"step-order"` |
 
@@ -188,6 +188,26 @@ The read SHALL check, stopping at the first failure:
    binding differs from the row's kind, or a tick `period` binding differs
    from the row's exact period.
 
+5. `LayoutIdentityUnavailable`, read after the closure's other steps with the
+   layout context: the clause's subject model has not exactly one `declarations`
+   row of identity `Record` or `Object`, or the time source's unit has not
+   exactly one row among the `declarations` (`DeclaredUnit`) and `source_units`
+   rows, whose `UnitId` is `Declared`. A compound unit is refused. The locus is
+   the subject model node or the time-source unit node that failed. The layout
+   context adds no `tick_unit` member: the driver takes the tick unit from
+   `plan.tick_unit()` and the closure's units.
+
+   The same code also refuses, at the node that failed, any identity the read
+   cannot resolve (a missing claim source-map entry, profile law or selection,
+   time source, model or operation name, or clause key) and a non-model-time
+   clock. These are defense in depth: package admission and the authority
+   binding already guarantee them, so they are not reachable through the
+   closure read. Of the row checks, a missing or ambiguous subject or unit row,
+   a `Union` subject and a compound unit are likewise refused earlier in the
+   closure read by the reached-model steps, and are reachable only through a
+   direct `layout_context` call with rows the closure read would not accept.
+   No refusal of this step panics.
+
 Locus: `ForeignEmission` and `ClauseMismatch` at the plan root node;
 `OccurrenceMismatch` and `TimeSourceMismatch` at the clause node with the row
 occurrence. Equal clause names, labels, numeric indices or equal package
@@ -205,7 +225,7 @@ charges SHALL use these loci:
 | --- | --- | --- |
 | `ForeignEmission`, `ClauseMismatch` and `OccurrenceMismatch` inspections, before the occurrence is resolved | `NativeJoinLocusSource::MonitorAuthority` | `"selected_authority"` |
 | `TimeSourceMismatch` inspections, after the occurrence resolves to index `k` in `clocks()` | `MonitorSeed(k)` | `"selected_authority"` |
-| Layout-context values | `MonitorSeed(k)` | `"selected_layout_context"` |
+| Layout-context values, including the writer scratch of their canonical encodings | `MonitorSeed(k)` | `"selected_layout_context"` |
 | Clock-binding value | `MonitorSeed(k)` | `"selected_clock_binding"` |
  The exact allowance SHALL succeed and one unit below it SHALL refuse
 at the first unpaid charge with no receipt.
@@ -224,7 +244,7 @@ helper call closure.
 | --- | --- | --- |
 | FR-361-AC-1 | An IR-owned strict admitted Timed monitor package with two claim occurrences of one clause and a row naming the second occurrence returns a closure whose receipt holds that occurrence, its own clock read and the row's exact byte slices; a row naming the first returns the first. Dense and tick sources with equal and different exact periods give the specified success or `TimeSourceMismatch`. | Test |
 | FR-361-AC-2 | Each of an independent strict read of equal package bytes, another package, a different clause, an absent ordinal, a configured clock, a dense row against a tick source and a different exact period returns its named `SelectedMonitorAuthorityErrorCode` at the stated locus, with charged work and no closure. Paired defects show the stated authority check order; a model-row defect beside an authority defect reports the model row, and an authority defect beside a source-row or equality defect reports the authority. `try_new` returns `SelectedMonitorAuthorityRowError` with component `Occurrence`, `OrderValue` or `ProgressAssociation` for a non-Claim role, an empty order value and an empty association value. | Test |
-| FR-361-AC-3 | The root, entry and clause keys equal the plan's resolved structural keys. `package_lock()` and `occurrence()` are byte-equal to the corresponding member bytes of the admitted input. `profile()` and `clock_binding()` for dense and tick sources equal independently written expected RFC 8785 values with exactly the specified members; changing the model, tick operation, unit, period, source kind or profile each changes `clock_binding()`. | Test |
+| FR-361-AC-3 | (Layout context implemented.) The root, entry and clause keys equal the plan's resolved structural keys. `package_lock()` and `occurrence()` are byte-equal to the corresponding member bytes of the admitted input. `profile()` and `clock_binding()` for dense and tick sources equal independently written expected RFC 8785 values with exactly the specified members; changing the model, tick operation, unit, period, source kind or profile each changes `clock_binding()`. | Test |
 | FR-361-AC-4 | The read succeeds at its exact measured work and storage allowance. One unit below the cumulative charge before each authority, layout-context and clock-binding charge refuses at that charge with its kind, amount and exact locus: `MonitorAuthority` for the admission, clause and occurrence inspections (including at an `OccurrenceMismatch`), and `MonitorSeed(k)` with the tabled form after resolution; no partial receipt escapes. The same read on a package clone yields equal values and charges. | Test |
 | FR-361-AC-5 | API and dependency inspection shows `SelectedMonitorClosureRows::authority` is a required field, the row has private fields and one fallible constructor and borrows its byte values, the model crate gains no QSL, observation or runtime dependency, no byte value is decoded or re-encoded, no raw input buffer is retained, and no `PlanId`, digest or second identity appears. | Inspection |
 | FR-361-AC-6 | In `quire-integration`, a genuine `AdmittedPlanAuthority` row binds through the closure read on its own `admitted_package()`; the receipt bytes equal QSL's order value and the owner's association value. The same row against the package of a second admission of the same plan root's bytes refuses `ForeignEmission`. Depends on the QSL seam above. | Test |

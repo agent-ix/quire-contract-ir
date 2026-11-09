@@ -55,7 +55,10 @@ Tag the tests `#[trace("TC-471", "<criterion id>")]`. The explicit IR lane
 `make conformance-qsl-ir1384` exercises genuine published QSL plan roots and
 admitted authority for the receipt slice of steps 1, 2 and 4. It supplies local
 handoff evidence; FR-361-AC-6's final `quire-integration` qualification remains
-with that owner. Layout-context and clock-binding qualification remains planned.
+with that owner. The layout context and clock binding are implemented (steps 3 and 4, with
+`LayoutIdentityUnavailable` for a missing, ambiguous or unsupported subject or
+unit identity); the genuine `monitor-base.json` tick source supplies the
+tick-source model, operation and period evidence.
 
 ## Expected Results
 

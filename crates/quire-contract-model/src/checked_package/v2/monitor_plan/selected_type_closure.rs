@@ -6,6 +6,7 @@
 use super::authority::{
     SelectedMonitorAuthorityErrorCode, SelectedMonitorAuthorityReceipt, SelectedMonitorAuthorityRow,
 };
+use super::layout_context::SelectedMonitorLayoutContext;
 use super::reached_model_read::{ReachedModelError, ReachedProducerRows};
 use super::selected_closure_walk::{RuntimeWalkError, SelectedGraphWalkErrorCode};
 use super::{
@@ -76,6 +77,7 @@ pub struct SelectedMonitorTypeClosure<'a> {
     exact_types: Vec<ExactTypeProjection>,
     clocks: Vec<CheckedMonitorClockRead<'a>>,
     authority: SelectedMonitorAuthorityReceipt<'a>,
+    layout: SelectedMonitorLayoutContext<'a>,
     equalities: Vec<SelectedFactEquality>,
     work: u64,
 }
@@ -90,6 +92,7 @@ impl std::fmt::Debug for SelectedMonitorTypeClosure<'_> {
             .field("exact_types", &self.exact_types)
             .field("clocks", &self.clocks)
             .field("authority", &self.authority)
+            .field("layout", &self.layout)
             .field("equalities", &self.equalities)
             .field("work", &self.work)
             .finish()
@@ -121,9 +124,24 @@ impl<'a> SelectedMonitorTypeClosure<'a> {
     pub fn clocks(&self) -> &[CheckedMonitorClockRead<'a>] {
         &self.clocks
     }
+    /// The admitted dimension node of the plan's tick unit (FR-357-AC-18).
+    ///
+    /// A source and a model tick unit each return their own admitted dimension.
+    pub fn tick_unit_dimension(&self) -> &'a CheckedNodeId {
+        &self
+            .plan
+            .package
+            .node(self.plan.tick_unit())
+            .expect("admitted tick unit")
+            .semantic_type
+    }
     /// The receipt binding QSL's same-emission order and progress authority.
     pub fn authority(&self) -> &SelectedMonitorAuthorityReceipt<'a> {
         &self.authority
+    }
+    /// The exact selection values the runtime `Layout` retains (FR-361).
+    pub fn layout_context(&self) -> &SelectedMonitorLayoutContext<'a> {
+        &self.layout
     }
     /// Complete reached equality decisions in structural node and occurrence order.
     pub fn equalities(&self) -> &[SelectedFactEquality] {
@@ -717,7 +735,8 @@ impl<'a> CheckedMonitorPlanRef<'a> {
                     .map_err(|_| native_error(budget))?;
                 clocks.push(clock);
             }
-            let authority = self.bind_authority(rows.authority, &clocks, budget)?;
+            let (authority, authority_index) =
+                self.bind_authority(rows.authority, &clocks, budget)?;
             budget.set_active_locus(Some(NativeJoinLocus {
                 source: NativeJoinLocusSource::MonitorSeed(0),
                 form: "selected_equality_output",
@@ -1014,6 +1033,8 @@ impl<'a> CheckedMonitorPlanRef<'a> {
                     .map_err(|_| native_error(budget))?;
                 exact_types.push(projection);
             }
+            let layout =
+                self.layout_context(&rows, &clocks[authority_index], authority_index, budget)?;
             Ok(SelectedMonitorTypeClosure {
                 plan: *self,
                 types: reached.types,
@@ -1022,6 +1043,7 @@ impl<'a> CheckedMonitorPlanRef<'a> {
                 exact_types,
                 clocks,
                 authority,
+                layout,
                 equalities,
                 work: budget.consumed().work - before.work,
             })
