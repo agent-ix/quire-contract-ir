@@ -19,6 +19,7 @@ pub(crate) use observation::{
 pub(crate) enum Expected {
     Admitted,
     Refused(CheckedPackageRefusalCode),
+    #[allow(dead_code)] // The whole-read binary constructs it; the allocation binary does not.
     OriginalOracle(fn(&CheckedPackageV2ReadResult) -> bool),
 }
 

@@ -734,7 +734,7 @@ mod early_refusal_allocation_tests {
             (
                 br#"{"contract_version":"quire.checked-package/v2"}"#.as_slice(),
                 CheckedPackageRefusalCode::MalformedWire,
-                "/name",
+                "",
                 None,
             ),
             (

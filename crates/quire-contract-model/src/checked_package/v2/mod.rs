@@ -1540,7 +1540,7 @@ impl CheckedPackageV2 {
             }
         }
         if package.get("name").is_none() {
-            let path = stage_storage::Path::root().key("name");
+            let path = stage_storage::Path::root();
             let mut meter = WorkMeter::over(budget);
             return Err(stage_storage::refuse(
                 &mut meter,

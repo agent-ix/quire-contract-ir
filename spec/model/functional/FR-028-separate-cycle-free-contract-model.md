@@ -66,7 +66,7 @@ implemented FR-028/TC-041 graph claim does not assert that edge already exists.
 | FR-028-AC-2 | Schemas, canonical bytes, identities, diagnostics and the conformance corpus are byte/result identical through `quire_contract_model` paths, and the root package's runner produces the same results from them. | Test (TC-041) |
 | FR-028-AC-3 | The root package's own manifest names no dependency in any kind on a crate from the agent-ix/quire-spec-language repository, by name or by git source. | Test (TC-041) |
 | FR-028-AC-4 | Default, all-feature and minimum-version builds prove that no optional, dev or historical dependency leaks into the production graph. | Test (TC-041) |
-| FR-028-AC-5 | The split introduces no copied owner wire type, public validation constructor, callback, trait object, trust flag or local QSL/observation/protocol/TL parser. | Test (TC-041) |
+| FR-028-AC-5 | The split introduces no copied owner wire type, public validation constructor, callback, trait object, trust flag or local QSL/observation/protocol/TL parser. The only callbacks and trait objects permitted are budget plumbing, by exact shape: a scoped thunk `FnOnce() -> R`, the `fn(NativeBudgetEvent)` budget observer, the `Fn(usize) -> &CheckedNodeId` position accessor and `dyn ReadStorage`; a callback that takes or returns any other value is refused. | Test (TC-041) |
 
 ## Dependencies
 

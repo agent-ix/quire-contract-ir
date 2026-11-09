@@ -1,53 +1,37 @@
 ---
-id: SR-202611081512300001
-title: "Code review — IR-1404 PR 999"
+id: SR-20261109095521
+title: "IR-1404 PR 1010 code and Rust review"
 type: SpecReview
 analysis: code-review
-scope: "agent-ix/quire-contract-ir; tests/it/checked_package_v2_stage_read_storage.rs; tools/read_path_proof/"
-review_set: subset
+scope: "agent-ix/quire-contract-ir; crates/quire-contract-model/src/checked_package/v2, tests/it/cycle_free_model.rs, tests/it/public_interface.rs at a12ad8b91"
 ---
+
+# IR-1404 PR 1010 code and Rust review
 
 ## Summary
 
-Ticket: IR-1404. PR quire-contract-ir#999 at 53410c466a2db86d2e26a9cd995adfcd13e97f74, diff scope origin/main...HEAD only.
-
-## Verdict
-
-**FAIL** — Rust lane folded in. The prior HEAD-SHA finding is fixed: no source_head, qspec head or rev-parse record remains in tools/read_path_proof, and the reuse path that depended on it is gone. The Python tool unit tests pass (46 passed, 18 subtests). The new tests' locus and amount oracles are real: each denies at an observed request one byte short and compares its locus and amount. The findings are about which requests those oracles reach. The Rust test code otherwise follows the file's helpers; no production Rust changed.
+Ticket: IR-1404. PR agent-ix/quire-contract-ir#1010, head a12ad8b91, diff origin/main...HEAD.
+Code review and the Rust lane in one artifact. Reviewed the refinement refusals, the reader
+pointer change, wire_fault, the temporal fixes, node_map order, the lossless rename, the
+narrowed callback scan and the string_edge markers. No cargo runs; every finding is traced
+through the source.
 
 ## Findings
 
-| ID | Severity | Summary | Refs |
-| --- | --- | --- | --- |
-| FND-001 | high | AC-503's declarations case denies the inexact-number scan stack, not a declaration table | tests/it/checked_package_v2_stage_read_storage.rs:307-317 |
-| FND-002 | medium | AC-503's 'final document-reader reservation' is the retained Arc charge, so the last reader reservation is never denied | tests/it/checked_package_v2_stage_read_storage.rs:318-327 |
-| FND-003 | medium | AC-507's test has no equal-limit admit and never asserts the fixed Retained,0 locus or that the last request is retained | tests/it/checked_package_v2_stage_read_storage.rs:332-377 |
-| FND-004 | medium | A failed corpus run keeps no failure diagnostics, yet its error says they are retained | tools/read_path_proof/run_coverage_census.py:389-392 |
+| ID | Severity | Summary | Refs | Escape Cause |
+| --- | --- | --- | --- | --- |
+| FND-001 | high | The lossless rename hides a reachable input depth ceiling. selection_key's recursive owner_effective_type is compared with no skip, so a chain about 124 owners deep exhausts PATH_SLOTS and refuses malformed_wire instead of the later unsupported_construct, so depth decides the outcome (FR-038-AC-117). The new comment is false. | crates/quire-contract-model/src/checked_package/v2/lossless.rs:17-22 | correct-requirement-no-evidence |
+| FND-002 | high | The narrowed callback scan no longer flags an admission callback whose verdict is a custom type: impl Fn(&[u8]) -> Verdict, or an out-parameter verdict, passes. No adverse control covers the new rule; the exact-signature allow-list already used in this file would suffice. | tests/it/cycle_free_model.rs:715-782 | implementation-bug-despite-evidence |
+| FND-003 | medium | Refinement shape and member refuse an absent member at the member's own pointer, which does not resolve; FR-038 requires the object that lacks it. | crates/quire-contract-model/src/checked_package/v2/term_view.rs:1040, crates/quire-contract-model/src/checked_package/v2/term_view.rs:1055 | correct-requirement-no-evidence |
+| FND-004 | medium | wire_fault reports a non-object leaf or a leaf with no path at leaves/N/path, a pointer that does not resolve; the correct locus is the leaf. | crates/quire-contract-model/src/checked_package/v2/typed_terms.rs:437-440 | correct-requirement-no-evidence |
+| FND-005 | medium | An absent name still refuses at /name, while the same rule just moved absent contract_version to the document. FR-038 requires the empty pointer here too. | crates/quire-contract-model/src/checked_package/v2/mod.rs:1542-1549, crates/quire-contract-model/src/checked_package/v2/budgeted_read.rs:737 | implementation-bug-despite-evidence |
+| FND-006 | low | wire_fault's doc says a wrong-kind value is named by the object holding it; the code and FR-038 name the value. | crates/quire-contract-model/src/checked_package/v2/typed_terms.rs:334-338 | implementation-bug-despite-evidence |
+| FND-007 | low | refinement_fault's doc says a healthy body never reaches these walks; header and catalog run on every refinement body. | crates/quire-contract-model/src/checked_package/v2/term_view.rs:1015-1017, crates/quire-contract-model/src/checked_package/v2/refinement.rs:1164-1167 | implementation-bug-despite-evidence |
 
-## Coverage
+## Verdict
 
-Examined units: FR-038-AC-503, FR-038-AC-507, tools/read_path_proof/run_coverage_census.py, tools/read_path_proof/compiler_reachability.py, tools/read_path_proof/coverage_census.py.
-
-## New findings (disposition pass 1)
-
-| ID | Severity | Summary | Refs |
-| --- | --- | --- | --- |
-| FND-005 | high | persisted_class_proof raises KeyError on every bound class, so class-control runs crash | tools/read_path_proof/run_coverage_census.py:461-465 |
-| FND-006 | low | The standalone census CLI still requires artifacts the runner no longer leaves | tools/read_path_proof/coverage_census.py:343-362 |
-
-## New findings (disposition pass 2)
-
-| ID | Severity | Summary | Refs |
-| --- | --- | --- | --- |
-| FND-007 | low | coverage_census.py still imports argparse after its CLI was deleted | tools/read_path_proof/coverage_census.py:12 |
-
-## Dispositions
-
-| FND | outcome | reason |
-| --- | --- | --- |
-| FND-001 | fixed | Verified in fix commit b4c684ec47e638bcf13bfc87ee38c9214de56a3c |
-| FND-002 | fixed | Verified in fix commit b4c684ec47e638bcf13bfc87ee38c9214de56a3c |
-| FND-003 | fixed | Verified in fix commit b4c684ec47e638bcf13bfc87ee38c9214de56a3c |
-| FND-004 | fixed | Verified in fix commit b4c684ec47e638bcf13bfc87ee38c9214de56a3c |
-| FND-005 | fixed | Verified in fix commit bd9092b93c93357b7b85a5a2e7787bd6b76a2e6c |
-| FND-006 | fixed | Verified in fix commit bd9092b93c93357b7b85a5a2e7787bd6b76a2e6c |
+Not mergeable until FND-001 and FND-002 are fixed. The refinement first-defect walk matches
+the decoder's order (term_view.rs:983-1010) and FR-061-AC-2/5/11, including the catalog closed
+wire before rows. The contract_version change, the AC-122 interval rule, the AC-530 raw binding
+name lookup and the map_node_ids document order are correct. The string_edge markers are on
+genuine closed-string intake functions, as FR-056-AC-3 expects.

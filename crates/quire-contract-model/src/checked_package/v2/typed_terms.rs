@@ -338,9 +338,8 @@ impl CheckedApplicationOperationRecord {
 
     /// The first position, below `at`, where an operation record departs
     /// from the closed shape [`Self::wire_shape`] accepts. A member the shape
-    /// does not allow is named by itself; a member it requires but the object
-    /// lacks, or a value of the wrong kind in a required place, by the object
-    /// holding it.
+    /// does not allow is named by itself, a value of the wrong kind by that
+    /// value, and a member the object lacks by the object.
     #[ix_trace_rs::string_edge]
     pub(super) fn wire_fault(
         node: super::TermNode<'_>,
@@ -436,11 +435,17 @@ impl CheckedApplicationOperationRecord {
         };
         for (index, leaf) in leaves.enumerate() {
             let at = leaves_at.clone().index(index);
+            if leaf.members().is_none() {
+                return Some(at);
+            }
             if let Some(fault) = extra(leaf, &["path", "laws", "mode"], &at) {
                 return Some(fault);
             }
             let path_at = at.clone().key("path");
-            let Some(path) = leaf.get("path").and_then(super::TermNode::items) else {
+            let Some(path_value) = leaf.get("path") else {
+                return Some(at);
+            };
+            let Some(path) = path_value.items() else {
                 return Some(path_at);
             };
             for (part_index, part) in path.enumerate() {

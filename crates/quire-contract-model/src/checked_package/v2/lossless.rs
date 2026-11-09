@@ -14,9 +14,10 @@ use serde::ser::{
 use serde::Serialize;
 use std::{cell::RefCell, cmp::Ordering, fmt, sync::Arc};
 
-/// Stack slots for a position in the closed envelope schema. The comparison
-/// covers only closed-schema members; the open bodies and details are skipped,
-/// so no input nests deeper than the schema and the slots bound nothing.
+/// Stack slots that remember the leading steps of a position. A position
+/// deeper than this keeps being compared and counted, but only its first
+/// steps are remembered for a diagnostic pointer, so depth never changes
+/// whether the comparison succeeds.
 const PATH_SLOTS: usize = 128;
 /// Slots for a full pointer: the base trail, a path and one extra key.
 const FULL_SLOTS: usize = PATH_SLOTS + 12 + 1;
@@ -70,23 +71,30 @@ struct Path<'a, 'm, 'b> {
 }
 impl<'a> Path<'a, '_, '_> {
     fn push(&mut self, segment: PathSegment<'a>) -> bool {
-        let Some(slot) = self.segments.get_mut(self.depth) else {
-            return false;
-        };
-        *slot = Some(segment);
+        if let Some(slot) = self.segments.get_mut(self.depth) {
+            *slot = Some(segment);
+        }
         self.depth += 1;
         true
     }
     fn pop(&mut self) -> Option<PathSegment<'a>> {
         self.depth = self.depth.checked_sub(1)?;
-        self.segments[self.depth].take()
+        self.segments.get_mut(self.depth)?.take()
+    }
+    /// The number of remembered leading steps.
+    fn stored(&self) -> usize {
+        self.depth.min(PATH_SLOTS)
     }
     fn record(&self, root: bool) -> CompareError {
         let replace = self.best.borrow().as_ref().is_none_or(|prior| {
-            self.segments[..self.depth]
+            self.segments[..self.stored()]
                 .iter()
                 .flatten()
-                .zip(prior.segments[..prior.depth].iter().flatten())
+                .zip(
+                    prior.segments[..prior.depth.min(PATH_SLOTS)]
+                        .iter()
+                        .flatten(),
+                )
                 .map(|(a, b)| a.compare(b))
                 .find(|order| *order != Ordering::Equal)
                 .unwrap_or_else(|| self.depth.cmp(&prior.depth))
@@ -118,7 +126,7 @@ impl<'a> Path<'a, '_, '_> {
             steps[length] = *step;
             length += 1;
         }
-        for segment in self.segments[..self.depth].iter().flatten() {
+        for segment in self.segments[..self.stored()].iter().flatten() {
             steps[length] = segment.step();
             length += 1;
         }
@@ -171,7 +179,10 @@ impl<'a> Path<'a, '_, '_> {
                 steps[length] = *step;
                 length += 1;
             }
-            for segment in selected.segments[..selected.depth].iter().flatten() {
+            for segment in selected.segments[..selected.depth.min(PATH_SLOTS)]
+                .iter()
+                .flatten()
+            {
                 steps[length] = segment.step();
                 length += 1;
             }
@@ -807,7 +818,7 @@ impl<'a, 'p, 'm, 'b> Children<'a, 'p, 'm, 'b> {
         }
         let seen = &mut self.seen;
         let child = raw.get(key.as_str());
-        if !self.path.push(PathSegment::Key(key)) {
+        if !self.path.push(PathSegment::Key(key.clone())) {
             return Err(self.path.mismatch());
         }
         let result = match child {
@@ -829,10 +840,7 @@ impl<'a, 'p, 'm, 'b> Children<'a, 'p, 'm, 'b> {
             }
             None => Err(self.path.mismatch()),
         };
-        let key = match self.path.pop() {
-            Some(PathSegment::Key(key)) => key,
-            _ => unreachable!(),
-        };
+        self.path.pop();
         if let Err(error) = result {
             if error == CompareError::Budget {
                 return Err(error);
@@ -1242,6 +1250,70 @@ mod tests {
     struct Pair {
         a: u64,
         b: u64,
+    }
+
+    #[derive(Serialize)]
+    struct Link {
+        next: Option<Box<Link>>,
+        end: u64,
+    }
+
+    fn chain(depth: usize, end: u64) -> Link {
+        let mut link = Link { next: None, end };
+        for _ in 1..depth {
+            link = Link {
+                next: Some(Box::new(link)),
+                end,
+            };
+        }
+        link
+    }
+
+    fn chain_text(depth: usize, end: u64) -> String {
+        let mut text = format!(r#"{{"next":null,"end":{end}}}"#);
+        for _ in 1..depth {
+            text = format!(r#"{{"next":{text},"end":{end}}}"#);
+        }
+        text
+    }
+
+    #[test]
+    fn a_chain_past_the_remembered_steps_compares_like_a_shallow_one() {
+        std::thread::Builder::new()
+            .stack_size(64 << 20)
+            .spawn(chain_past_the_remembered_steps)
+            .expect("spawn")
+            .join()
+            .expect("chain comparison");
+    }
+
+    fn chain_past_the_remembered_steps() {
+        for depth in [10, 200] {
+            let document = quire_canonical::read(chain_text(depth, 1).as_bytes(), u64::MAX)
+                .expect("source document");
+            let mut budget = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(u64::MAX);
+            let mut meter = WorkMeter::over(&mut budget);
+            compare(
+                TermNode::from_ref(document.root()),
+                &chain(depth, 1),
+                BasePath::root().key("row"),
+                &[],
+                &mut meter,
+            )
+            .unwrap_or_else(|_| panic!("equal chain of {depth} compares equal"));
+            let mut meter = WorkMeter::over(&mut budget);
+            assert!(
+                compare(
+                    TermNode::from_ref(document.root()),
+                    &chain(depth, 2),
+                    BasePath::root().key("row"),
+                    &[],
+                    &mut meter,
+                )
+                .is_err(),
+                "a differing chain of {depth} is refused"
+            );
+        }
     }
 
     #[test]

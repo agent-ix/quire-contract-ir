@@ -712,30 +712,31 @@ fn owner_symbol(name: &str) -> bool {
         || name.starts_with("ProtocolWire")
 }
 
-/// Whether a callback's argument or result type carries an admission verdict
-/// (`bool`, `Result`, `Option`) or an owner value. A callback that only
-/// observes plumbing, or hands back a borrowed identifier, carries neither.
-#[derive(Default)]
-struct AdmissionValue {
-    found: bool,
-}
-impl<'ast> Visit<'ast> for AdmissionValue {
-    fn visit_path_segment(&mut self, segment: &'ast syn::PathSegment) {
-        let name = segment.ident.to_string();
-        if ["bool", "Result", "Option"].contains(&name.as_str()) || owner_symbol(&name) {
-            self.found = true;
-        }
-        visit::visit_path_segment(self, segment);
-    }
+fn type_is(ty: &syn::Type, name: &str) -> bool {
+    matches!(ty, syn::Type::Path(path) if path.qself.is_none() && path.path.is_ident(name))
 }
 
-fn admission_value(inputs: &[&syn::Type], output: &syn::ReturnType) -> bool {
-    let mut value = AdmissionValue::default();
-    for input in inputs {
-        value.visit_type(input);
+/// The budget-plumbing callback shapes, allowed by exact shape: a scoped thunk
+/// `FnOnce() -> R`, a budget observer `fn(NativeBudgetEvent)`, and a position
+/// accessor `Fn(usize) -> &CheckedNodeId`. Every other callback is flagged.
+fn plumbing_callback(name: Option<&str>, inputs: &[&syn::Type], output: &syn::ReturnType) -> bool {
+    let generic_result = matches!(output, syn::ReturnType::Type(_, ty)
+        if matches!(&**ty, syn::Type::Path(path) if path.qself.is_none()
+            && path.path.segments.len() == 1
+            && path.path.segments[0].ident.to_string().len() == 1));
+    match (name, inputs) {
+        (Some("FnOnce"), []) => generic_result,
+        (None, [event]) => {
+            type_is(event, "NativeBudgetEvent") && matches!(output, syn::ReturnType::Default)
+        }
+        (Some("Fn"), [position]) => {
+            type_is(position, "usize")
+                && matches!(output, syn::ReturnType::Type(_, ty)
+                    if matches!(&**ty, syn::Type::Reference(reference)
+                        if type_is(&reference.elem, "CheckedNodeId")))
+        }
+        _ => false,
     }
-    value.visit_return_type(output);
-    value.found
 }
 
 #[derive(Default)]
@@ -762,19 +763,21 @@ impl<'ast> Visit<'ast> for AdmissionSignature {
     }
     fn visit_type_bare_fn(&mut self, function: &'ast syn::TypeBareFn) {
         let inputs: Vec<_> = function.inputs.iter().map(|input| &input.ty).collect();
-        if admission_value(&inputs, &function.output) {
+        if !plumbing_callback(None, &inputs, &function.output) {
             self.has_callback = true;
         }
     }
     fn visit_path_segment(&mut self, segment: &'ast syn::PathSegment) {
-        if ["Fn", "FnMut", "FnOnce"].contains(&segment.ident.to_string().as_str()) {
-            if let syn::PathArguments::Parenthesized(arguments) = &segment.arguments {
-                let inputs: Vec<_> = arguments.inputs.iter().collect();
-                if admission_value(&inputs, &arguments.output) {
-                    self.has_callback = true;
+        let name = segment.ident.to_string();
+        if ["Fn", "FnMut", "FnOnce"].contains(&name.as_str()) {
+            match &segment.arguments {
+                syn::PathArguments::Parenthesized(arguments) => {
+                    let inputs: Vec<_> = arguments.inputs.iter().collect();
+                    if !plumbing_callback(Some(&name), &inputs, &arguments.output) {
+                        self.has_callback = true;
+                    }
                 }
-            } else {
-                self.has_callback = true;
+                _ => self.has_callback = true,
             }
         }
         visit::visit_path_segment(self, segment);
@@ -1045,6 +1048,10 @@ fn boundary_control_rejects_copied_owner_types_parsers_callbacks_and_trust_flags
         "pub fn admit(validator: fn(&str) -> bool) {}",
         "pub type Gate = dyn Fn(&[u8]) -> bool; pub fn admit(gate: &Gate) {}",
         "pub type Gate = fn(&[u8]) -> bool; pub fn admit(gate: Gate) {}",
+        "pub fn admit(verdict: impl Fn(&[u8]) -> Verdict) {}",
+        "pub fn admit(verdict: impl Fn(&[u8]) -> u8) {}",
+        "pub fn admit(verdict: impl Fn(&[u8], &mut Verdict)) {}",
+        "pub fn admit<R>(verdict: impl Fn(&[u8]) -> R) {}",
     ] {
         assert!(!boundary(source).is_empty(), "callback control {source}");
     }

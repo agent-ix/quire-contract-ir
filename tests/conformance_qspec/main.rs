@@ -1611,7 +1611,7 @@ fn tc_048_package_name_is_required_and_retired_identity_members_refuse() {
     assert_eq!(refusal.code, Code::MalformedWire);
     assert_eq!(
         refusal.loci[0].path.as_ref().map(ToString::to_string),
-        Some("/name".to_owned())
+        Some(String::new())
     );
 }
 

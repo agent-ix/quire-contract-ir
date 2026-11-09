@@ -1,37 +1,28 @@
 ---
-id: SR-202611081512300002
-title: "Gap analysis — IR-1404 PR 999"
+id: SR-2026110909552102
+title: "IR-1404 PR 1010 gap analysis"
 type: SpecReview
 analysis: gap-analysis
-scope: "agent-ix/quire-contract-ir; tests/it/checked_package_v2_stage_read_storage.rs; tools/read_path_proof/; spec/checked_package/matrix/TC-472-strict-v2-read-exact-budget-charging.md"
-review_set: subset
+scope: "agent-ix/quire-contract-ir; PR 1010 diff at a12ad8b91, FR-019-AC-16, FR-019-AC-27, FR-028-AC-5"
 ---
+
+# IR-1404 PR 1010 gap analysis
 
 ## Summary
 
-Ticket: IR-1404. PR quire-contract-ir#999 at 53410c466a2db86d2e26a9cd995adfcd13e97f74, diff scope origin/main...HEAD only.
-
-## Verdict
-
-**CONDITIONAL** — Plan completion: not assessed. Semantic review was limited to the PR's AC-503, AC-507 and TC-472 changes; broad semantic audit was not requested. Computed matrix at the PR head: FR-038-AC-503 and FR-038-AC-507 are tagged, one binder each; AC-512 is tagged with 20 binders and none ignored in the files checked; AC-513 stays method-without-symbol and the matrix row says it is not complete. No diff text claims F1, AC-511 whole-read, AC-513 static proof or the ignored cases are closed. The prior AC-503 and AC-507 no-binder findings are fixed at binder level; semantic gaps below and in the code-review artifact remain.
+Ticket: IR-1404. Scoped to PR 1010's diff. Plan completion: not assessed. The computed matrix
+was not run; the criteria touched by the diff were checked by hand against their tagged tests.
 
 ## Findings
 
-| ID | Severity | Summary | Refs |
-| --- | --- | --- | --- |
-| FND-001 | medium | AC-503's work-charge-before-read clause has no binding test | tests/it/checked_package_v2_stage_read_storage.rs:304-328 |
-| FND-002 | medium | The runner still persists test provenance and original-site records that TC-472 now forbids | tools/read_path_proof/run_coverage_census.py:390-392 |
+| ID | Severity | Summary | Refs | Escape Cause |
+| --- | --- | --- | --- | --- |
+| FND-001 | medium | The new AC-16 clause on the budget observer has no test. The inventory now exempts the four names by name without regard to cfg, tc_058 asserts the feature gate only for the fixture export, and neither AC-16 test names the observer. | tests/it/public_interface.rs:944-951, tests/it/public_interface.rs:1597, tests/it/public_interface.rs:1654-1667 | correct-requirement-no-evidence |
+| FND-002 | medium | FR-028-AC-5 still forbids any callback or trait object, while the scan tracing it now allows plumbing callbacks and dyn ReadStorage. Spec and test disagree on what is enforced. | spec/model/functional/FR-028-separate-cycle-free-contract-model.md:69, tests/it/cycle_free_model.rs:745-782 | wrong-requirement |
 
-## Coverage
+## Verdict
 
-Plan completion: not assessed
-
-Examined units: FR-038-AC-503, FR-038-AC-507, TC-472, FR-038-AC-512.
-
-## Dispositions
-
-| FND | outcome | reason |
-| --- | --- | --- |
-| FND-001 | fixed | Verified in fix commit b4c684ec47e638bcf13bfc87ee38c9214de56a3c |
-| FND-002 | still-open | run_class_controls returns the unfiltered result, and main writes it to result.json with each class's facts (original-site records). run_coverage_census.py:550 returns [result], whose classes still hold facts and directory for each execution, and line 633 writes results into result.json. config.json and the class-proof.json report fields are fixed, and the logs are deleted, but a qualified class-control run still serializes the captured records TC-472 forbids. Return persisted_class_proof(result). |
-| FND-002 | fixed | Verified in fix commit bd9092b93c93357b7b85a5a2e7787bd6b76a2e6c |
+Two gaps to close, both small. FR-019-AC-27's seven types match the lib.rs exports and FR-361
+exactly, so that inventory addition is intended. The observer exports are feature-gated today
+at lib.rs:342 and v2/mod.rs:179-182; the exemption hides nothing at this head, but nothing would
+fail if both gates were removed.

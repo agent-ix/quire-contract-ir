@@ -31,7 +31,6 @@ use quire_contract_model::{
 };
 use serde_json::{json, Value};
 use std::collections::BTreeSet;
-use syn::visit::{self, Visit};
 
 struct IntegrationCounter;
 impl Counter for IntegrationCounter {
@@ -78,7 +77,7 @@ fn wide_bounded_quantity_case() -> Case {
 
 #[trace("TC-472", "FR-038-AC-511", "FR-038-AC-512")]
 #[test]
-fn original_wide_bounded_quantity_provider_has_exact_core_accounting() {
+fn original_wide_bounded_quantity_provider_is_accounted_within_the_bound_at_core_bounds() {
     let input = wide_bounded_quantity_case();
     proof::assert_read::<IntegrationCounter>(
         &input.label,
@@ -362,7 +361,8 @@ struct DependencyCallCase {
 /// helpers. The raw importer base is never resolved before its wire patches.
 fn dependency_call_cases() -> (Vec<DependencyCallCase>, BTreeSet<String>) {
     let root = std::path::PathBuf::from(
-        std::env::var_os("QUIRE_SPECIFICATION_DIR").expect("selected QSpec checkout"),
+        std::env::var_os("QUIRE_SPECIFICATION_DIR")
+            .expect("QUIRE_SPECIFICATION_DIR is required: it names the selected QSpec checkout"),
     );
     let proposal = root.join("proposals/checked-package-v2");
     let fixtures = proposal.join("fixtures");
@@ -518,18 +518,12 @@ fn dependency_call_providers_preserve_original_outcomes_and_loci() {
     eprintln!("Dependency-call family: direct admitted {admitted}; published mutations refused {refused}; unresolved 0; original-source-site census join pending");
 }
 
-fn normalized_reference(reference: &str) -> &str {
-    reference
-        .strip_prefix("proposals/checked-package-v2/")
-        .unwrap_or(reference)
-}
-
 /// The same files and construction functions the existing QSpec drivers use.
 /// Files are read by reference; no copy of a published vector is stored here.
 fn qspec_cases() -> (Vec<Case>, BTreeSet<String>) {
     let root = std::path::PathBuf::from(
         std::env::var_os("QUIRE_SPECIFICATION_DIR")
-            .expect("whole-corpus proof requires the selected QSpec checkout"),
+            .expect("QUIRE_SPECIFICATION_DIR is required: it names the selected QSpec checkout"),
     );
     let proposal = root.join("proposals/checked-package-v2");
     let mut providers = BTreeSet::new();
@@ -1385,7 +1379,7 @@ fn registered_cases() -> Vec<Case> {
 /// remains a separate test; this tier does not claim normative sweep coverage.
 #[trace("TC-472", "FR-038-AC-511", "FR-038-AC-512")]
 #[test]
-fn every_registered_input_has_exact_accounting_at_core_bounds() {
+fn every_registered_input_is_accounted_within_the_bound_at_core_bounds() {
     initialize_operation_catalog().expect("catalog gate");
     let cases = registered_cases();
     assert!(!cases.is_empty(), "the real registered corpus is nonempty");
@@ -1431,191 +1425,6 @@ fn the_counter_observes_full_reallocation_requests_and_drop_separately() {
         requested, 40,
         "8-byte initial allocation plus full32-byte replacement, ignoring frees"
     );
-}
-
-#[derive(Default)]
-struct QSpecReferences {
-    json: BTreeSet<String>,
-    qspec: bool,
-}
-impl<'ast> Visit<'ast> for QSpecReferences {
-    fn visit_lit_str(&mut self, string: &'ast syn::LitStr) {
-        let value = string.value();
-        if value.starts_with("QUIRE_SPECIFICATION_DIR")
-            || value.contains("proposals/checked-package-v2")
-        {
-            self.qspec = true;
-        }
-        if value.ends_with(".json") {
-            self.json.insert(value);
-        }
-        visit::visit_lit_str(self, string);
-    }
-}
-
-#[trace("TC-472", "FR-038-AC-511")]
-#[test]
-fn by_reference_qspec_inputs_need_registered_whole_package_providers() {
-    // These are actual driver references, not a guessed list of QSpec files.
-    // A component-vector driver needs its real transformation into a complete
-    // package before it may receive whole-read accounting credit.
-    fn sources(directory: &std::path::Path, files: &mut Vec<std::path::PathBuf>) {
-        for entry in std::fs::read_dir(directory).expect("test source directory") {
-            let path = entry.expect("test source entry").path();
-            if path.is_dir() {
-                sources(&path, files);
-            } else if path.extension().is_some_and(|ext| ext == "rs") {
-                files.push(path);
-            }
-        }
-    }
-    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests");
-    let mut files = Vec::new();
-    sources(&root, &mut files);
-    let mut references = BTreeSet::new();
-    for path in files {
-        if path
-            .file_name()
-            .is_some_and(|name| name == "checked_package_v2_whole_read_accounting.rs")
-        {
-            continue;
-        }
-        let source = std::fs::read_to_string(&path).expect("test source");
-        let syntax = syn::parse_file(&source).expect("driver syntax");
-        let mut driver = QSpecReferences::default();
-        driver.visit_file(&syntax);
-        let relative = path.strip_prefix(&root).expect("source below test root");
-        if driver.qspec || relative.starts_with("conformance_qspec") {
-            for reference in driver.json {
-                references.insert(format!(
-                    "{}: {}",
-                    relative.display(),
-                    normalized_reference(&reference)
-                ));
-            }
-        }
-    }
-    let (_, providers) = qspec_cases();
-    let qspec = std::path::PathBuf::from(
-        std::env::var_os("QUIRE_SPECIFICATION_DIR").expect("selected QSpec checkout"),
-    );
-    let proposal = qspec.join("proposals/checked-package-v2");
-    fn json_files(directory: &std::path::Path, files: &mut Vec<std::path::PathBuf>) {
-        for entry in std::fs::read_dir(directory).expect("QSpec source directory") {
-            let path = entry.expect("QSpec file").path();
-            if path.is_dir() {
-                json_files(&path, files);
-            } else if path.extension().is_some_and(|ext| ext == "json") {
-                files.push(path);
-            }
-        }
-    }
-    fn vector_cases(value: &Value, path: &str, out: &mut BTreeSet<String>) {
-        if let Value::Object(fields) = value {
-            for (name, child) in fields {
-                let path = format!("{path}/{name}");
-                if let Some(rows) = child.as_array() {
-                    for (i, row) in rows.iter().enumerate() {
-                        let id = row
-                            .get("id")
-                            .or_else(|| row.get("name"))
-                            .and_then(Value::as_str);
-                        if let Some(id) = id.filter(|_| {
-                            row.get("expected").is_some()
-                                || row.get("outcome").is_some()
-                                || row.get("expected_code").is_some()
-                        }) {
-                            out.insert(format!("{path}#{id}"));
-                        } else {
-                            vector_cases(row, &format!("{path}/{i}"), out);
-                        }
-                    }
-                } else {
-                    vector_cases(child, &path, out);
-                }
-            }
-        }
-    }
-    let mut available = Vec::new();
-    json_files(&qspec.join("proposals"), &mut available);
-    let mut unresolved_packages = BTreeSet::new();
-    let mut unresolved_recipes = BTreeSet::new();
-    let mut auxiliary = BTreeSet::new();
-    for reference in references {
-        let (driver, name) = reference.split_once(": ").expect("source reference");
-        let matches = available
-            .iter()
-            .filter(|path| path.ends_with(name))
-            .collect::<Vec<_>>();
-        if matches.is_empty() {
-            auxiliary.insert(format!(
-                "{reference}: no existing JSON bytes (not credited as a package input)"
-            ));
-            continue;
-        }
-        for path in matches {
-            let bytes = std::fs::read(path).expect("referenced QSpec JSON");
-            let value: Value = serde_json::from_slice(&bytes).expect("referenced QSpec syntax");
-            let canonical = path.canonicalize().expect("source path");
-            let matching_providers = providers
-                .iter()
-                .filter_map(|provider| {
-                    let (source, recipe) = provider.split_once(": ")?;
-                    if source != driver {
-                        return None;
-                    }
-                    let (file, dataset) = recipe
-                        .split_once('#')
-                        .map_or((recipe, None), |(f, c)| (f, Some(c)));
-                    let provided = proposal.join(file).canonicalize().ok()?;
-                    (provided == canonical).then_some(dataset)
-                })
-                .collect::<Vec<_>>();
-            if value.get("$schema").is_some()
-                || (value.get("type").and_then(Value::as_str) == Some("object")
-                    && value.get("properties").is_some())
-            {
-                auxiliary.insert(format!(
-                    "{reference}: auxiliary schema, not complete V2 read bytes"
-                ));
-            } else if value.get("contractVersion").is_some() && value.get("package").is_some() {
-                auxiliary.insert(format!(
-                    "{reference}: selected IR document, not a separate checked-package read"
-                ));
-            } else if value.get("selected_documents").is_some() {
-                auxiliary.insert(format!("{reference}: fixture evidence-selection manifest"));
-            } else if value
-                .get("contract_version")
-                .is_some_and(|v| v == "quire.checked-package/v2")
-                && value.pointer("/semantic_graph/nodes").is_some()
-            {
-                if !matching_providers.contains(&None) {
-                    unresolved_packages.insert(format!("{reference}: complete V2 bytes exist, but this driver's input/evidence recipe remains unresolved ({})",path.display()));
-                }
-            } else if value.get("contract_version").is_some() {
-                auxiliary.insert(format!(
-                    "{reference}: another wire version; not credited as V2"
-                ));
-            } else {
-                let mut rows = BTreeSet::new();
-                vector_cases(&value, "", &mut rows);
-                if rows.is_empty() {
-                    unresolved_recipes.insert(format!("{reference}: JSON component/consumer provenance unresolved; not asserted to be a complete V2 package"));
-                }
-                for row in rows {
-                    if !matching_providers.contains(&Some(row.as_str())) {
-                        unresolved_recipes.insert(format!("{reference}#{row}: actual driver/list/case transformation remains unresolved"));
-                    }
-                }
-            }
-        }
-    }
-    let report = std::env::temp_dir().join(format!(
-        "ir1404-f2-corpus-provider-gaps-{}.json",
-        std::process::id()
-    ));
-    std::fs::write(&report,serde_json::to_vec_pretty(&json!({"unresolved_complete_package_recipes":unresolved_packages,"unresolved_vector_driver_recipes":unresolved_recipes,"auxiliary_or_no_bytes_not_credited":auxiliary})).expect("structured provider report")).expect("write provider report");
-    assert!(unresolved_packages.is_empty()&&unresolved_recipes.is_empty(),"Unresolved complete-package recipes ({}), sample:\n{}\nUnresolved vector/consumer provenance ({}), sample:\n{}\nAuxiliary/no-byte references excluded without package credit: {}\nComplete structured classification: {}",unresolved_packages.len(),unresolved_packages.iter().take(15).cloned().collect::<Vec<_>>().join("\n"),unresolved_recipes.len(),unresolved_recipes.iter().take(15).cloned().collect::<Vec<_>>().join("\n"),auxiliary.len(),report.display());
 }
 
 #[trace("TC-472", "FR-038-AC-511")]

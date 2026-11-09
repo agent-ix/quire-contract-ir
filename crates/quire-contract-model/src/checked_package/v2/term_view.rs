@@ -1012,9 +1012,10 @@ impl<'d> RefinementDocument<'_, 'd> {
     }
 }
 
-/// Where a refinement body departs from its closed wire, found on the refusal
-/// path only. A healthy body never reaches these walks; each borrows the
-/// document and builds nothing but the refusal it returns.
+/// Where a refinement body departs from its closed wire. The header and
+/// catalog checks run on every refinement body; the row walk runs only after
+/// a typed decode failed. Each borrows the document and builds nothing but
+/// the refusal it returns. A member the object lacks is located at the object.
 mod refinement_fault {
     use super::super::refinement::{
         class_kind, invalid, RefinementClassKind, RefinementFairnessKind, RefinementGranularity,
@@ -1036,8 +1037,8 @@ mod refinement_fault {
         let Some(mut members) = node.members() else {
             return Err(invalid(at));
         };
-        if let Some(name) = required.iter().find(|name| node.get(name).is_none()) {
-            return Err(invalid(&at.key(name)));
+        if required.iter().any(|name| node.get(name).is_none()) {
+            return Err(invalid(at));
         }
         if let Some((extra, _)) =
             members.find(|(name, _)| !required.contains(name) && !optional.contains(name))
@@ -1052,7 +1053,7 @@ mod refinement_fault {
         name: &str,
         at: &Trail<'_>,
     ) -> Result<TermNode<'d>, ValidationFailure> {
-        node.get(name).ok_or_else(|| invalid(&at.key(name)))
+        node.get(name).ok_or_else(|| invalid(at))
     }
 
     fn atom<'d, T: RefinementAtom<'d>>(node: TermNode<'d>, at: &Trail<'_>) -> Found {
