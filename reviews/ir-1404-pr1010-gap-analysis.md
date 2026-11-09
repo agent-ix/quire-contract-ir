@@ -47,3 +47,4 @@ fail if both gates were removed.
 | FND-003 | still-open | Spec still generalizes from two population families, and long names can exceed the stated bound |
 | FND-004 | fixed | Verified at 8f9659178 |
 | FND-005 | fixed | Verified at 8f9659178 |
+| FND-003 | fixed | Verified at 591c893d6: AC-511 is scoped to the shapes and names exercised |

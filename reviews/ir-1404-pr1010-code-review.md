@@ -65,3 +65,4 @@ genuine closed-string intake functions, as FR-056-AC-3 expects.
 | FND-008 | rejected | Reviewer error: read_envelope refuses JSON nesting at or above the 128-level serde bound (budgeted_read.rs:641), so Compare's recursion is bounded |
 | FND-009 | fixed | Verified at 8f9659178: the thunk result must be an unbounded generic of the function |
 | FND-010 | still-open | New this round: the early check reorders refusals |
+| FND-010 | fixed | Verified at 591c893d6: refuse_owner_chains and its call are deleted |
