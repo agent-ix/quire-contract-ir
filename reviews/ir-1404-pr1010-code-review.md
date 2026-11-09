@@ -43,6 +43,12 @@ genuine closed-string intake functions, as FR-056-AC-3 expects.
 | FND-008 | medium | Saturating push removes the only stop on Compare's native recursion. A deep owner_effective_type chain now recurses once per level through Children, each frame holding a 64-slot seen array; the new test needs a 64 MiB stack at depth 200. A chain that used to refuse at 128 levels can now overflow the stack and abort the process. | crates/quire-contract-model/src/checked_package/v2/lossless.rs:73-79, crates/quire-contract-model/src/checked_package/v2/lossless.rs:1279-1286 | implementation-bug-despite-evidence |
 | FND-009 | low | The FnOnce() -> R allow-list accepts any one-letter return name without checking it is an unbounded generic, so a niladic trust gate such as FnOnce() -> V, or R: Into<bool>, passes. | tests/it/cycle_free_model.rs:723-729 | implementation-bug-despite-evidence |
 
+## New findings (disposition pass 2)
+
+| ID | Severity | Summary | Refs | Escape Cause |
+| --- | --- | --- | --- | --- |
+| FND-010 | high | refuse_owner_chains runs before closed-schema decode, so an owner on a dispatch candidate now outranks every earlier-ordered defect, and a non-null owner of the wrong kind refuses unsupported_construct instead of malformed_wire. FR-038 orders closed-schema decode first and the sidecar check after graph and source-map admission. | crates/quire-contract-model/src/checked_package/v2/dispatch_projection.rs:124-162, crates/quire-contract-model/src/checked_package/v2/mod.rs:1551 | implementation-bug-despite-evidence |
+
 ## Dispositions
 
 | FND | outcome | reason |
@@ -56,3 +62,6 @@ genuine closed-string intake functions, as FR-056-AC-3 expects.
 | FND-007 | fixed | Verified at 2ac175217 |
 | FND-008 | still-open | New this round: Compare recursion is unbounded in chain depth |
 | FND-009 | still-open | New this round: plumbing_callback does not confirm R is an unbounded generic |
+| FND-008 | rejected | Reviewer error: read_envelope refuses JSON nesting at or above the 128-level serde bound (budgeted_read.rs:641), so Compare's recursion is bounded |
+| FND-009 | fixed | Verified at 8f9659178: the thunk result must be an unbounded generic of the function |
+| FND-010 | still-open | New this round: the early check reorders refusals |

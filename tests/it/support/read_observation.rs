@@ -48,10 +48,12 @@ pub(crate) fn measure_at<C: Counter>(
 /// bytes. The allowance does not depend on the size of the package.
 ///
 /// Most reads leave no unpaid heap. A refusal built in a body validator that
-/// does not pay its diagnostic first requests an amount that depends only on
-/// the length of the names and pointer it carries, the worst measured being
-/// about 1593 bytes; the allowance is headroom for that, never for growth
-/// with the package.
+/// does not pay its diagnostic first requests an amount that depends on the
+/// length of the names and pointer it carries, the worst measured being about
+/// 1593 bytes. The bound holds for the shapes and names the tests exercise;
+/// two population refusals were measured at two package sizes with equal
+/// results, and no other family was. An unusually long name on an unpaid path
+/// is not covered.
 pub(crate) const UNPAID_BOUND: u64 = 4_096;
 
 /// Bytes requested during the read that the budget did not admit.

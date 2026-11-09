@@ -44,3 +44,6 @@ fail if both gates were removed.
 | FND-003 | still-open | New this round: the constant claim is unshown |
 | FND-004 | still-open | New this round: the row overstates the corpus proof |
 | FND-005 | still-open | New this round: typo in the amended criterion |
+| FND-003 | still-open | Spec still generalizes from two population families, and long names can exceed the stated bound |
+| FND-004 | fixed | Verified at 8f9659178 |
+| FND-005 | fixed | Verified at 8f9659178 |
