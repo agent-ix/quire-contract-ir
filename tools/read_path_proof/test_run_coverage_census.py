@@ -56,19 +56,41 @@ class OriginalSelection(unittest.TestCase):
         self.assertFalse(metadata["full_corpus"])
 
 
-class CompletionCustody(unittest.TestCase):
-    def test_empty_completion_manifest_cannot_emit_success(self):
-        with tempfile.TemporaryDirectory() as directory:
-            manifest = Path(directory) / "manifest.json"
-            manifest.write_text(json.dumps({"schema":"ac511-full-completion/v1", "runs":[]}))
-            with self.assertRaisesRegex(runner.RunError, "exactly two"):
-                runner.complete_full_manifest(manifest)
-
+class PersistedEvidence(unittest.TestCase):
     def test_support_controls_are_explicitly_scoped_without_corpus_credit(self):
         metadata = runner.selection_metadata(SimpleNamespace(controls=True, class_controls=False))
         self.assertEqual(metadata["scope"], "executed malformed-input reader entry controls only")
         self.assertFalse(metadata["full_corpus"])
         self.assertFalse(metadata["complete_declared_inventory"])
+
+    def test_class_proof_keeps_verdicts_and_counts_without_facts_or_reports(self):
+        entry = {"facts": {"test": "canonical_class_denial::x"}, "counts": {"value": 1}, "directory": "/d"}
+        proof = runner.persisted_class_proof({
+            "schema": "s", "qualified": True, "scope": "c", "configuration": "config.json",
+            "static_ac513_proven": False, "canonical_source": "/src",
+            "classes": [{"class": "text", "qualified": True, "kernel_allow": entry, "whole_deny": None,
+                         "source_binding": {"line": 3, "before_denial_counts": {"value": 1}}, "kernel_bound": True}],
+            "negative_controls": [], "runs": [{"test": "canonical_class_denial::x", "directory": "/d",
+                                               "rust_oracle_passed": True}]})
+        self.assertEqual(proof["classes"][0]["kernel_allow"], {"counts": {"value": 1}})
+        self.assertIsNone(proof["classes"][0]["whole_deny"])
+        self.assertEqual(proof["classes"][0]["source_binding"]["line"], 3)
+        self.assertEqual(proof["runs"], [{"test": "canonical_class_denial::x", "rust_oracle_passed": True}])
+        self.assertNotIn("facts", json.dumps(proof))
+
+    def test_persisted_summary_keeps_counts_without_test_identity(self):
+        summary = runner.persisted_test_summary({
+            "intended_tests": ["module::case"],
+            "passed_tests": ["module::case"],
+            "failed_tests": [],
+            "ignored_tests": [],
+            "scope": "selected-only original tests",
+            "full_corpus": False,
+        })
+        self.assertEqual(summary["test_count"], 1)
+        self.assertEqual(summary["passed_count"], 1)
+        self.assertNotIn("module::case", json.dumps(summary))
+        self.assertNotIn("intended_tests", summary)
 
 
 class ArtifactCustody(unittest.TestCase):
@@ -112,14 +134,34 @@ class ArtifactCustody(unittest.TestCase):
             args = SimpleNamespace(out=root, mode="sample", repo=root)
             with patch.object(runner, "LOCKED", []), patch.object(runner, "validate_snapshot"), patch.object(runner, "require_space"):
                 output, report, profiles, records = runner.execute_one(
-                    args, binary, {"source_head": "unit-artifact-control"}, {},
+                    args, binary, {}, {},
                     "original::red", 0, preserve_failure=True)
             self.assertEqual(report["exit_code"], 1)
             self.assertEqual(report["failed_tests"], ["original::red"])
             self.assertTrue(report["evidence_errors"])
             self.assertEqual(profiles[0].read_bytes(), b"profile-preserved")
-            self.assertIn("FAILED", (output / "run.log").read_text())
+            summary = json.loads((output / "test-report.json").read_text())
+            self.assertEqual(summary["failed_count"], 1)
+            self.assertFalse((output / "run.log").exists())
+            self.assertFalse((output / "driver-sites.jsonl").exists())
             self.assertEqual(records, [])
+
+    def test_failed_corpus_run_names_the_failing_test_and_its_error(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            binary = root / "red-original"
+            binary.write_text("#!/usr/bin/python3\nprint('test original::red ... FAILED')\nprint('assertion failed: reader')\nraise SystemExit(1)\n")
+            binary.chmod(0o700)
+            args = SimpleNamespace(out=root, mode="sample", repo=root, original_test=[], corpus="qspec")
+            with patch.object(runner, "LOCKED", []), patch.object(runner, "validate_snapshot"), patch.object(runner, "require_space"):
+                with self.assertRaises(runner.RunError) as raised:
+                    runner.run_original_corpus(args, binary, {}, {}, ["original::red"])
+            message = str(raised.exception)
+            self.assertIn("1 of 1 intended original tests failed: original::red", message)
+            self.assertIn("assertion failed: reader", message)
+            self.assertNotIn("retained", message)
+            summary = json.loads((root / "test-report.json").read_text())
+            self.assertEqual(summary["failed_count"], 1)
 
     def test_timeout_records_incomplete_and_terminates_only_owned_process(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -129,12 +171,13 @@ class ArtifactCustody(unittest.TestCase):
             binary.chmod(0o700)
             args = SimpleNamespace(out=root,mode="sample",repo=root,test_timeout_seconds=0.05)
             with patch.object(runner,"LOCKED",[]), patch.object(runner,"validate_snapshot"), patch.object(runner,"require_space"):
-                output,report,_,_ = runner.execute_one(args,binary,{"source_head":"unit-artifact-control"},{},
+                output,report,_,_ = runner.execute_one(args,binary,{}, {},
                                                      "original::slow",0,preserve_failure=True)
             self.assertTrue(report["timed_out"])
             self.assertNotEqual(report["exit_code"],0)
             self.assertFalse(report["passed_tests"])
             self.assertTrue((output / "timeout.json").exists())
+            self.assertFalse((output / "run.log").exists())
             self.assertTrue(any("timeout; incomplete" in error for error in report["evidence_errors"]))
 
     def test_config_never_copies_registry_credentials(self):

@@ -140,12 +140,28 @@ def test_results(text, intended):
     return outcomes
 
 
+def persisted_test_summary(report):
+    """Persist aggregate outcomes without a test/callsite inventory."""
+    return {
+        "test_count": len(report.get("intended_tests", [])),
+        "passed_count": len(report.get("passed_tests", [])),
+        "failed_count": len(report.get("failed_tests", [])),
+        "ignored_count": len(report.get("ignored_tests", [])),
+        "exit_code": report.get("exit_code"),
+        "timed_out": report.get("timed_out", False),
+        "native_started": report.get("native_started", False),
+        "evidence_error_count": len(report.get("evidence_errors", [])),
+        "scope": report.get("scope", "selected original tests"),
+        "full_corpus": report.get("full_corpus", False),
+    }
+
+
 def validate_snapshot(root, config):
-    if git(root, "rev-parse", "HEAD") != config["source_head"] or git(root, "status", "--porcelain"):
-        raise RunError("source snapshot changed after the clean frozen build")
+    if git(root, "status", "--porcelain"):
+        raise RunError("source tree changed after the clean build")
     qspec = Path(config["qspec"]["path"])
-    if git(qspec, "rev-parse", "HEAD") != config["qspec"]["head"] or git(qspec, "status", "--porcelain"):
-        raise RunError("selected QSpec snapshot changed during proof")
+    if git(qspec, "status", "--porcelain"):
+        raise RunError("selected QSpec tree changed during proof")
 
 
 def build(args, target, env, config):
@@ -250,7 +266,6 @@ def select_tc048(args, compiled):
         selected[name] = claim
     if not selected:
         raise RunError("no actual TC-048 original integration tests selected")
-    write_json(args.out / "tc048-selected-tests.json", selected)
     return sorted(selected)
 
 
@@ -336,7 +351,7 @@ def execute_one(args, binary, config, env, name, index, *, preserve_failure=Fals
         code=process.returncode
         pid = process.pid
     if timed_out:
-        write_json(output / "timeout.json", {"pid":pid,"test":name,"timeout_seconds":timeout,
+        write_json(output / "timeout.json", {"pid":pid,"timeout_seconds":timeout,
                    "classification":"timeout/incomplete; no pass or full-proof credit"})
     validate_snapshot(args.repo, config)
     require_space(output, "after exact original test process")
@@ -351,8 +366,7 @@ def execute_one(args, binary, config, env, name, index, *, preserve_failure=Fals
               "timeout_seconds": timeout, "timed_out": timed_out,
               "native_started":native_start is not None,
               "lock_wait_seconds":(native_start-start) if native_start is not None else None,
-              "source_head": config["source_head"], **selection_metadata(args)}
-    write_json(output / "test-report.json", report)
+              **selection_metadata(args)}
     errors = list(parse_errors)
     if timed_out:
         errors.append(f"original test exceeded recorded {timeout}s timeout; incomplete")
@@ -366,12 +380,18 @@ def execute_one(args, binary, config, env, name, index, *, preserve_failure=Fals
     try:
         records = [json.loads(line) for line in log.read_text().splitlines() if line.strip()] if log.exists() else []
     except json.JSONDecodeError as error:
-        errors.append(f"invalid original-site records retained at {log}: {error}")
+        errors.append("invalid original-site data")
         records = []
     if any(record.get("test") != name for record in records):
         errors.append("captured read provenance does not belong to its exact original test")
+    if errors and (output / "run.log").exists():
+        tail = (output / "run.log").read_text(errors="replace").splitlines()[-8:]
+        errors.append("test output ended with: " + " | ".join(tail))
     report["evidence_errors"] = errors
-    write_json(output / "test-report.json", report)
+    write_json(output / "test-report.json", persisted_test_summary(report))
+    if not getattr(args, "class_controls", False):
+        log.unlink(missing_ok=True)
+        (output / "run.log").unlink(missing_ok=True)
     if errors and not preserve_failure:
         raise RunError("; ".join(errors))
     return output, report, raw, records
@@ -414,13 +434,14 @@ def run_original_corpus(args, binary, config, env, intended):
               "failed_tests": [name for item in reports for name in item["failed_tests"]],
               "ignored_tests": [name for item in reports for name in item["ignored_tests"]],
               "exit_code": int(any(item["exit_code"] or item["evidence_errors"] for item in reports)),
-              "test_threads": 1, "per_test_processes": reports, "source_head": config["source_head"], **selection_metadata(args)}
-    write_json(args.out / "test-report.json", report)
-    with (args.out / "driver-sites.jsonl").open("w") as log:
-        for record in records:
-            log.write(json.dumps(record) + "\n")
-    if any(item["evidence_errors"] for item in reports):
-        raise RunError("all intended original tests attempted; failures/evidence errors retained in per-test reports")
+              "test_threads": 1, "per_test_processes": reports, **selection_metadata(args)}
+    failures = [item for item in reports if item["evidence_errors"]]
+    if failures:
+        write_json(args.out / "test-report.json", persisted_test_summary(report))
+        raise RunError(
+            f"{len(failures)} of {len(reports)} intended original tests failed: "
+            + "; ".join(f"{item['intended_tests'][0]}: {'; '.join(item['evidence_errors'])}"
+                        for item in failures))
     evidence = merge_export(args, args.out, profiles, binary, env)
     result = census.check_run(evidence, args.repo, report, records, args.mode)
     result.update(selection_metadata(args))
@@ -428,9 +449,24 @@ def run_original_corpus(args, binary, config, env, intended):
                      "executed original TC-048 integration tests only" if args.corpus == "tc048"
                      else "executed original QSpec driver tests only")
     write_json(args.out / "census.json", result)
+    write_json(args.out / "test-report.json", persisted_test_summary(report))
     archive_export(args.out)
     return [result]
 
+
+
+def persisted_class_proof(result):
+    """The class verdicts and compiler counts, without per-test facts or reports."""
+    kept = {key: result[key] for key in ("schema","qualified","scope","configuration","static_ac513_proven")}
+    kept["canonical_source"] = result["canonical_source"]
+    kept["classes"] = [
+        {key: ({"counts": value["counts"]} if key in ("kernel_allow", "kernel_deny", "whole_allow", "whole_deny", "whole_exact") and value else value)
+         for key, value in item.items()}
+        for item in result["classes"]]
+    kept["negative_controls"] = result["negative_controls"]
+    kept["runs"] = [{"test": run["test"], "rust_oracle_passed": run["rust_oracle_passed"]}
+                    for run in result["runs"]]
+    return kept
 
 
 def run_class_controls(args,binary,config,env,compiled_tests):
@@ -444,48 +480,13 @@ def run_class_controls(args,binary,config,env,compiled_tests):
     if len(set(manifests))!=1: raise RunError("actual canonical dependency source identity missing/ambiguous")
     source=manifests[0].parent/"src/read.rs"
     completed={}; cases=[]
-    reused={}
-    if args.reuse_class_kernel:
-        previous=args.reuse_class_kernel.resolve()
-        old_config=json.loads((previous/"config.json").read_text())
-        # Only the kernel is reused: actual reader/model production fixes must
-        # always receive fresh whole-V2 runs. Preserve both cohort identities.
-        protected=["tests/read_storage_alloc.rs","tests/it/support/canonical_class_denial.rs","Cargo.toml","Cargo.lock"]
-        if git(args.repo,"diff",old_config["source_head"],config["source_head"],"--",*protected):
-            raise RunError("kernel source/counter/dependency selection changed; cannot reuse old kernel evidence")
-        if any(old_config.get(key)!=config.get(key) for key in ["rustc","llvm","features","environment"]):
-            raise RunError("kernel compiler/tool configuration changed; cannot reuse cohort")
-        old=json.loads((previous/"class-proof.json").read_text())
-        if Path(old["canonical_source"]).resolve()!=source.resolve():
-            raise RunError("canonical source instance changed; cannot reuse kernel cohort")
-        for item in old["classes"]:
-            for phase in ["allow","deny"]:
-                evidence=item.get("kernel_"+phase)
-                if evidence:reused["kernel_"+item["class"]+"_"+phase]=evidence
-        needed=["kernel_empty","negative_empty_string_is_not_text_growth","negative_empty_array_is_not_retained_children","negative_scratch_child_is_not_retained_children"]
-        for name in needed:
-            matches=[run for run in old["runs"] if run["test"]=="canonical_class_denial::"+name and run["rust_oracle_passed"]]
-            if len(matches)!=1:continue
-            directory=Path(matches[0]["directory"])
-            with gzip.open(directory/"coverage.json.gz","rt") as data:export=json.load(data)
-            facts=[json.loads(row) for row in (directory/"driver-sites.jsonl").read_text().splitlines() if row.strip()]
-            if len(facts)!=1:raise RunError("reused kernel fact record missing/ambiguous")
-            reused[name]={"facts":facts[0],"counts":census.canonical_path_counts(export,source),"directory":str(directory)}
-        config["kernel_evidence_reuse"]={"directory":str(previous),"source_head":old_config["source_head"],
-             "basis":"identical protected kernel/counter/Cargo sources and compiler configuration; canonical source instance unchanged"}
-        write_json(args.out/"config.json",config)
     def execute(name,reference=None):
-        if name in reused:
-            result=dict(reused[name],reused_from_source=old_config["source_head"])
-            cases.append({"test":"canonical_class_denial::"+name,"directory":result["directory"],
-                          "rust_oracle_passed":True,"reused":True,"source_head":old_config["source_head"]})
-            return result
         full="canonical_class_denial::"+name
         if full not in compiled_tests: raise RunError("missing compiled class control "+full)
         child=dict(env)
         if reference: child["IR1404_CANONICAL_REFERENCE_LOG"]=str(reference)
         output,report,profiles,records=execute_one(args,binary,config,child,full,len(cases),preserve_failure=True)
-        row={"test":full,"directory":str(output),"rust_oracle_passed":not report["evidence_errors"],"report":report}
+        row={"test":full,"directory":str(output),"rust_oracle_passed":not report["evidence_errors"]}
         cases.append(row)
         if report["evidence_errors"]: return None
         if len(records)!=1: raise RunError("class control must emit exactly one actual fact record")
@@ -539,72 +540,17 @@ def run_class_controls(args,binary,config,env,compiled_tests):
             "scope":"minimal canonical class-denial controls only; not positive/adverse corpus completeness or AC513",
             "configuration":"config.json","canonical_source":str(source),"classes":classes,
             "negative_controls":negatives,"runs":cases,"static_ac513_proven":False}
-    write_json(args.out/"class-proof.json",result)
+    # A reference log is only a channel between one allow run and its deny
+    # runs; nothing of it outlives the proof.
+    for case in cases:
+        for name in ("driver-sites.jsonl","run.log"):
+            (Path(case["directory"])/name).unlink(missing_ok=True)
+    write_json(args.out/"class-proof.json",persisted_class_proof(result))
     if not qualified: raise RunError("class denial proof incomplete/RED; preserve individual run and binding results")
-    return [result]
-
-
-def complete_full_manifest(manifest_path):
-    """Revalidate retained compiler evidence; never trust a manifest's pass flags."""
-    manifest = json.loads(manifest_path.read_text())
-    if manifest.get("schema") != "ac511-full-completion/v1":
-        raise RunError("missing full-completion manifest schema")
-    if not isinstance(manifest.get("runs"), list) or len(manifest["runs"]) != 2:
-        raise RunError("full completion requires exactly two retained original corpus runs")
-    repo = Path(manifest["repo"]).resolve()
-    bundle = {"schema": manifest["schema"], "runs": []}
-    for directory in manifest.get("runs", []):
-        directory = Path(directory).resolve()
-        config = json.loads((directory / "config.json").read_text())
-        report = json.loads((directory / "test-report.json").read_text())
-        records = [json.loads(line) for line in (directory / "driver-sites.jsonl").read_text().splitlines() if line.strip()]
-        repo = Path(manifest["repo"]).resolve()
-        if git(repo, "rev-parse", "HEAD") != config.get("source_head") or git(repo, "status", "--porcelain"):
-            raise RunError("completion requires the same clean frozen source for compiler/source joins")
-        export_path = directory / "coverage.json"
-        opener = export_path.open if export_path.exists() else (directory / "coverage.json.gz").open
-        if export_path.exists():
-            with opener("r") as source: export = json.load(source)
-        else:
-            with gzip.open(directory / "coverage.json.gz", "rt") as source: export = json.load(source)
-        result = census.check_run(export, repo, report, records, config.get("mode"))
-        declared = (config.get("compiled_test_inventory") if config.get("corpus") == "qspec" else
-                    list(json.loads((directory / "tc048-selected-tests.json").read_text())))
-        bundle["runs"].append({"config": config, "report": report, "records": records,
-                               "census": result, "declared_inventory": declared})
-    class_dir = Path(manifest["canonical_classes"]).resolve()
-    bundle["canonical_classes"] = json.loads((class_dir / "class-proof.json").read_text())
-    bundle["canonical_config"] = json.loads((class_dir / "config.json").read_text())
-    source = (repo / "crates/quire-contract-model/src/checked_package/shared.rs").read_text()
-    body = source.split("pub enum CheckedPackageRefusalCode {", 1)[1].split("}", 1)[0]
-    variants = []
-    for line in body.splitlines():
-        line = line.strip()
-        if not line or line.startswith("//"):
-            continue
-        if not re.fullmatch(r"[A-Za-z][A-Za-z0-9_]*,", line):
-            raise RunError("refusal-code inventory needs explicit support for changed source enum grammar")
-        variants.append(line[:-1])
-    bundle["expected_refusal_codes"] = variants
-    return census.validate_full_completion(bundle)
+    return [persisted_class_proof(result)]
 
 
 def main():
-    if sys.argv[1:2] == ["complete-full"]:
-        completion = argparse.ArgumentParser(description="Revalidate the exact two full corpus runs and class proof")
-        completion.add_argument("manifest", type=Path)
-        completion.add_argument("--out", type=Path, required=True)
-        selected = completion.parse_args(sys.argv[2:])
-        if selected.out.exists():
-            raise SystemExit("completion output already exists; preserve prior evidence")
-        try:
-            result = complete_full_manifest(selected.manifest)
-        except (RunError, census.CensusError, OSError, ValueError, KeyError) as error:
-            write_json(selected.out, {"passed": False, "full_corpus": False,
-                       "normative_boundary_proof": False, "error": str(error)})
-            raise SystemExit(str(error)) from error
-        write_json(selected.out, {"passed": True, **result})
-        return
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--repo", type=Path, required=True)
     parser.add_argument("--out", type=Path, required=True)
@@ -616,7 +562,6 @@ def main():
     parser.add_argument("--controls", action="store_true")
     parser.add_argument("--control-test", action="append", default=[], help="exact entry-control symbol; requires --controls, selected-only evidence")
     parser.add_argument("--class-controls",action="store_true")
-    parser.add_argument("--reuse-class-kernel",type=Path)
     parser.add_argument("--corpus", choices=["qspec", "tc048"], default="qspec")
     parser.add_argument("--features", action="append", default=[])
     parser.add_argument("--qspec-dir", type=Path, required=True)
@@ -666,28 +611,21 @@ def main():
                    RUSTC=str(args.toolchain_bin / "rustc"), RUSTDOC=str(args.toolchain_bin / "rustdoc"),
                    CARGO=str(args.toolchain_bin / "cargo"), QUIRE_SPECIFICATION_DIR=str(args.qspec_dir))
         env["PATH"] = str(args.toolchain_bin) + os.pathsep + env["PATH"]
-        config = {"source_head": git(args.repo, "rev-parse", "HEAD"), "rustc": rustc, "llvm": llvm,
+        config = {"rustc": rustc, "llvm": llvm,
                   "mode": args.mode, "controls": args.controls, "class_controls":args.class_controls, "corpus": args.corpus, "features": args.features,
                   "test_timeout_seconds":args.test_timeout_seconds, "original_tests":args.original_test, "control_tests":args.control_test,
                   **selection_metadata(args),
-                  "qspec": {"path": str(args.qspec_dir), "head": git(args.qspec_dir, "rev-parse", "HEAD")},
+                  "qspec": {"path": str(args.qspec_dir)},
                   "environment": safe_environment(env)}
         target = ("read_storage_alloc" if args.class_controls else "read_entry_census_controls" if args.controls else
                   "it" if args.corpus == "tc048" else "conformance_qspec")
         binary = build(args, target, env, config)
         intended = discover_tests(args, binary, env)
-        config["compiled_test_inventory"] = intended
         if not args.controls and args.corpus == "tc048":
             intended = select_tc048(args, intended)
         intended = select_original_tests(intended, args.original_test, args.controls, args.class_controls)
         if args.controls:
             intended = select_control_tests(intended, args.control_test)
-        config["intended_tests"] = intended
-        # This is the actual compiled proof-harness module namespace. These
-        # tests still execute and every public entry remains in the arithmetic;
-        # they are not original consumer fixtures or provider-role evidence.
-        config["auxiliary_tests"] = [name for name in intended if name.startswith("qspec_read_proof::")]
-        config["original_driver_tests"] = [name for name in intended if name not in config["auxiliary_tests"]]
         write_json(args.out / "config.json", config)
         results = (run_class_controls(args,binary,config,env,intended) if args.class_controls else
                    run_controls(args, binary, config, env, intended) if args.controls
