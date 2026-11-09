@@ -289,24 +289,17 @@ fn duplicate_member_precedes_a_later_out_of_range_number() {
         // AC-512: the fault named is the first the shared reader detects. It
         // detects a repeated name when its object closes, so a later
         // out-of-range number in the same object is read, and named, first.
-        // Both inputs are refused; only the first pins the fault code.
-        if index == 0 {
-            assert_eq!(
-                refusal.code,
-                quire_contract_model::CheckedPackageRefusalCode::DuplicateMember
-            );
-        }
+        let expected = if index == 0 {
+            quire_contract_model::CheckedPackageRefusalCode::DuplicateMember
+        } else {
+            quire_contract_model::CheckedPackageRefusalCode::MalformedWire
+        };
+        assert_eq!(refusal.code, expected);
         read_allocation_proof::assert_read::<ThreadCounter>(
             "duplicate first fault",
             bytes,
             &evidence,
-            if index == 0 {
-                Expected::Refused(quire_contract_model::CheckedPackageRefusalCode::DuplicateMember)
-            } else {
-                Expected::OriginalOracle(|outcome| {
-                    matches!(outcome, CheckedPackageV2ReadResult::Refused(_))
-                })
-            },
+            Expected::Refused(expected),
         );
         accounted("first byte-stream fault", &read);
         drop_without_request::<ThreadCounter>(read);

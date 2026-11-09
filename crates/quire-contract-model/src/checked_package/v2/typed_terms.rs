@@ -2343,14 +2343,15 @@ fn map_operation_ids(
             // The stack pops last-in first, so push children reversed to
             // call `map` in document order.
             quire_canonical::Node::Array(items) => {
-                let children: Vec<_> = items.map(|item| (node.child("", item), None)).collect();
-                pending.extend(children.into_iter().rev());
+                let start = pending.len();
+                pending.extend(items.map(|item| (node.child("", item), None)));
+                pending[start..].reverse();
             }
             quire_canonical::Node::Object(members) => {
-                let children: Vec<_> = members
-                    .map(|(name, value)| (node.child(name, value), node.id(name)))
-                    .collect();
-                pending.extend(children.into_iter().rev());
+                let start = pending.len();
+                pending
+                    .extend(members.map(|(name, value)| (node.child(name, value), node.id(name))));
+                pending[start..].reverse();
             }
             _ => {}
         }
