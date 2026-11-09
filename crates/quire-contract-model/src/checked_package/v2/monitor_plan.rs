@@ -22,6 +22,7 @@ use std::collections::BTreeSet;
 use std::sync::Arc;
 
 mod authority;
+mod layout_context;
 #[allow(dead_code)] // The complete selected closure reader will call this prerequisite.
 mod reached_model_read;
 #[cfg(test)]
@@ -34,6 +35,7 @@ pub use authority::{
     SelectedMonitorAuthorityReceipt, SelectedMonitorAuthorityRow, SelectedMonitorAuthorityRowError,
     SelectedMonitorTimeSource,
 };
+pub use layout_context::SelectedMonitorLayoutContext;
 pub use selected_type_closure::{
     SelectedMonitorClosureRows, SelectedMonitorTypeClosure, SelectedMonitorTypeClosureError,
     SelectedMonitorTypeClosureErrorCode,

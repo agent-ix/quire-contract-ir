@@ -2832,6 +2832,30 @@ pub(super) fn admitted_time_source<'a>(
     }
 }
 
+/// The `model` and `operation` references of an admitted tick time source.
+pub(super) fn tick_source_references<'a>(
+    package: &'a super::CheckedPackageV2,
+    source: &CheckedNodeId,
+) -> Option<(&'a CheckedNodeId, &'a CheckedNodeId)> {
+    let body = package.term(source)?;
+    Some((
+        bound(body, 2).and_then(typed_target)?,
+        bound(body, 3).and_then(typed_target)?,
+    ))
+}
+
+/// The `operation` text of an admitted `operation_anchor` node.
+pub(super) fn anchor_operation_text<'a>(
+    package: &'a super::CheckedPackageV2,
+    node: &CheckedNodeId,
+) -> Option<&'a str> {
+    let term = package.term(node)?;
+    typed_members(term).iter().find_map(|member| match member {
+        CheckedTerm::Binding { name, value } if name.as_ref() == "operation" => spelling(value),
+        _ => None,
+    })
+}
+
 /// A checked model-time binding borrowed from one admitted Timed clause.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct CheckedModelTimeRead<'a> {

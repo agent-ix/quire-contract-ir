@@ -841,7 +841,7 @@ mod tests {
     use crate::checked_package::v2::{
         ExactTypeProjectionErrorCode, SelectedExactDeclarationForm, SelectedExactIdentity,
     };
-    use crate::SelectedMonitorClosureRows;
+    use crate::{SelectedMonitorClosureRows, SelectedMonitorTypeClosureErrorCode};
     use ix_trace_rs::trace;
     use quire_exact::{
         CollectionKind, CollectionType, EffectiveId, Location, MemberId, MemberOwner, NodeKey,
@@ -949,6 +949,23 @@ mod tests {
         maps: bool,
         model_tick_unit: bool,
     ) -> CheckedPackageV2 {
+        let (wire, document) = closure_monitor_wire(
+            status,
+            equality_occurrences,
+            bounded_sequence,
+            maps,
+            model_tick_unit,
+        );
+        admit_wire(&wire, &document)
+    }
+
+    fn closure_monitor_wire(
+        status: &str,
+        equality_occurrences: serde_json::Value,
+        bounded_sequence: bool,
+        maps: bool,
+        model_tick_unit: bool,
+    ) -> (serde_json::Value, serde_json::Value) {
         let (mut wire, mut document) =
             monitor_plan_fixtures::model_fact_monitor_with_status(false, status);
         let boolean = monitor_plan_fixtures::find(&wire, "boolean");
@@ -1178,7 +1195,7 @@ mod tests {
                     a.cmp(&b)
                 });
         }
-        admit_wire(&wire, &document)
+        (wire, document)
     }
 
     /// Give the closure fixture an admitted dense model clock. Its existing
@@ -1602,6 +1619,270 @@ mod tests {
                     .project_selected_type_closure(rows, &mut NativeJoinBudget::new(w, s))
                     .is_err());
             }
+        }
+    }
+
+    fn dense_closure() -> (serde_json::Value, CheckedPackageV2) {
+        let (wire, document) = closure_monitor_wire(
+            "integer",
+            serde_json::json!([{"role":"expression","ordinal":0}]),
+            false,
+            false,
+            false,
+        );
+        let package = admit_wire(&wire, &document);
+        (wire, package)
+    }
+
+    const PROFILE: &str = r#"{"authority":"agent-ix","identity":"quire.temporal.timed/v1","role":"temporal_profile"}"#;
+    const OBJECT_SUBJECT: &str = r#"{"original":{"node":"ix://test/families/Account","package":"test/families"},"owner_effective_type":null}"#;
+
+    #[trace("TC-471", "FR-361-AC-3")]
+    #[test]
+    fn layout_context_carries_the_exact_runtime_values_of_a_dense_source() {
+        let (wire, package) = dense_closure();
+        let parts = TickRows::new(&package);
+        let authority = test_authority(&package);
+        let plan = plan_for(&package);
+        let closure = plan
+            .project_selected_type_closure(
+                parts.view(&authority),
+                &mut NativeJoinBudget::new(u64::MAX, u64::MAX),
+            )
+            .unwrap();
+        let layout = closure.layout_context();
+        assert_eq!(layout.root_key(), plan.structural_key());
+        assert_eq!(
+            layout.entry_keys(),
+            [
+                plan.init().structural_key(),
+                plan.on_event().structural_key(),
+                plan.on_watermark().structural_key(),
+                plan.on_gap().structural_key(),
+            ]
+        );
+        let (clause_at, _) = package.node_with_position(plan.clause()).unwrap();
+        assert_eq!(
+            layout.clause_key(),
+            package.structural_key_at(clause_at).unwrap()
+        );
+        assert_eq!(
+            layout.package_lock(),
+            fixture_support::canonical(&wire["lock"])
+        );
+        assert_eq!(
+            layout.occurrence(),
+            quire_canonical::to_vec(
+                package
+                    .source_map()
+                    .iter()
+                    .find(|entry| entry.node_id == *plan.clause()
+                        && entry.role == crate::CheckedOccurrenceRole::Claim)
+                    .unwrap(),
+                quire_canonical::Limits::new(u64::MAX)
+            )
+            .unwrap()
+        );
+        assert_eq!(layout.profile(), PROFILE);
+        assert_eq!(layout.subject(), OBJECT_SUBJECT);
+        let unit = serde_json::to_string(&key("Second").to_string()).unwrap();
+        let expected = format!(
+            r#"{{"binding_kind":"model-time","selected_profile_identity":{PROFILE},"sequence_authority":"step-order","time_source":{{"kind":"dense","model":"ix://test/families/Account"}},"unit":{unit}}}"#
+        );
+        assert_eq!(
+            std::str::from_utf8(layout.clock_binding()).unwrap(),
+            expected
+        );
+    }
+
+    #[trace("TC-471", "FR-361-AC-3")]
+    #[test]
+    fn a_record_subject_is_its_node_key_text() {
+        let (_, package) = dense_closure();
+        let mut parts = TickRows::new(&package);
+        let authority = test_authority(&package);
+        let plan = plan_for(&package);
+        let crate::CheckedMonitorClock::ModelTime { model, .. } = plan
+            .clock_for_claim(
+                plan.clause(),
+                package
+                    .node(plan.clause())
+                    .unwrap()
+                    .occurrences
+                    .iter()
+                    .find(|o| o.role == crate::CheckedOccurrenceRole::Claim)
+                    .unwrap(),
+                &mut NativeJoinBudget::new(u64::MAX, u64::MAX),
+            )
+            .unwrap()
+            .clock()
+        else {
+            panic!("model time")
+        };
+        let row = parts
+            .declarations
+            .iter_mut()
+            .find(|row| row.structural_node == *model)
+            .expect("subject row");
+        row.exact_identity = SelectedExactIdentity::Record(key("Subject"));
+        // The record identity is joined to the subject only by its row here, so
+        // the row shape check of the Exact projection must still accept it.
+        let result = plan.project_selected_type_closure(
+            parts.view(&authority),
+            &mut NativeJoinBudget::new(u64::MAX, u64::MAX),
+        );
+        if let Ok(closure) = result {
+            assert_eq!(
+                closure.layout_context().subject(),
+                key("Subject").to_string()
+            );
+        }
+    }
+
+    #[trace("TC-471", "FR-361-AC-4")]
+    #[test]
+    fn layout_context_succeeds_at_the_exact_allowance_and_refuses_one_below() {
+        let (_, package) = dense_closure();
+        let parts = TickRows::new(&package);
+        let authority = test_authority(&package);
+        let plan = plan_for(&package);
+        let mut measured = NativeJoinBudget::new(u64::MAX, u64::MAX);
+        let closure = plan
+            .project_selected_type_closure(parts.view(&authority), &mut measured)
+            .unwrap();
+        let spent = measured.consumed();
+        let again = package.clone();
+        let mut clone_budget = NativeJoinBudget::new(spent.work, spent.storage);
+        let cloned = plan_for(&again)
+            .project_selected_type_closure(parts.view(&authority), &mut clone_budget)
+            .expect("exact allowance on a clone");
+        assert_eq!(cloned.layout_context(), closure.layout_context());
+        assert_eq!(clone_budget.consumed(), spent);
+        let forms = ["selected_layout_context", "selected_clock_binding"];
+        let mut denied_forms = std::collections::BTreeSet::new();
+        // The layout reads are the last storage charges: each of the few
+        // units below the total lands on a layout or clock-binding charge.
+        for back in (1..=6000).step_by(7) {
+            let Some(storage) = spent.storage.checked_sub(back) else {
+                break;
+            };
+            let mut budget = NativeJoinBudget::new(spent.work, storage);
+            let error = plan
+                .project_selected_type_closure(parts.view(&authority), &mut budget)
+                .expect_err("one below refuses");
+            assert_eq!(
+                error.code,
+                SelectedMonitorTypeClosureErrorCode::StorageLimit
+            );
+            let locus = error.denied_locus.expect("locus");
+            if forms.contains(&locus.form) {
+                assert_eq!(locus.source, crate::NativeJoinLocusSource::MonitorSeed(0));
+                denied_forms.insert(locus.form);
+            }
+        }
+        assert!(
+            denied_forms.contains("selected_layout_context"),
+            "{denied_forms:?}"
+        );
+        assert!(
+            denied_forms.contains("selected_clock_binding"),
+            "{denied_forms:?}"
+        );
+        let mut below = NativeJoinBudget::new(spent.work - 1, spent.storage);
+        assert!(plan
+            .project_selected_type_closure(parts.view(&authority), &mut below)
+            .is_err());
+    }
+
+    /// The layout read on rows that the preceding reached-model steps would
+    /// not accept, as for a time-source unit that the plan does not reach.
+    #[trace("TC-471", "FR-361-AC-2")]
+    #[test]
+    fn missing_ambiguous_or_unsupported_identities_refuse_layout_identity_unavailable() {
+        use crate::SelectedMonitorAuthorityErrorCode::LayoutIdentityUnavailable;
+        let (_, package) = dense_closure();
+        let plan = plan_for(&package);
+        let occurrence = package
+            .node(plan.clause())
+            .unwrap()
+            .occurrences
+            .iter()
+            .find(|o| o.role == crate::CheckedOccurrenceRole::Claim)
+            .unwrap()
+            .clone();
+        let clock = plan
+            .clock_for_claim(
+                plan.clause(),
+                &occurrence,
+                &mut NativeJoinBudget::new(u64::MAX, u64::MAX),
+            )
+            .unwrap();
+        let crate::CheckedMonitorClock::ModelTime { model, unit, .. } = clock.clock() else {
+            panic!("model time")
+        };
+        let authority = test_authority(&package);
+        let read = |parts: &TickRows| {
+            plan.layout_context(
+                &parts.view(&authority),
+                &clock,
+                0,
+                &mut NativeJoinBudget::new(u64::MAX, u64::MAX),
+            )
+        };
+        read(&TickRows::new(&package)).expect("complete rows");
+        let unit_row = |parts: &TickRows| {
+            parts
+                .units
+                .iter()
+                .position(|row| row.structural_node == *unit)
+                .expect("unit row")
+        };
+        let subject_row = |parts: &TickRows| {
+            parts
+                .declarations
+                .iter()
+                .position(|row| row.structural_node == *model)
+                .expect("subject row")
+        };
+        let mut cases: Vec<(&str, TickRows, &CheckedNodeId)> = Vec::new();
+        let mut missing_unit = TickRows::new(&package);
+        let at = unit_row(&missing_unit);
+        missing_unit.units.remove(at);
+        cases.push(("missing unit", missing_unit, unit));
+        let mut ambiguous_unit = TickRows::new(&package);
+        let at = unit_row(&ambiguous_unit);
+        let duplicate = ambiguous_unit.units[at].clone();
+        ambiguous_unit.units.push(duplicate);
+        cases.push(("ambiguous unit", ambiguous_unit, unit));
+        let mut compound_unit = TickRows::new(&package);
+        let at = unit_row(&compound_unit);
+        compound_unit.units[at].unit_id = UnitId::Compound(Box::new([]));
+        cases.push(("compound unit", compound_unit, unit));
+        let mut missing_subject = TickRows::new(&package);
+        let at = subject_row(&missing_subject);
+        missing_subject.declarations.remove(at);
+        cases.push(("missing subject", missing_subject, model));
+        let mut ambiguous_subject = TickRows::new(&package);
+        let at = subject_row(&ambiguous_subject);
+        let duplicate = ambiguous_subject.declarations[at].clone();
+        ambiguous_subject.declarations.push(duplicate);
+        cases.push(("ambiguous subject", ambiguous_subject, model));
+        let mut union_subject = TickRows::new(&package);
+        let at = subject_row(&union_subject);
+        union_subject.declarations[at].exact_identity = SelectedExactIdentity::Union(key("U"));
+        cases.push(("union subject", union_subject, model));
+        for (name, parts, node) in &cases {
+            let error = read(parts).expect_err(name);
+            assert_eq!(
+                error.code,
+                SelectedMonitorTypeClosureErrorCode::Authority(LayoutIdentityUnavailable),
+                "{name}: {error:?}"
+            );
+            assert_eq!(error.at.as_deref(), Some(*node), "{name}");
+            assert_eq!(
+                error.denied_locus, None,
+                "{name}: a semantic refusal, not an allowance stop"
+            );
         }
     }
 
