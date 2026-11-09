@@ -4333,7 +4333,7 @@ fn a_denied_relationship_destination_read_is_refused_not_a_double_borrow() {
     let read = |limit: u64| {
         let mut budget =
             quire_contract_model::NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
-        CheckedPackageV2::read_with_budget(
+        let result = CheckedPackageV2::read_with_budget(
             &bytes,
             CheckedPackageReadLimits {
                 bytes: 1 << 30,
@@ -4345,19 +4345,58 @@ fn a_denied_relationship_destination_read_is_refused_not_a_double_borrow() {
             },
             &evidence,
             &mut budget,
-        )
+        );
+        (result, budget)
     };
     assert!(matches!(
-        read(u64::MAX),
+        read(u64::MAX).0,
         quire_contract_model::CheckedPackageV2BudgetedReadResult::Admitted(_)
     ));
     for limit in 730_400..731_100 {
+        let (result, budget) = read(limit);
         assert!(
             !matches!(
-                read(limit),
+                &result,
                 quire_contract_model::CheckedPackageV2BudgetedReadResult::Admitted(_)
             ),
             "limit {limit} admitted"
         );
+        let (denied, outcome_locus) = match result {
+            quire_contract_model::CheckedPackageV2BudgetedReadResult::BudgetIncomplete(outcome) => {
+                assert_eq!(
+                    outcome.denied.resource,
+                    quire_contract_model::PackageReadResource::ReadStorage,
+                    "limit {limit} must stop on read storage"
+                );
+                (outcome.denied, None)
+            }
+            quire_contract_model::CheckedPackageV2BudgetedReadResult::Exhausted(outcome) => {
+                assert_eq!(
+                    outcome.denied.resource,
+                    quire_contract_model::PackageReadResource::ReadStorage,
+                    "limit {limit} must stop on read storage"
+                );
+                (outcome.denied, Some(outcome.locus))
+            }
+            other => panic!("limit {limit} did not produce a typed budget denial: {other:?}"),
+        };
+        assert_eq!(
+            budget.first_unpaid_read_storage(),
+            Some(denied.amount),
+            "limit {limit} preserves the original denied read-storage request"
+        );
+        let first_unpaid_locus = budget
+            .first_unpaid_locus()
+            .expect("a typed read-storage denial retains its first unpaid locus");
+        assert!(matches!(
+            first_unpaid_locus.source,
+            quire_contract_model::NativeJoinLocusSource::PackageRead(
+                quire_contract_model::PackageReadStage::WireChecks,
+                _
+            )
+        ));
+        if let Some(outcome_locus) = outcome_locus {
+            assert_eq!(outcome_locus, first_unpaid_locus);
+        }
     }
 }
