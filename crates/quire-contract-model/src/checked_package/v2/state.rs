@@ -34,6 +34,7 @@ use super::graph_storage::{first_repeat, GraphIndex};
 use super::model_members::{
     MemberKind, MemberType, ModelOwners, ModelRefusal, OperationDecl, Owner, Resolved,
 };
+use super::stage_storage::{node_path, refuse_at, Path, Position};
 use super::structural::{
     reference_type_target_ref, typed_anchor_body, typed_clause_body, typed_parameter_binding,
     typed_reference, typed_transition_body, AnchorBody, TransitionBody,
@@ -43,9 +44,9 @@ use super::{
     ExpressionForm, ModelForm, RawSemanticNodeV2 as CheckedSemanticNodeV2, ScalarTypeForm,
     StateClauseKind, StateForm, TermNode, ValueForm, WorkMeter,
 };
-use crate::checked_package::common::{node_pointer, Step, Trail, ValidationFailure};
+use crate::checked_package::common::{Step, Trail, ValidationFailure};
 use crate::checked_package::shared::{
-    CheckedNodeId, CheckedPackageRefusalCause, CheckedPackageRefusalCode, JsonPointer,
+    CheckedNodeId, CheckedPackageRefusalCause, CheckedPackageRefusalCode,
 };
 use crate::checked_package::terms::{At, Cursor};
 use quire_walk::{Children, Walk};
@@ -93,7 +94,7 @@ pub(super) fn validate_state(
             .get(position)
             .and_then(Option::as_ref)
             .and_then(typed_anchor_body)
-            .ok_or_else(|| shape_refusal(node, position))?;
+            .ok_or_else(|| shape_refusal(meter, node, position))?;
         check_anchor(node, position, &body, &graph, meter)?;
         anchors.push((position, node, body));
     }
@@ -105,11 +106,12 @@ pub(super) fn validate_state(
         meter,
     )? {
         let (position, node, _) = &anchors[repeat];
-        return Err(ValidationFailure::refused_at(
+        return Err(refuse_at(
+            meter,
             CheckedPackageRefusalCode::AmbiguousDeclaration,
-            node_pointer(*position),
             Some(CheckedPackageRefusalCause::AmbiguousName),
-            node.node_id.clone(),
+            node_path(*position),
+            &node.node_id,
         ));
     }
     for (position, node) in graph.each(CheckedNodeKind::State(StateForm::StateClause)) {
@@ -145,14 +147,15 @@ pub(super) fn validate_state(
             .get(position)
             .and_then(Option::as_ref)
             .and_then(typed_transition_body)
-            .ok_or_else(|| shape_refusal(node, position))?;
+            .ok_or_else(|| shape_refusal(meter, node, position))?;
         check_transition(node, position, &body, terms, &graph, meter)?;
         if repeated == Some(position) {
-            return Err(ValidationFailure::refused_at(
+            return Err(refuse_at(
+                meter,
                 CheckedPackageRefusalCode::AmbiguousDeclaration,
-                node_pointer(position),
                 Some(CheckedPackageRefusalCause::AmbiguousName),
-                node.node_id.clone(),
+                node_path(position),
+                &node.node_id,
             ));
         }
     }
@@ -160,32 +163,43 @@ pub(super) fn validate_state(
 }
 
 /// The graph-shape refusal of a body that is not its form's closed shape.
-fn shape_refusal(node: &CheckedSemanticNodeV2, position: usize) -> ValidationFailure {
-    ValidationFailure::refused_at(
+fn shape_refusal(
+    meter: &mut WorkMeter,
+    node: &CheckedSemanticNodeV2,
+    position: usize,
+) -> ValidationFailure {
+    refuse_at(
+        meter,
         CheckedPackageRefusalCode::InvalidSemanticGraph,
-        node_pointer(position).key("body"),
         None,
-        node.node_id.clone(),
+        node_path(position).key("body"),
+        &node.node_id,
     )
 }
 
 /// `ill_typed`/`operator-ineligible` at `path`, located at `node`.
-fn ineligible(node: &CheckedSemanticNodeV2, path: JsonPointer) -> ValidationFailure {
-    ValidationFailure::refused_at(
+fn ineligible<'a>(
+    meter: &mut WorkMeter,
+    node: &'a CheckedSemanticNodeV2,
+    path: impl Into<Position<'a>>,
+) -> ValidationFailure {
+    refuse_at(
+        meter,
         CheckedPackageRefusalCode::IllTyped,
-        path,
         Some(CheckedPackageRefusalCause::OperatorIneligible),
-        node.node_id.clone(),
+        path,
+        &node.node_id,
     )
 }
 
 /// A model refusal at `path`, located at `locus`.
 fn model_refusal(
+    meter: &mut WorkMeter,
     refusal: ModelRefusal,
-    path: JsonPointer,
+    path: Path<'_>,
     locus: &CheckedNodeId,
 ) -> ValidationFailure {
-    ValidationFailure::refused_at(refusal.code, path, Some(refusal.cause), locus.clone())
+    refuse_at(meter, refusal.code, Some(refusal.cause), path, locus)
 }
 
 /// Every `quire.op.state.clause` application stands as the body root of a
@@ -224,6 +238,7 @@ fn validate_placement(
                 transition,
                 cursor,
                 charge: &charge,
+                meter: &meter,
             };
             let mut reservation = PlacementReservation {
                 meter: &meter,
@@ -256,13 +271,14 @@ fn validate_placement(
 /// whether it is the body root. A state clause application nested in a body is
 /// refused `malformed_wire` ahead of this step (`flat_wire`); the check here is
 /// the body root's.
-struct StateApplicationPlacement<'a, 'c> {
+struct StateApplicationPlacement<'a, 'c, 'b> {
     node: &'a CheckedSemanticNodeV2,
     position: usize,
     root_admitted: bool,
     transition: bool,
     cursor: Cursor<'a>,
     charge: &'c dyn Fn(usize) -> Result<(), ValidationFailure>,
+    meter: &'c std::cell::RefCell<&'c mut WorkMeter<'b>>,
 }
 
 /// Shares the node's meter with its cursor while reserving walker growth.
@@ -285,7 +301,7 @@ impl quire_walk::Reservation for PlacementReservation<'_, '_> {
     }
 }
 
-impl<'a> Walk for StateApplicationPlacement<'a, '_> {
+impl<'a> Walk for StateApplicationPlacement<'a, '_, '_> {
     type Node = At<'a, bool, TermNode<'a>>;
     type Frame = ();
     type Stop = ValidationFailure;
@@ -311,12 +327,13 @@ impl<'a> Walk for StateApplicationPlacement<'a, '_> {
                 })
         });
         if application && !(node.extra && self.root_admitted) {
-            let path = if node.extra {
-                node_pointer(self.position)
+            let mut meter = self.meter.borrow_mut();
+            let failure = if node.extra {
+                ineligible(&mut meter, self.node, node_path(self.position))
             } else {
-                self.cursor.trail().pointer()
+                ineligible(&mut meter, self.node, self.cursor.trail())
             };
-            return ControlFlow::Break(ineligible(self.node, path));
+            return ControlFlow::Break(failure);
         }
         children.extend(node.value.subterms().map(|subterm| {
             self.cursor
@@ -396,15 +413,11 @@ fn check_anchor(
     graph: &StepGraph<'_, '_>,
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
-    let target_at = |member: usize| {
-        node_pointer(position)
-            .key("body")
-            .key("members")
-            .index(member)
-    };
+    let target_at = |member: usize| node_path(position).key("body").key("members").index(member);
     let (context, context_kind) =
         join(anchor, body.context, is_operation_context, graph).map_err(|refusal| {
             model_refusal(
+                meter,
                 refusal,
                 target_at(0).key("value").key("target"),
                 body.context,
@@ -417,12 +430,18 @@ fn check_anchor(
         graph,
     )
     .map_err(|refusal| {
-        model_refusal(refusal, target_at(2).key("value").key("target"), body.frame)
+        model_refusal(
+            meter,
+            refusal,
+            target_at(2).key("value").key("target"),
+            body.frame,
+        )
     })?;
     if anchor.semantic_type != *body.context || frame.semantic_type != *body.context {
         return Err(model_refusal(
+            meter,
             ModelRefusal::malformed(),
-            node_pointer(position),
+            node_path(position),
             &anchor.node_id,
         ));
     }
@@ -432,7 +451,7 @@ fn check_anchor(
             let frame_position = *graph
                 .index
                 .get(body.frame)
-                .ok_or_else(|| shape_refusal(frame, position))?;
+                .ok_or_else(|| shape_refusal(meter, frame, position))?;
             let steps = [
                 Step::Key("semantic_graph"),
                 Step::Key("nodes"),
@@ -441,7 +460,7 @@ fn check_anchor(
             ];
             let (frame_node, row) = meter
                 .body(frame_position)
-                .ok_or_else(|| shape_refusal(frame, position))?;
+                .ok_or_else(|| shape_refusal(meter, frame, position))?;
             let (frame_body, work) = read_frame_body(frame_node, row, meter, &Trail::Base(&steps))?;
             frame_work(meter, frame_position, work)?;
             for entry in &frame_body.deletes_scoped {
@@ -473,14 +492,15 @@ fn check_anchor(
                 }
                 if !present {
                     return Err(model_refusal(
+                        meter,
                         ModelRefusal::missing_name(),
-                        node_pointer(frame_position),
+                        node_path(frame_position),
                         &frame.node_id,
                     ));
                 }
             }
         }
-        Err(refusal) => return Err(model_refusal(refusal, target_at(1), &anchor.node_id)),
+        Err(refusal) => return Err(model_refusal(meter, refusal, target_at(1), &anchor.node_id)),
     }
     if let Some(point) = &body.execution_point {
         let matches_operation = match point {
@@ -491,8 +511,9 @@ fn check_anchor(
         };
         if !matches_operation {
             return Err(model_refusal(
+                meter,
                 ModelRefusal::malformed(),
-                node_pointer(position),
+                node_path(position),
                 &anchor.node_id,
             ));
         }
@@ -513,8 +534,8 @@ fn check_clause(
         .get(position)
         .and_then(Option::as_ref)
         .and_then(typed_clause_body)
-        .ok_or_else(|| shape_refusal(clause, position))?;
-    let arguments_at = node_pointer(position).key("body").key("arguments");
+        .ok_or_else(|| shape_refusal(meter, clause, position))?;
+    let arguments_at = node_path(position).key("body").key("arguments");
     let model_clause = matches!(
         body.clause,
         StateClauseKind::Invariant | StateClauseKind::Constraint
@@ -533,8 +554,9 @@ fn check_clause(
     )
     .map_err(|refusal| {
         model_refusal(
+            meter,
             refusal,
-            arguments_at.clone().index(1).key("target"),
+            arguments_at.index(1).key("target"),
             body.anchor,
         )
     })?;
@@ -548,9 +570,9 @@ fn check_clause(
         )
         .map_err(|refusal| {
             model_refusal(
+                meter,
                 refusal,
                 arguments_at
-                    .clone()
                     .index(0)
                     .key("members")
                     .index(index)
@@ -560,7 +582,8 @@ fn check_clause(
         })?;
         parameters.push(parameter);
     }
-    let signature_refusal = || ineligible(clause, arguments_at.clone().index(0));
+    let signature_refusal =
+        |meter: &mut WorkMeter| ineligible(meter, clause, arguments_at.index(0));
     // The anchor's context: the anchor itself for an invariant, else the
     // operation anchor's `context`.
     let anchor_body = if model_clause {
@@ -569,13 +592,13 @@ fn check_clause(
         let anchor_position = *graph
             .index
             .get(&anchor.node_id)
-            .ok_or_else(signature_refusal)?;
+            .ok_or_else(|| signature_refusal(meter))?;
         Some(
             terms
                 .get(anchor_position)
                 .and_then(Option::as_ref)
                 .and_then(typed_anchor_body)
-                .ok_or_else(signature_refusal)?,
+                .ok_or_else(|| signature_refusal(meter))?,
         )
     };
     let context_id = anchor_body
@@ -597,24 +620,26 @@ fn check_clause(
             == Some(context_id)
     });
     if !self_is_reference {
-        return Err(signature_refusal());
+        return Err(signature_refusal(meter));
     }
     let Some(anchor_body) = &anchor_body else {
         if parameters.len() != 1 {
-            return Err(signature_refusal());
+            return Err(signature_refusal(meter));
         }
-        return check_clause_point(clause, position, &body, None);
+        return check_clause_point(meter, clause, position, &body, None);
     };
     let Some((context, context_kind)) = graph.node(context_id) else {
-        return Err(signature_refusal());
+        return Err(signature_refusal(meter));
     };
     let (owner, operation) =
         match resolve_operation(context, context_kind, anchor_body.operation, graph, meter)? {
             Ok(Some(resolved)) => resolved,
             // A context that is not a model declaration node: nothing past
             // `self` is resolved.
-            Ok(None) => return check_clause_point(clause, position, &body, Some(anchor_body)),
-            Err(_) => return Err(signature_refusal()),
+            Ok(None) => {
+                return check_clause_point(meter, clause, position, &body, Some(anchor_body))
+            }
+            Err(_) => return Err(signature_refusal(meter)),
         };
     let result = operation
         .result
@@ -623,7 +648,7 @@ fn check_clause(
     let expected = result.into_iter().chain(&operation.parameters);
     let bound = parameters.get(1..).unwrap_or_default();
     if bound.len() != expected.clone().count() {
-        return Err(signature_refusal());
+        return Err(signature_refusal(meter));
     }
     for (parameter, slot) in bound.iter().zip(expected) {
         let Some(slot_type) = owner.package.slot_type_charged(
@@ -633,7 +658,7 @@ fn check_clause(
             "member_type",
         )?
         else {
-            return Err(signature_refusal());
+            return Err(signature_refusal(meter));
         };
         let expected = slot_type
             .node_id_in(
@@ -645,11 +670,12 @@ fn check_clause(
                 ),
             )?
             .ok_or_else(|| {
-                ValidationFailure::refused_at(
+                refuse_at(
+                    meter,
                     CheckedPackageRefusalCode::InvalidSemanticGraph,
-                    arguments_at.clone().index(0),
                     None,
-                    clause.node_id.clone(),
+                    arguments_at.index(0),
+                    &clause.node_id,
                 )
             })?;
         let actual = graph
@@ -662,14 +688,15 @@ fn check_clause(
             None => false,
         };
         if !same {
-            return Err(signature_refusal());
+            return Err(signature_refusal(meter));
         }
     }
-    check_clause_point(clause, position, &body, Some(anchor_body))
+    check_clause_point(meter, clause, position, &body, Some(anchor_body))
 }
 
 /// Applicability and clause-anchor agreement follow signature validation.
 fn check_clause_point(
+    meter: &mut WorkMeter,
     clause: &CheckedSemanticNodeV2,
     position: usize,
     body: &super::structural::ClauseBody,
@@ -698,16 +725,17 @@ fn check_clause_point(
         Ok(())
     } else {
         Err(model_refusal(
+            meter,
             ModelRefusal::malformed(),
-            node_pointer(position),
+            node_path(position),
             &clause.node_id,
         ))
     }
 }
 
 /// The target locus of one transition input.
-fn input_at(position: usize, index: usize) -> JsonPointer {
-    node_pointer(position)
+fn input_at(position: usize, index: usize) -> Path<'static> {
+    node_path(position)
         .key("body")
         .key("arguments")
         .index(2)
@@ -733,7 +761,7 @@ fn check_transition(
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
     let target_at = |index: usize| {
-        node_pointer(position)
+        node_path(position)
             .key("body")
             .key("arguments")
             .index(index)
@@ -746,18 +774,19 @@ fn check_transition(
         |kind| kind == CheckedNodeKind::State(StateForm::OperationAnchor),
         graph,
     )
-    .map_err(|refusal| model_refusal(refusal, target_at(0), body.anchor))?;
+    .map_err(|refusal| model_refusal(meter, refusal, target_at(0), body.anchor))?;
     let anchor_position = *graph
         .index
         .get(body.anchor)
-        .ok_or_else(|| shape_refusal(anchor, position))?;
+        .ok_or_else(|| shape_refusal(meter, anchor, position))?;
     let anchor_body = terms
         .get(anchor_position)
         .and_then(Option::as_ref)
         .and_then(typed_anchor_body)
-        .ok_or_else(|| shape_refusal(anchor, anchor_position))?;
+        .ok_or_else(|| shape_refusal(meter, anchor, anchor_position))?;
     if anchor_body.execution_point.is_some() {
         return Err(model_refusal(
+            meter,
             ModelRefusal::malformed(),
             target_at(0),
             body.anchor,
@@ -770,12 +799,14 @@ fn check_transition(
         |kind| kind == CheckedNodeKind::Expression(ExpressionForm::Query),
         graph,
     )
-    .map_err(|refusal| model_refusal(refusal, target_at(1), body.subject))?;
+    .map_err(|refusal| model_refusal(meter, refusal, target_at(1), body.subject))?;
     let subject_position = *graph
         .index
         .get(body.subject)
-        .ok_or_else(|| shape_refusal(subject, position))?;
-    let malformed_subject = || model_refusal(ModelRefusal::malformed(), target_at(1), body.subject);
+        .ok_or_else(|| shape_refusal(meter, subject, position))?;
+    let malformed_subject = |meter: &mut WorkMeter| {
+        model_refusal(meter, ModelRefusal::malformed(), target_at(1), body.subject)
+    };
     let Some(CheckedTerm::Application {
         operator: ApplicationOperator::Query,
         operation: project,
@@ -783,31 +814,31 @@ fn check_transition(
         arguments,
     }) = terms.get(subject_position).and_then(Option::as_ref)
     else {
-        return Err(malformed_subject());
+        return Err(malformed_subject(meter));
     };
     if project.identity() != Some("quire.op.record.project")
         || project.member_text("kind") != Some("field")
     {
-        return Err(malformed_subject());
+        return Err(malformed_subject(meter));
     }
     let Some(field_name) = project.member_text("name") else {
-        return Err(malformed_subject());
+        return Err(malformed_subject(meter));
     };
     let Some(declaring) = project.member_key("declaration") else {
-        return Err(malformed_subject());
+        return Err(malformed_subject(meter));
     };
     let [receiver] = arguments.as_slice() else {
-        return Err(malformed_subject());
+        return Err(malformed_subject(meter));
     };
     let Some(deref_id) = typed_reference(receiver) else {
-        return Err(malformed_subject());
+        return Err(malformed_subject(meter));
     };
     let Some((deref, CheckedNodeKind::Expression(ExpressionForm::Deref))) = graph.node(deref_id)
     else {
-        return Err(malformed_subject());
+        return Err(malformed_subject(meter));
     };
     let Some(deref_position) = graph.index.get(deref_id).copied() else {
-        return Err(malformed_subject());
+        return Err(malformed_subject(meter));
     };
     let Some(CheckedTerm::Application {
         operator: ApplicationOperator::Deref,
@@ -816,24 +847,27 @@ fn check_transition(
         ..
     }) = terms.get(deref_position).and_then(Option::as_ref)
     else {
-        return Err(malformed_subject());
+        return Err(malformed_subject(meter));
     };
     if deref_operation.identity() != Some("quire.op.model.deref")
         || deref.semantic_type != *anchor_body.context
     {
-        return Err(malformed_subject());
+        return Err(malformed_subject(meter));
     }
     let [receiver] = deref_arguments.as_slice() else {
-        return Err(malformed_subject());
+        return Err(malformed_subject(meter));
     };
     let Some(self_id) = typed_reference(receiver) else {
-        return Err(malformed_subject());
+        return Err(malformed_subject(meter));
     };
     let Some((self_node, CheckedNodeKind::Value(ValueForm::Parameter))) = graph.node(self_id)
     else {
-        return Err(malformed_subject());
+        return Err(malformed_subject(meter));
     };
-    let self_position = *graph.index.get(self_id).ok_or_else(malformed_subject)?;
+    let self_position = *graph
+        .index
+        .get(self_id)
+        .ok_or_else(|| malformed_subject(meter))?;
     let is_self = terms
         .get(self_position)
         .and_then(Option::as_ref)
@@ -854,15 +888,15 @@ fn check_transition(
             .and_then(reference_type_target_ref)
             != Some(anchor_body.context)
     {
-        return Err(malformed_subject());
+        return Err(malformed_subject(meter));
     }
     let Some((context, context_kind)) = graph.node(anchor_body.context) else {
-        return Err(malformed_subject());
+        return Err(malformed_subject(meter));
     };
     let (owner, operation) =
         match resolve_operation(context, context_kind, anchor_body.operation, graph, meter)? {
             Ok(Some(value)) => value,
-            _ => return Err(malformed_subject()),
+            _ => return Err(malformed_subject(meter)),
         };
     let field_type =
         match graph
@@ -882,7 +916,7 @@ fn check_transition(
                                 == Some(field_name)
                     });
                 if !declared {
-                    return Err(malformed_subject());
+                    return Err(malformed_subject(meter));
                 }
                 field_owner.package.field_type_charged(
                     field,
@@ -894,36 +928,38 @@ fn check_transition(
                     "member_type",
                 )?
             }
-            _ => return Err(malformed_subject()),
+            _ => return Err(malformed_subject(meter)),
         };
     if field_type != Some(MemberType::Boolean) {
-        return Err(ineligible(transition, node_pointer(position)));
+        return Err(ineligible(meter, transition, node_path(position)));
     }
     let frame_position = *graph
         .index
         .get(anchor_body.frame)
-        .ok_or_else(malformed_subject)?;
+        .ok_or_else(|| malformed_subject(meter))?;
     graph
         .nodes
         .get(frame_position)
-        .ok_or_else(malformed_subject)?;
+        .ok_or_else(|| malformed_subject(meter))?;
     let steps = [
         Step::Key("semantic_graph"),
         Step::Key("nodes"),
         Step::Index(frame_position),
         Step::Key("body"),
     ];
-    let (frame_node, row) = meter.body(frame_position).ok_or_else(malformed_subject)?;
+    let (frame_node, row) = meter
+        .body(frame_position)
+        .ok_or_else(|| malformed_subject(meter))?;
     let (frame_body, work) = read_frame_body(frame_node, row, meter, &Trail::Base(&steps))?;
     frame_work(meter, frame_position, work)?;
     if !frame_body.modifies.iter().any(|entry| matches!(entry, ModifiesEntry::Field { declaration, name, .. } if declaration == declaring && name.as_ref() == field_name)) {
-        return Err(malformed_subject());
+        return Err(malformed_subject(meter));
     }
     if subject_result != &subject.semantic_type
         || graph.node(&subject.semantic_type).map(|(_, kind)| kind)
             != Some(CheckedNodeKind::ScalarType(ScalarTypeForm::Boolean))
     {
-        return Err(ineligible(transition, node_pointer(position)));
+        return Err(ineligible(meter, transition, node_path(position)));
     }
 
     let mut actual_inputs = meter.vec(body.input_count())?;
@@ -934,12 +970,13 @@ fn check_transition(
             |kind| kind == CheckedNodeKind::Value(ValueForm::Parameter),
             graph,
         )
-        .map_err(|refusal| model_refusal(refusal, input_at(position, slot), target))?;
+        .map_err(|refusal| model_refusal(meter, refusal, input_at(position, slot), target))?;
         actual_inputs.push(parameter);
     }
     for (index, parameter) in actual_inputs.iter().enumerate() {
         let parameter_position = *graph.index.get(&parameter.node_id).ok_or_else(|| {
             model_refusal(
+                meter,
                 ModelRefusal::malformed(),
                 input_at(position, index),
                 &parameter.node_id,
@@ -959,6 +996,7 @@ fn check_transition(
                 .any(|slot| slot.name.as_deref() == Some(name))
         }) {
             return Err(model_refusal(
+                meter,
                 ModelRefusal::malformed(),
                 input_at(position, index),
                 &parameter.node_id,
@@ -966,11 +1004,11 @@ fn check_transition(
         }
     }
     if actual_inputs.len() != operation.parameters.len() {
-        return Err(ineligible(transition, node_pointer(position)));
+        return Err(ineligible(meter, transition, node_path(position)));
     }
     for (parameter, slot) in actual_inputs.iter().zip(&operation.parameters) {
         let Some(parameter_position) = graph.index.get(&parameter.node_id).copied() else {
-            return Err(ineligible(transition, node_pointer(position)));
+            return Err(ineligible(meter, transition, node_path(position)));
         };
         let name = terms
             .get(parameter_position)
@@ -993,7 +1031,7 @@ fn check_transition(
             || graph.node(&parameter.semantic_type).map(|(_, kind)| kind)
                 != Some(CheckedNodeKind::ScalarType(ScalarTypeForm::Boolean))
         {
-            return Err(ineligible(transition, node_pointer(position)));
+            return Err(ineligible(meter, transition, node_path(position)));
         }
     }
     for (slot, target, expected) in [
@@ -1005,7 +1043,7 @@ fn check_transition(
         };
         let target_path = || {
             if slot == 3 {
-                node_pointer(position)
+                node_path(position)
                     .key("body")
                     .key("arguments")
                     .index(3)
@@ -1023,16 +1061,18 @@ fn check_transition(
             |kind| kind == CheckedNodeKind::State(StateForm::StateClause),
             graph,
         )
-        .map_err(|refusal| model_refusal(refusal, target_path(), target))?;
+        .map_err(|refusal| model_refusal(meter, refusal, target_path(), target))?;
         let clause_position = *graph
             .index
             .get(target)
-            .ok_or_else(|| shape_refusal(clause, position))?;
+            .ok_or_else(|| shape_refusal(meter, clause, position))?;
         let clause_body = terms
             .get(clause_position)
             .and_then(Option::as_ref)
             .and_then(typed_clause_body)
-            .ok_or_else(|| model_refusal(ModelRefusal::malformed(), target_path(), target))?;
+            .ok_or_else(|| {
+                model_refusal(meter, ModelRefusal::malformed(), target_path(), target)
+            })?;
         let matched_anchor = graph
             .node(clause_body.anchor)
             .and_then(|_| graph.index.get(clause_body.anchor).copied())
@@ -1048,6 +1088,7 @@ fn check_transition(
             })
         {
             return Err(model_refusal(
+                meter,
                 ModelRefusal::malformed(),
                 target_path(),
                 target,
@@ -1109,6 +1150,7 @@ mod placement_budget_tests {
                         transition: false,
                         cursor,
                         charge: &charge,
+                        meter: &meter,
                     };
                     let mut reservation = PlacementReservation {
                         meter: &meter,
