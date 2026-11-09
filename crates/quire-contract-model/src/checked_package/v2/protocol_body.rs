@@ -4,22 +4,52 @@
 
 use super::graph_storage::GraphIndex;
 use super::model_members::{Budget, ModelOwners};
+use super::stage_storage::{
+    node_id_clone_bytes, node_path, refuse_at, refuse_unlocated, Path, Position, Refusal,
+};
 use super::{
     ApplicationOperator, CheckedFairnessTarget, CheckedNodeKind, CheckedPackageLockV2,
     CheckedPackageV2, CheckedSelectionRole, CheckedTerm, CompositeTypeForm, ExpressionForm,
     LiteralKind, ModelForm, ProtocolForm, RawSemanticNodeV2, RelationForm, ScalarTypeForm,
     StateClauseKind, StateForm, TemporalForm, ValueForm, WorkMeter,
 };
-use crate::checked_package::common::{node_pointer, ValidationFailure};
+use crate::checked_package::common::{Trail, ValidationFailure};
 use crate::checked_package::shared::{
     CheckedArtifactRef, CheckedNodeId, CheckedProtocolDecisionRead, CheckedProtocolRefusalDetail,
 };
 use crate::checked_package::shared::{
-    CheckedPackageRefusalCause as Cause, CheckedPackageRefusalCode as Code, JsonPointer,
+    CheckedPackageRefusalCause as Cause, CheckedPackageRefusalCode as Code,
 };
 use ix_trace_rs::string_edge;
 #[cfg(test)]
 use serde_json::Value;
+use std::mem::size_of;
+
+/// A refusal at `node` carrying `detail`: the boxed detail and the
+/// `detail_bytes` of heap it owns are charged with the rest of the diagnostic
+/// before any of it is built.
+fn refuse_detailed<'a>(
+    meter: &mut WorkMeter,
+    code: Code,
+    cause: Cause,
+    at: impl Into<Position<'a>>,
+    node: &'a CheckedNodeId,
+    detail_bytes: usize,
+    detail: impl FnOnce() -> CheckedProtocolRefusalDetail,
+) -> ValidationFailure {
+    let at = at.into();
+    let site = super::natural::site(meter, at);
+    let mut refusal = Refusal::new(code, at)
+        .at_node(node)
+        .because(cause)
+        .with_extra(size_of::<CheckedProtocolRefusalDetail>().saturating_add(detail_bytes));
+    refusal.cause = Some(cause);
+    let mut failure = super::stage_storage::refuse(meter, &site, refusal);
+    if let ValidationFailure::Refused(refused) = &mut failure {
+        refused.protocol_detail = Some(Box::new(detail()));
+    }
+    failure
+}
 
 fn node_work(meter: &mut WorkMeter, position: usize) -> Result<(), ValidationFailure> {
     let path = super::stage_storage::Path::root()
@@ -410,21 +440,26 @@ fn shape_fits(value: &CheckedTerm, shape: Shape) -> bool {
     }
 }
 
-fn named_fields<'a>(term: &'a CheckedTerm, names: &[&str]) -> Option<Vec<&'a CheckedTerm>> {
+/// The values of `term`'s members when they are exactly the bindings `names`,
+/// in order.
+fn named_fields<'a, const N: usize>(
+    term: &'a CheckedTerm,
+    names: &[&str; N],
+) -> Option<[&'a CheckedTerm; N]> {
     let fields = members(term)?;
-    if fields.len() != names.len() {
+    if fields.len() != N {
         return None;
     }
-    fields
-        .iter()
-        .zip(names)
-        .map(|(field, expected)| match field {
+    let mut values = [term; N];
+    for ((slot, field), expected) in values.iter_mut().zip(fields).zip(names) {
+        match field {
             CheckedTerm::Binding { name, value } if name.as_ref() == *expected => {
-                Some(value.as_ref())
+                *slot = value.as_ref();
             }
-            _ => None,
-        })
-        .collect()
+            _ => return None,
+        }
+    }
+    Some(values)
 }
 
 pub(super) fn text_value(term: &CheckedTerm) -> Option<&str> {
@@ -499,15 +534,16 @@ fn clause_activation_fits(term: &CheckedTerm) -> bool {
     match text_value(value) {
         Some("origin") => fields.len() == 1,
         Some("each") => {
-            let expected = if fields.len() == 2 {
-                &["kind", "trigger"][..]
+            if fields.len() == 2 {
+                named_fields(term, &["kind", "trigger"])
+                    .is_some_and(|[_, trigger]| shape_fits(trigger, Shape::Reference))
             } else {
-                &["kind", "trigger", "guard"][..]
-            };
-            named_fields(term, expected).is_some_and(|values| {
-                shape_fits(values[1], Shape::Reference)
-                    && (values.len() == 2 || shape_fits(values[2], Shape::Boolean))
-            })
+                named_fields(term, &["kind", "trigger", "guard"]).is_some_and(
+                    |[_, trigger, guard]| {
+                        shape_fits(trigger, Shape::Reference) && shape_fits(guard, Shape::Boolean)
+                    },
+                )
+            }
         }
         _ => false,
     }
@@ -566,8 +602,14 @@ fn canonical_term_bytes(
         }
     }
     let limits = quire_canonical::Limits::new(bytes);
+    let site = super::natural::site(meter, Path::root());
     let mut count = Count(0);
-    if quire_canonical::encode(&mut count, term, limits).is_err() {
+    let mut charges = super::stage_storage::WriterCharges::new(meter, site);
+    let counted = quire_canonical::encode_with_reservation(&mut count, term, limits, &mut charges);
+    if let Some(failure) = charges.failure.take() {
+        return Err(failure);
+    }
+    if counted.is_err() {
         return Ok(None);
     }
     let Ok(length) = usize::try_from(count.0) else {
@@ -575,9 +617,13 @@ fn canonical_term_bytes(
     };
     meter.reserve(length)?;
     let mut encoded = Vec::with_capacity(length);
-    Ok(quire_canonical::encode(&mut encoded, term, limits)
-        .is_ok()
-        .then_some(encoded))
+    let mut charges = super::stage_storage::WriterCharges::new(meter, site);
+    let encoding =
+        quire_canonical::encode_with_reservation(&mut encoded, term, limits, &mut charges);
+    if let Some(failure) = charges.failure.take() {
+        return Err(failure);
+    }
+    Ok(encoding.is_ok().then_some(encoded))
 }
 
 fn related_records_are_ordered(
@@ -591,7 +637,6 @@ fn related_records_are_ordered(
     let mut previous: Option<(&CheckedNodeId, Vec<u8>, Vec<u8>)> = None;
     for record in records {
         let Some([relationship, from, to]) = named_fields(record, &["relationship", "from", "to"])
-            .and_then(|fields| <[_; 3]>::try_from(fields).ok())
         else {
             return Ok(false);
         };
@@ -1227,35 +1272,36 @@ pub(super) fn validate_protocol_body(
 }
 
 fn body_defect(
+    meter: &mut WorkMeter,
     position: usize,
     node: &RawSemanticNodeV2,
     defect: ProtocolBodyDefect,
 ) -> ValidationFailure {
-    let node_at = node_pointer(position);
-    let body = node_pointer(position).key("body");
+    let node_at = node_path(position);
+    let body = node_at.key("body");
     let (code, cause, path, document_pointer) = match defect {
         ProtocolBodyDefect::OperatorIneligible => (
             Code::IllTyped,
             Some(Cause::OperatorIneligible),
-            node_at.clone(),
+            node_at,
             None,
         ),
         ProtocolBodyDefect::MemberMismatch => (
             Code::InvalidPackage,
             Some(Cause::OperationMemberMismatch),
-            node_at.clone(),
+            node_at,
             Some(body.key("operation").key("member")),
         ),
         ProtocolBodyDefect::LawMissing => (
             Code::InvalidPackage,
             Some(Cause::OperationLawMissing),
-            node_at.clone(),
+            node_at,
             Some(body.key("operation").key("laws")),
         ),
         ProtocolBodyDefect::LawMismatch => (
             Code::InvalidPackage,
             Some(Cause::OperationLawMismatch),
-            node_at.clone(),
+            node_at,
             Some(body.key("operation").key("laws").index(0)),
         ),
         ProtocolBodyDefect::LawUnselected => (
@@ -1267,18 +1313,15 @@ fn body_defect(
         ProtocolBodyDefect::MalformedLayout => {
             (Code::MalformedWire, None, body.key("arguments"), None)
         }
-        ProtocolBodyDefect::NoncanonicalSet => (
-            Code::InvalidSemanticGraph,
-            None,
-            node_pointer(position),
-            None,
-        ),
+        ProtocolBodyDefect::NoncanonicalSet => (Code::InvalidSemanticGraph, None, node_at, None),
     };
-    let mut failure = ValidationFailure::refused_at(code, path, cause, node.node_id.clone());
-    if let ValidationFailure::Refused(ref mut refusal) = failure {
-        refusal.document_pointer = document_pointer;
+    let site = super::natural::site(meter, path);
+    let mut refusal = Refusal::new(code, path).at_node(&node.node_id);
+    refusal.cause = cause;
+    if let Some(document_pointer) = document_pointer {
+        refusal = refusal.in_document(document_pointer);
     }
-    failure
+    super::stage_storage::refuse(meter, &site, refusal)
 }
 
 /// Checks name collisions involving a protocol declaration at reader step 3.
@@ -1316,13 +1359,12 @@ fn validate_protocol_declaration_names(
         if let Ok(previous) = held {
             let previous_protocol = holders[previous].1;
             if protocol || previous_protocol {
-                return Err(ValidationFailure::refused_at(
+                return Err(refuse_at(
+                    meter,
                     Code::AmbiguousDeclaration,
-                    node_pointer(position)
-                        .key("declaration")
-                        .key("qualified_name"),
                     Some(Cause::AmbiguousName),
-                    nodes[position].node_id.clone(),
+                    node_path(position).key("declaration").key("qualified_name"),
+                    &nodes[position].node_id,
                 ));
             }
         } else if let Err(at) = held {
@@ -1429,12 +1471,17 @@ fn control_positions(
     Ok(children)
 }
 
-fn declaration_defect(position: usize, node: &RawSemanticNodeV2) -> ValidationFailure {
-    ValidationFailure::refused_at(
+fn declaration_defect(
+    meter: &mut WorkMeter,
+    position: usize,
+    node: &RawSemanticNodeV2,
+) -> ValidationFailure {
+    refuse_at(
+        meter,
         Code::InvalidSemanticGraph,
-        node_pointer(position),
         None,
-        node.node_id.clone(),
+        node_path(position),
+        &node.node_id,
     )
 }
 
@@ -1449,26 +1496,86 @@ struct MemberCheck<'a> {
 }
 
 impl MemberCheck<'_> {
-    fn refuse(&self, code: Code, cause: Option<Cause>, path: JsonPointer) -> ValidationFailure {
-        ValidationFailure::refused_at(code, path, cause, self.nodes[self.position].node_id.clone())
+    fn refuse<'p>(
+        &'p self,
+        meter: &mut WorkMeter,
+        code: Code,
+        cause: Option<Cause>,
+        path: impl Into<Position<'p>>,
+    ) -> ValidationFailure {
+        refuse_at(meter, code, cause, path, &self.nodes[self.position].node_id)
     }
 
-    fn refuse_with_detail(
-        &self,
+    /// The refusal carrying `detail`, whose owned heap is `detail_bytes`
+    /// beyond the boxed record itself; both are charged before `detail` is
+    /// built.
+    fn refuse_with_detail<'p>(
+        &'p self,
+        meter: &mut WorkMeter,
         code: Code,
         cause: Cause,
-        path: JsonPointer,
-        detail: CheckedProtocolRefusalDetail,
+        path: impl Into<Position<'p>>,
+        detail_bytes: usize,
+        detail: impl FnOnce() -> CheckedProtocolRefusalDetail,
     ) -> ValidationFailure {
-        let mut refusal = self.refuse(code, Some(cause), path);
-        if let ValidationFailure::Refused(value) = &mut refusal {
-            value.protocol_detail = Some(Box::new(detail));
-        }
-        refusal
+        refuse_detailed(
+            meter,
+            code,
+            cause,
+            path,
+            &self.nodes[self.position].node_id,
+            detail_bytes,
+            detail,
+        )
     }
 
-    fn argument_path(&self, ordinal: usize) -> JsonPointer {
-        node_pointer(self.position)
+    /// A payload binder whose type differs from the one its channel carries.
+    fn payload_type_refusal(
+        &self,
+        meter: &mut WorkMeter,
+        path: Path<'_>,
+        expected: &CheckedNodeId,
+        actual: &CheckedNodeId,
+    ) -> ValidationFailure {
+        self.refuse_with_detail(
+            meter,
+            Code::IllTyped,
+            Cause::TypeMismatch,
+            path,
+            node_id_clone_bytes(expected).saturating_add(node_id_clone_bytes(actual)),
+            || CheckedProtocolRefusalDetail::PayloadType {
+                expected: expected.clone(),
+                actual: actual.clone(),
+            },
+        )
+    }
+
+    /// An interval or count member that is out of range; `actual` is already
+    /// held and charged.
+    fn interval_refusal(
+        &self,
+        meter: &mut WorkMeter,
+        path: Path<'_>,
+        member: &str,
+        expected: &str,
+        actual: Box<str>,
+    ) -> ValidationFailure {
+        self.refuse_with_detail(
+            meter,
+            Code::IllTyped,
+            Cause::TypeMismatch,
+            path,
+            member.len().saturating_add(expected.len()),
+            || CheckedProtocolRefusalDetail::Interval {
+                member: member.into(),
+                expected: expected.into(),
+                actual,
+            },
+        )
+    }
+
+    fn argument_path(&self, ordinal: usize) -> Path<'static> {
+        node_path(self.position)
             .key("body")
             .key("arguments")
             .index(ordinal)
@@ -1477,16 +1584,18 @@ impl MemberCheck<'_> {
 
     fn check_target(
         &self,
+        meter: &mut WorkMeter,
         term: &CheckedTerm,
-        path: impl FnOnce() -> JsonPointer,
+        path: impl FnOnce() -> Path<'static>,
         expected: impl Fn(usize) -> bool,
     ) -> Result<usize, ValidationFailure> {
         // The pointer is built only to name a refusal.
         let Some(target) = reference_target(term) else {
-            return Err(self.refuse(Code::MalformedWire, None, path()));
+            return Err(self.refuse(meter, Code::MalformedWire, None, path()));
         };
         let Some(&position) = self.index.get(target) else {
             return Err(self.refuse(
+                meter,
                 Code::MissingDeclaration,
                 Some(Cause::MissingName),
                 path().key("target"),
@@ -1494,6 +1603,7 @@ impl MemberCheck<'_> {
         };
         if !expected(position) {
             return Err(self.refuse(
+                meter,
                 Code::InvalidModelBinding,
                 Some(Cause::MalformedDeclaration),
                 path().key("target"),
@@ -1509,11 +1619,13 @@ impl MemberCheck<'_> {
 
     fn target_at(
         &self,
+        meter: &mut WorkMeter,
         arguments: &[CheckedTerm],
         ordinal: usize,
         expected: impl Fn(usize) -> bool,
     ) -> Result<usize, ValidationFailure> {
         self.check_target(
+            meter,
             self.at(arguments, ordinal),
             || self.argument_path(ordinal),
             expected,
@@ -1524,12 +1636,8 @@ impl MemberCheck<'_> {
         self.kinds.get(position) == Some(&kind)
     }
 
-    fn boolean(
-        &self,
-        term: &CheckedTerm,
-        path: impl FnOnce() -> JsonPointer,
-    ) -> Result<(), ValidationFailure> {
-        let valid = match term {
+    fn is_boolean(&self, term: &CheckedTerm) -> bool {
+        match term {
             CheckedTerm::Literal {
                 type_id,
                 value_kind: LiteralKind::Boolean,
@@ -1551,37 +1659,51 @@ impl MemberCheck<'_> {
                     })
             }),
             _ => false,
-        };
-        if valid {
-            Ok(())
-        } else {
-            Err(self.refuse(Code::IllTyped, Some(Cause::NonBooleanRoot), path()))
         }
     }
 
+    fn boolean(
+        &self,
+        meter: &mut WorkMeter,
+        term: &CheckedTerm,
+        path: impl FnOnce() -> Path<'static>,
+    ) -> Result<(), ValidationFailure> {
+        if self.is_boolean(term) {
+            Ok(())
+        } else {
+            Err(self.refuse(meter, Code::IllTyped, Some(Cause::NonBooleanRoot), path()))
+        }
+    }
+
+    /// A non-boolean root refused at this node, naming `document_pointer` as
+    /// the package-document position.
     fn boolean_at_node(
         &self,
+        meter: &mut WorkMeter,
         term: &CheckedTerm,
-        document_pointer: JsonPointer,
+        document_pointer: Path<'_>,
     ) -> Result<(), ValidationFailure> {
-        self.boolean(term, || document_pointer.clone())
-            .map_err(|mut failure| {
-                if let ValidationFailure::Refused(ref mut refusal) = failure {
-                    refusal.set_primary_path(Some(node_pointer(self.position)));
-                    refusal.document_pointer = Some(document_pointer);
-                }
-                failure
-            })
+        if self.is_boolean(term) {
+            return Ok(());
+        }
+        let at = node_path(self.position);
+        let site = super::natural::site(meter, at);
+        let mut refusal = Refusal::new(Code::IllTyped, at)
+            .at_node(&self.nodes[self.position].node_id)
+            .in_document(document_pointer);
+        refusal.cause = Some(Cause::NonBooleanRoot);
+        Err(super::stage_storage::refuse(meter, &site, refusal))
     }
 
     fn scalar_literal(
         &self,
+        meter: &mut WorkMeter,
         term: &CheckedTerm,
         form: ScalarTypeForm,
-        path: impl FnOnce() -> JsonPointer,
+        path: impl FnOnce() -> Path<'static>,
     ) -> Result<(), ValidationFailure> {
         let CheckedTerm::Literal { type_id, .. } = term else {
-            return Err(self.refuse(Code::MalformedWire, None, path()));
+            return Err(self.refuse(meter, Code::MalformedWire, None, path()));
         };
         if self
             .index
@@ -1590,18 +1712,24 @@ impl MemberCheck<'_> {
         {
             Ok(())
         } else {
-            Err(self.refuse(Code::IllTyped, Some(Cause::TypeMismatch), path()))
+            Err(self.refuse(meter, Code::IllTyped, Some(Cause::TypeMismatch), path()))
         }
     }
 
-    fn same_type(&self, binder: usize, expected: &CheckedNodeId) -> Result<(), ValidationFailure> {
+    fn same_type(
+        &self,
+        meter: &mut WorkMeter,
+        binder: usize,
+        expected: &CheckedNodeId,
+    ) -> Result<(), ValidationFailure> {
         if &self.nodes[binder].semantic_type == expected {
             Ok(())
         } else {
             Err(self.refuse(
+                meter,
                 Code::IllTyped,
                 Some(Cause::TypeMismatch),
-                node_pointer(self.position),
+                node_path(self.position),
             ))
         }
     }
@@ -1768,15 +1896,16 @@ impl MemberCheck<'_> {
 
     fn nonnegative(
         &self,
+        meter: &mut WorkMeter,
         term: &CheckedTerm,
-        path: JsonPointer,
+        path: Path<'_>,
         positive: bool,
     ) -> Result<(), ValidationFailure> {
         let Some(value) = integer_value(term) else {
             return Ok(());
         };
         if (positive && value == Numeral::exact(0)) || value < Numeral::exact(0) {
-            Err(self.refuse(Code::IllTyped, Some(Cause::TypeMismatch), path))
+            Err(self.refuse(meter, Code::IllTyped, Some(Cause::TypeMismatch), path))
         } else {
             Ok(())
         }
@@ -1972,25 +2101,27 @@ pub(super) fn group_value<'a>(term: &'a CheckedTerm, name: &str) -> Option<&'a C
 
 fn check_member_targets(
     check: &MemberCheck<'_>,
+    meter: &mut WorkMeter,
     term: &CheckedTerm,
-    path: &dyn Fn() -> JsonPointer,
+    path: &Trail<'_>,
 ) -> Result<(), ValidationFailure> {
     match term {
         CheckedTerm::Reference { target } => {
             if !check.index.contains_key(target) {
                 return Err(check.refuse(
+                    meter,
                     Code::MissingDeclaration,
                     Some(Cause::MissingName),
-                    path().key("target"),
+                    path.key("target"),
                 ));
             }
         }
         CheckedTerm::Binding { value, .. } => {
-            check_member_targets(check, value, &|| path().key("value"))?
+            check_member_targets(check, meter, value, &path.key("value"))?
         }
         CheckedTerm::Aggregate { members } => {
             for (position, member) in members.iter().enumerate() {
-                check_member_targets(check, member, &|| path().key("members").index(position))?;
+                check_member_targets(check, meter, member, &path.key("members").index(position))?;
             }
         }
         _ => {}
@@ -2015,7 +2146,7 @@ fn check_related_references(
             .key("members")
             .index(0)
             .key("value");
-        let position = check.check_target(relationship, || path.clone(), |_| true)?;
+        let position = check.check_target(meter, relationship, || path, |_| true)?;
         if !check.is(
             position,
             CheckedNodeKind::Relation(RelationForm::Relationship),
@@ -2025,6 +2156,7 @@ fn check_related_references(
             .is_none_or(|owner| !owner.package.relationships.contains_key(owner.node))
         {
             return Err(check.refuse(
+                meter,
                 Code::InvalidModelBinding,
                 Some(Cause::WrongExport),
                 path.key("target"),
@@ -2032,6 +2164,7 @@ fn check_related_references(
         }
         if !check.clause_lists_relationship(&check.nodes[position].node_id, meter)? {
             return Err(check.refuse(
+                meter,
                 Code::MissingDeclaration,
                 Some(Cause::MissingName),
                 path.key("target"),
@@ -2080,6 +2213,7 @@ fn check_related_types(
                 .and_then(|form| owners.declaration_id(&owner.package.identity, declared, form))
             else {
                 return Err(check.refuse(
+                    meter,
                     Code::InvalidModelBinding,
                     Some(Cause::WrongExport),
                     check
@@ -2124,6 +2258,7 @@ fn check_related_types(
             };
             if !conforms {
                 return Err(check.refuse_with_detail(
+                    meter,
                     Code::IllTyped,
                     Cause::TypeMismatch,
                     check
@@ -2133,7 +2268,11 @@ fn check_related_types(
                         .key("members")
                         .index(end_index + 1)
                         .key("value"),
-                    CheckedProtocolRefusalDetail::RelatedEndType {
+                    node_id_clone_bytes(relationship)
+                        .saturating_add(end_name.len())
+                        .saturating_add(node_id_clone_bytes(expected))
+                        .saturating_add(actual.map_or(0, node_id_clone_bytes)),
+                    || CheckedProtocolRefusalDetail::RelatedEndType {
                         relationship: relationship.clone(),
                         end: end_name.into(),
                         expected: expected.clone(),
@@ -2155,13 +2294,14 @@ fn check_control_prefix(
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
     let control = |position| check.is(position, CheckedNodeKind::Protocol(ProtocolForm::Control));
-    let check_list = |ordinal, expected: &dyn Fn(usize) -> bool| {
+    let check_list = |meter: &mut WorkMeter, ordinal, expected: &dyn Fn(usize) -> bool| {
         for (position, target) in members(check.at(arguments, ordinal))
             .expect("validated list")
             .iter()
             .enumerate()
         {
             check.check_target(
+                meter,
                 target,
                 || check.argument_path(ordinal).key("members").index(position),
                 expected,
@@ -2179,21 +2319,21 @@ fn check_control_prefix(
             _ => None,
         };
     match operator {
-        "check" => check.boolean(check.at(arguments, 0), || check.argument_path(0))?,
+        "check" => check.boolean(meter, check.at(arguments, 0), || check.argument_path(0))?,
         "fence" => {}
         "send" | "receive" => {
-            let channel = check.target_at(arguments, 0, |position| {
+            let channel = check.target_at(meter, arguments, 0, |position| {
                 check.is(position, CheckedNodeKind::Protocol(ProtocolForm::Channel))
             })?;
             let binder_ordinal = if operator == "receive" { 2 } else { 1 };
             let send = if operator == "receive" {
-                Some(check.target_at(arguments, 1, |position| {
+                Some(check.target_at(meter, arguments, 1, |position| {
                     control_operator(position) == Some("send")
                 })?)
             } else {
                 None
             };
-            let binder = check.target_at(arguments, binder_ordinal, |position| {
+            let binder = check.target_at(meter, arguments, binder_ordinal, |position| {
                 check.is(position, CheckedNodeKind::Value(ValueForm::Parameter))
             })?;
             let related_ordinal = if operator == "receive" { 3 } else { 2 };
@@ -2209,14 +2349,11 @@ fn check_control_prefix(
                 .and_then(reference_target)
                 .expect("validated channel carries");
             if &check.nodes[binder].semantic_type != carries {
-                return Err(check.refuse_with_detail(
-                    Code::IllTyped,
-                    Cause::TypeMismatch,
-                    node_pointer(check.position),
-                    CheckedProtocolRefusalDetail::PayloadType {
-                        expected: carries.clone(),
-                        actual: check.nodes[binder].semantic_type.clone(),
-                    },
+                return Err(check.payload_type_refusal(
+                    meter,
+                    node_path(check.position),
+                    carries,
+                    &check.nodes[binder].semantic_type,
                 ));
             }
             if let Some(send) = send {
@@ -2232,30 +2369,32 @@ fn check_control_prefix(
                     == Some(&check.nodes[channel].node_id);
                 if !same_channel {
                     return Err(check.refuse(
+                        meter,
                         Code::IllTyped,
                         Some(Cause::OperatorIneligible),
-                        node_pointer(check.position),
+                        node_path(check.position),
                     ));
                 }
             }
             let constraint_ordinal = if operator == "receive" { 4 } else { 3 };
-            check.boolean(check.at(arguments, constraint_ordinal), || {
+            check.boolean(meter, check.at(arguments, constraint_ordinal), || {
                 check.argument_path(constraint_ordinal)
             })?;
             check_related_types(check, arguments, related_ordinal, owners, meter)?;
         }
         "attempt" => {
-            let role = check.target_at(arguments, 0, |position| {
+            let role = check.target_at(meter, arguments, 0, |position| {
                 check.is(position, CheckedNodeKind::Protocol(ProtocolForm::Role))
             })?;
             if !check.same_clause(role, "role", meter)? {
                 return Err(check.refuse(
+                    meter,
                     Code::InvalidModelBinding,
                     Some(Cause::MalformedDeclaration),
                     check.argument_path(0).key("target"),
                 ));
             }
-            let operation = check.target_at(arguments, 1, |position| {
+            let operation = check.target_at(meter, arguments, 1, |position| {
                 check.is(position, CheckedNodeKind::State(StateForm::OperationAnchor))
             })?;
             let listed_contracts = members(check.at(arguments, 3)).expect("validated contracts");
@@ -2263,13 +2402,14 @@ fn check_control_prefix(
             for (ordinal, contract) in listed_contracts.iter().enumerate() {
                 let path = check.argument_path(3).key("members").index(ordinal);
                 let clause = check.check_target(
+                    meter,
                     contract,
-                    || path.clone(),
+                    || path,
                     |position| check.is(position, CheckedNodeKind::State(StateForm::StateClause)),
                 )?;
                 contracts.push((clause, path));
             }
-            check.target_at(arguments, 4, |position| {
+            check.target_at(meter, arguments, 4, |position| {
                 check.is(position, CheckedNodeKind::Value(ValueForm::Parameter))
             })?;
             check_related_references(check, arguments, 5, owners, meter)?;
@@ -2285,32 +2425,34 @@ fn check_control_prefix(
                     });
                 if !valid {
                     return Err(check.refuse(
+                        meter,
                         Code::InvalidModelBinding,
                         Some(Cause::MalformedDeclaration),
                         path.key("target"),
                     ));
                 }
             }
-            check.boolean(check.at(arguments, 6), || check.argument_path(6))?;
+            check.boolean(meter, check.at(arguments, 6), || check.argument_path(6))?;
             check_related_types(check, arguments, 5, owners, meter)?;
         }
         "effect" => {
-            check.target_at(arguments, 0, |position| {
+            check.target_at(meter, arguments, 0, |position| {
                 control_operator(position) == Some("attempt")
             })?;
-            check.target_at(arguments, 1, |position| {
+            check.target_at(meter, arguments, 1, |position| {
                 check.is(position, CheckedNodeKind::Value(ValueForm::Parameter))
             })?;
             check_related_references(check, arguments, 2, owners, meter)?;
-            check.boolean(check.at(arguments, 3), || check.argument_path(3))?;
+            check.boolean(meter, check.at(arguments, 3), || check.argument_path(3))?;
             check_related_types(check, arguments, 2, owners, meter)?;
         }
         "event" => {
-            let role = check.target_at(arguments, 0, |position| {
+            let role = check.target_at(meter, arguments, 0, |position| {
                 check.is(position, CheckedNodeKind::Protocol(ProtocolForm::Role))
             })?;
             if !check.same_clause(role, "role", meter)? {
                 return Err(check.refuse(
+                    meter,
                     Code::InvalidModelBinding,
                     Some(Cause::MalformedDeclaration),
                     check.argument_path(0).key("target"),
@@ -2321,8 +2463,9 @@ fn check_control_prefix(
             {
                 let path = check.argument_path(1).key("members").index(0);
                 let template = check.check_target(
+                    meter,
                     compensation,
-                    || path.clone(),
+                    || path,
                     |position| {
                         check.is(
                             position,
@@ -2332,42 +2475,44 @@ fn check_control_prefix(
                 )?;
                 if !check.same_clause(template, "compensate", meter)? {
                     return Err(check.refuse(
+                        meter,
                         Code::InvalidModelBinding,
                         Some(Cause::MalformedDeclaration),
                         path.key("target"),
                     ));
                 }
             }
-            check.target_at(arguments, 2, |position| {
+            check.target_at(meter, arguments, 2, |position| {
                 check.is(position, CheckedNodeKind::Value(ValueForm::Parameter))
             })?;
             check_related_references(check, arguments, 3, owners, meter)?;
-            check.boolean(check.at(arguments, 4), || check.argument_path(4))?;
+            check.boolean(meter, check.at(arguments, 4), || check.argument_path(4))?;
             check_related_types(check, arguments, 3, owners, meter)?;
         }
         "commit" => {
-            let role = check.target_at(arguments, 0, |position| {
+            let role = check.target_at(meter, arguments, 0, |position| {
                 check.is(position, CheckedNodeKind::Protocol(ProtocolForm::Role))
             })?;
             if !check.same_clause(role, "role", meter)? {
                 return Err(check.refuse(
+                    meter,
                     Code::InvalidModelBinding,
                     Some(Cause::MalformedDeclaration),
                     check.argument_path(0).key("target"),
                 ));
             }
-            check.target_at(arguments, 1, |position| {
+            check.target_at(meter, arguments, 1, |position| {
                 check.is(position, CheckedNodeKind::Value(ValueForm::Parameter))
             })?;
-            check.boolean(check.at(arguments, 2), || check.argument_path(2))?;
+            check.boolean(meter, check.at(arguments, 2), || check.argument_path(2))?;
         }
-        "sequence" => check_list(0, &control)?,
+        "sequence" => check_list(meter, 0, &control)?,
         "choice" | "parallel" => {
             let (records_ordinal, body_ordinal) = if operator == "choice" {
-                check.target_at(arguments, 0, |position| {
+                check.target_at(meter, arguments, 0, |position| {
                     check.is(position, CheckedNodeKind::Protocol(ProtocolForm::Role))
                 })?;
-                check_list(1, &|position| {
+                check_list(meter, 1, &|position| {
                     matches!(check.kinds[position], CheckedNodeKind::Expression(_))
                 })?;
                 (2, 2)
@@ -2382,8 +2527,9 @@ fn check_control_prefix(
                     .key("members")
                     .index(position);
                 check.check_target(
+                    meter,
                     argument(fields, body_ordinal).expect("validated body"),
-                    || path.clone().key("members").index(body_ordinal).key("value"),
+                    || path.key("members").index(body_ordinal).key("value"),
                     control,
                 )?;
             }
@@ -2391,6 +2537,7 @@ fn check_control_prefix(
                 let join = check.at(arguments, 2);
                 if argument_text(join, 0) == Some("predicate") {
                     check.check_target(
+                        meter,
                         group_value(join, "predicate").expect("validated predicate"),
                         || check.argument_path(2).key("members").index(1).key("value"),
                         |position| matches!(check.kinds[position], CheckedNodeKind::Function(_)),
@@ -2403,16 +2550,18 @@ fn check_control_prefix(
                 let label = argument_text(record, 0).expect("validated label");
                 if !meter.insert_sorted(&mut labels, label)? {
                     return Err(check.refuse(
+                        meter,
                         Code::AmbiguousDeclaration,
                         Some(Cause::AmbiguousName),
-                        node_pointer(check.position),
+                        node_path(check.position),
                     ));
                 }
                 if previous.is_some_and(|prior| prior.as_bytes() > label.as_bytes()) {
                     return Err(check.refuse(
+                        meter,
                         Code::InvalidSemanticGraph,
                         None,
-                        node_pointer(check.position),
+                        node_path(check.position),
                     ));
                 }
                 previous = Some(label);
@@ -2420,6 +2569,7 @@ fn check_control_prefix(
             if operator == "choice" {
                 for (position, record) in records.iter().enumerate() {
                     check.boolean(
+                        meter,
                         group_value(record, "guard").expect("validated guard"),
                         || {
                             check
@@ -2441,6 +2591,7 @@ fn check_control_prefix(
                     let label = text_value(item).expect("validated joined label");
                     if labels.binary_search(&label).is_err() {
                         return Err(check.refuse(
+                            meter,
                             Code::MissingDeclaration,
                             Some(Cause::MissingName),
                             check.argument_path(3).key("members").index(position),
@@ -2448,9 +2599,10 @@ fn check_control_prefix(
                     }
                     if prior.is_some_and(|previous| previous.as_bytes() >= label.as_bytes()) {
                         return Err(check.refuse(
+                            meter,
                             Code::InvalidSemanticGraph,
                             None,
-                            node_pointer(check.position),
+                            node_path(check.position),
                         ));
                     }
                     prior = Some(label);
@@ -2473,6 +2625,7 @@ fn check_control_prefix(
                         check.argument_path(3)
                     };
                     return Err(check.refuse(
+                        meter,
                         Code::InvalidPackage,
                         Some(Cause::InvalidValue),
                         path,
@@ -2481,16 +2634,17 @@ fn check_control_prefix(
             }
         }
         "repeat" => {
-            check.target_at(arguments, 0, |position| {
+            check.target_at(meter, arguments, 0, |position| {
                 check.is(position, CheckedNodeKind::Protocol(ProtocolForm::Role))
             })?;
-            check_list(1, &|position| {
+            check_list(meter, 1, &|position| {
                 matches!(check.kinds[position], CheckedNodeKind::Expression(_))
             })?;
-            check.target_at(arguments, 5, control)?;
+            check.target_at(meter, arguments, 5, control)?;
             if let Some(exhausted) = members(check.at(arguments, 6)).and_then(|items| items.first())
             {
                 check.check_target(
+                    meter,
                     exhausted,
                     || check.argument_path(6).key("members").index(0),
                     control,
@@ -2498,11 +2652,12 @@ fn check_control_prefix(
             }
             if members(check.at(arguments, 3)).is_some_and(|items| !items.is_empty()) {
                 check.boolean(
+                    meter,
                     group_value(check.at(arguments, 3), "invariant").expect("validated invariant"),
                     || check.argument_path(3).key("members").index(0).key("value"),
                 )?;
             }
-            check.boolean_at_node(check.at(arguments, 4), check.argument_path(4))?;
+            check.boolean_at_node(meter, check.at(arguments, 4), check.argument_path(4))?;
         }
         "await" => {
             let after = check.at(arguments, 0);
@@ -2511,6 +2666,7 @@ fn check_control_prefix(
             let anchor_path = check.argument_path(0).key("members").index(1).key("value");
             if kind == "compensation" {
                 check.check_target(
+                    meter,
                     anchor,
                     || anchor_path,
                     |position| {
@@ -2522,6 +2678,7 @@ fn check_control_prefix(
                 )?;
             } else {
                 check.check_target(
+                    meter,
                     anchor,
                     || anchor_path,
                     |position| {
@@ -2532,11 +2689,12 @@ fn check_control_prefix(
                     },
                 )?;
             }
-            let event = check.target_at(arguments, 3, control)?;
-            check.target_at(arguments, 4, control)?;
-            check.target_at(arguments, 5, control)?;
+            let event = check.target_at(meter, arguments, 3, control)?;
+            check.target_at(meter, arguments, 4, control)?;
+            check.target_at(meter, arguments, 5, control)?;
             let Some(event_form) = control_operator(event) else {
                 return Err(check.refuse(
+                    meter,
                     Code::InvalidModelBinding,
                     Some(Cause::MalformedDeclaration),
                     check.argument_path(3).key("target"),
@@ -2544,10 +2702,15 @@ fn check_control_prefix(
             };
             if !matches!(event_form, "receive" | "effect" | "event") {
                 return Err(check.refuse_with_detail(
+                    meter,
                     Code::UnsupportedConstruct,
                     Cause::DeclarationForm,
-                    node_pointer(check.position),
-                    CheckedProtocolRefusalDetail::AwaitedEvent {
+                    node_path(check.position),
+                    event_form
+                        .len()
+                        .saturating_add(check.profile.authority.len())
+                        .saturating_add(check.profile.identity.len()),
+                    || CheckedProtocolRefusalDetail::AwaitedEvent {
                         form: event_form.into(),
                         profile: check.profile.clone(),
                     },
@@ -2558,19 +2721,19 @@ fn check_control_prefix(
                 group_value(within, "lower").and_then(integer_value),
                 group_value(within, "upper").and_then(integer_value),
             ) else {
-                return Err(check.refuse(Code::MalformedWire, None, check.argument_path(2)));
+                return Err(check.refuse(meter, Code::MalformedWire, None, check.argument_path(2)));
             };
             if lower.exceeds(&upper, meter)? {
-                return Err(check.refuse_with_detail(
-                    Code::IllTyped,
-                    Cause::TypeMismatch,
-                    check.argument_path(2),
-                    CheckedProtocolRefusalDetail::Interval {
-                        member: "within".into(),
-                        expected: "closed interval with lower <= upper".into(),
-                        actual: meter.formatted(format_args!("[{lower}, {upper}]"))?,
-                    },
-                ));
+                return Err({
+                    let actual = meter.formatted(format_args!("[{lower}, {upper}]"))?;
+                    check.interval_refusal(
+                        meter,
+                        check.argument_path(2),
+                        "within",
+                        "closed interval with lower <= upper",
+                        actual,
+                    )
+                });
             }
         }
         _ => {}
@@ -2586,25 +2749,26 @@ fn check_compensation(
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
     let parameter = |position| check.is(position, CheckedNodeKind::Value(ValueForm::Parameter));
-    let forward = check.target_at(arguments, 0, |position| {
+    let forward = check.target_at(meter, arguments, 0, |position| {
         check.is(position, CheckedNodeKind::Protocol(ProtocolForm::Control))
             && check.terms[position].as_ref().is_some_and(|term| {
                 matches!(term, CheckedTerm::Application { operation, .. }
                     if operation.member_text("operator") == Some("effect"))
             })
     })?;
-    let forward_binder = check.target_at(arguments, 1, parameter)?;
-    let role = check.target_at(arguments, 2, |position| {
+    let forward_binder = check.target_at(meter, arguments, 1, parameter)?;
+    let role = check.target_at(meter, arguments, 2, |position| {
         check.is(position, CheckedNodeKind::Protocol(ProtocolForm::Role))
     })?;
     if !check.same_clause(role, "role", meter)? {
         return Err(check.refuse(
+            meter,
             Code::InvalidModelBinding,
             Some(Cause::MalformedDeclaration),
             check.argument_path(2).key("target"),
         ));
     }
-    check.target_at(arguments, 3, |position| {
+    check.target_at(meter, arguments, 3, |position| {
         check.is(position, CheckedNodeKind::State(StateForm::OperationAnchor))
     })?;
     for ordinal in [5, 7] {
@@ -2613,6 +2777,7 @@ fn check_compensation(
             node_work(meter, check.position)?;
             let binder = group_value(record, "binder").expect("validated capture binder");
             check.check_target(
+                meter,
                 binder,
                 || {
                     check
@@ -2629,12 +2794,14 @@ fn check_compensation(
     }
     let trigger = check.at(arguments, 6);
     check.check_target(
+        meter,
         group_value(trigger, "binder").expect("validated trigger binder"),
         || check.argument_path(6).key("members").index(0).key("value"),
         parameter,
     )?;
     let attempts = check.at(arguments, 9);
     let record_type = check.check_target(
+        meter,
         group_value(attempts, "record_type").expect("validated record type"),
         || check.argument_path(9).key("members").index(1).key("value"),
         |position| {
@@ -2648,6 +2815,7 @@ fn check_compensation(
     let mut retry_binders = [0_usize; 2];
     for (position, name) in ["earlier", "later"].into_iter().enumerate() {
         let binder = check.check_target(
+            meter,
             group_value(retry, name).expect("validated retry binder"),
             || {
                 check
@@ -2662,6 +2830,7 @@ fn check_compensation(
     }
     if let Some(commit) = members(check.at(arguments, 11)).and_then(|items| items.first()) {
         check.check_target(
+            meter,
             commit,
             || check.argument_path(11).key("members").index(0),
             |position| {
@@ -2675,16 +2844,18 @@ fn check_compensation(
     }
     let recovery = check.at(arguments, 12);
     check.check_target(
+        meter,
         group_value(recovery, "binder").expect("validated recovery binder"),
         || check.argument_path(12).key("members").index(0).key("value"),
         parameter,
     )?;
-    check.scalar_literal(check.at(arguments, 4), ScalarTypeForm::Text, || {
+    check.scalar_literal(meter, check.at(arguments, 4), ScalarTypeForm::Text, || {
         check.argument_path(4)
     })?;
     let within = check.at(arguments, 8);
     for (index, name) in ["lower", "upper"].into_iter().enumerate() {
         check.scalar_literal(
+            meter,
             group_value(within, name).expect("validated interval bound"),
             ScalarTypeForm::Integer,
             || {
@@ -2697,6 +2868,7 @@ fn check_compensation(
         )?;
     }
     check.scalar_literal(
+        meter,
         group_value(attempts, "maximum").expect("validated maximum"),
         ScalarTypeForm::Integer,
         || check.argument_path(9).key("members").index(0).key("value"),
@@ -2711,6 +2883,7 @@ fn check_compensation(
         .and_then(|target| check.index.get(target).copied());
     let Some(effect_binder) = forward_effect_binder.filter(|&position| parameter(position)) else {
         return Err(check.refuse(
+            meter,
             Code::InvalidModelBinding,
             Some(Cause::MalformedDeclaration),
             check.argument_path(0).key("target"),
@@ -2719,40 +2892,32 @@ fn check_compensation(
     let expected = &check.nodes[effect_binder].semantic_type;
     let actual = &check.nodes[forward_binder].semantic_type;
     if actual != expected {
-        return Err(check.refuse_with_detail(
-            Code::IllTyped,
-            Cause::TypeMismatch,
-            node_pointer(check.position),
-            CheckedProtocolRefusalDetail::PayloadType {
-                expected: expected.clone(),
-                actual: actual.clone(),
-            },
-        ));
+        return Err(check.payload_type_refusal(meter, node_path(check.position), expected, actual));
     }
     for binder in retry_binders {
         let expected = &check.nodes[record_type].node_id;
         let actual = &check.nodes[binder].semantic_type;
         if actual != expected {
-            return Err(check.refuse_with_detail(
-                Code::IllTyped,
-                Cause::TypeMismatch,
-                node_pointer(check.position),
-                CheckedProtocolRefusalDetail::PayloadType {
-                    expected: expected.clone(),
-                    actual: actual.clone(),
-                },
+            return Err(check.payload_type_refusal(
+                meter,
+                node_path(check.position),
+                expected,
+                actual,
             ));
         }
     }
     check.boolean(
+        meter,
         group_value(trigger, "guard").expect("validated trigger guard"),
         || check.argument_path(6).key("members").index(1).key("value"),
     )?;
     check.boolean(
+        meter,
         group_value(retry, "relation").expect("validated retry relation"),
         || check.argument_path(10).key("members").index(2).key("value"),
     )?;
     check.boolean(
+        meter,
         group_value(recovery, "predicate").expect("validated recovery predicate"),
         || check.argument_path(12).key("members").index(1).key("value"),
     )?;
@@ -2760,38 +2925,39 @@ fn check_compensation(
         group_value(within, "lower").and_then(integer_value),
         group_value(within, "upper").and_then(integer_value),
     ) else {
-        return Err(check.refuse(Code::MalformedWire, None, check.argument_path(8)));
+        return Err(check.refuse(meter, Code::MalformedWire, None, check.argument_path(8)));
     };
     if lower.exceeds(&upper, meter)? {
-        return Err(check.refuse_with_detail(
-            Code::IllTyped,
-            Cause::TypeMismatch,
-            check.argument_path(8),
-            CheckedProtocolRefusalDetail::Interval {
-                member: "within".into(),
-                expected: "closed interval with lower <= upper".into(),
-                actual: meter.formatted(format_args!("[{lower}, {upper}]"))?,
-            },
-        ));
+        return Err({
+            let actual = meter.formatted(format_args!("[{lower}, {upper}]"))?;
+            check.interval_refusal(
+                meter,
+                check.argument_path(8),
+                "within",
+                "closed interval with lower <= upper",
+                actual,
+            )
+        });
     }
     let Some(maximum) = group_value(attempts, "maximum").and_then(integer_value) else {
         return Err(check.refuse(
+            meter,
             Code::MalformedWire,
             None,
             check.argument_path(9).key("members").index(0).key("value"),
         ));
     };
     if maximum < Numeral::exact(1) {
-        return Err(check.refuse_with_detail(
-            Code::IllTyped,
-            Cause::TypeMismatch,
-            check.argument_path(9).key("members").index(0).key("value"),
-            CheckedProtocolRefusalDetail::Interval {
-                member: "attempts".into(),
-                expected: "count of at least one".into(),
-                actual: meter.formatted(format_args!("{maximum}"))?,
-            },
-        ));
+        return Err({
+            let actual = meter.formatted(format_args!("{maximum}"))?;
+            check.interval_refusal(
+                meter,
+                check.argument_path(9).key("members").index(0).key("value"),
+                "attempts",
+                "count of at least one",
+                actual,
+            )
+        });
     }
     validate_compensation_commit_position(check, arguments, validated, meter)?;
     Ok(())
@@ -2818,35 +2984,38 @@ fn check_role_member(
     };
     node_work(meter, check.position)?;
     let texts = role_member_texts(member);
-    let invalid = || {
-        let mut failure = check.refuse(
+    let invalid = |meter: &mut WorkMeter| match texts {
+        Some((package, node)) => check.refuse_with_detail(
+            meter,
             Code::InvalidModelBinding,
-            Some(Cause::MalformedDeclaration),
-            node_pointer(check.position),
-        );
-        if let (ValidationFailure::Refused(ref mut refusal), Some((package, node))) =
-            (&mut failure, texts)
-        {
-            refusal.protocol_detail = Some(Box::new(CheckedProtocolRefusalDetail::ModelMember {
+            Cause::MalformedDeclaration,
+            node_path(check.position),
+            package.len().saturating_add(node.len()),
+            || CheckedProtocolRefusalDetail::ModelMember {
                 package: package.into(),
                 node: node.into(),
-            }));
-        }
-        failure
+            },
+        ),
+        None => check.refuse(
+            meter,
+            Code::InvalidModelBinding,
+            Some(Cause::MalformedDeclaration),
+            node_path(check.position),
+        ),
     };
     // The model/selection check has already run. A selected whole-model text
     // still cannot carry a member, before the member's contents are considered.
     let Some(model) = argument(arguments, 0).and_then(reference_target) else {
-        return Err(invalid());
+        return Err(invalid(meter));
     };
     let Some((package, node)) = texts else {
-        return Err(check.refuse(Code::MalformedWire, None, node_pointer(check.position)));
+        return Err(check.refuse(meter, Code::MalformedWire, None, node_path(check.position)));
     };
     let Some(owner) = owners.owner_by_key(model) else {
-        return Err(invalid());
+        return Err(invalid(meter));
     };
     if owner.package.identity.as_ref() != package || !owner.package.is_systems_port(node) {
-        return Err(invalid());
+        return Err(invalid(meter));
     }
     Ok(())
 }
@@ -2862,12 +3031,11 @@ fn check_member(
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
     for (ordinal, term) in arguments.iter().enumerate() {
-        check_member_targets(check, term, &|| {
-            node_pointer(check.position)
-                .key("body")
-                .key("arguments")
-                .index(ordinal)
-        })?;
+        let base = node_path(check.position)
+            .key("body")
+            .key("arguments")
+            .index(ordinal);
+        check_member_targets(check, meter, term, &Trail::Base(base.steps()))?;
     }
     let role = |position| check.is(position, CheckedNodeKind::Protocol(ProtocolForm::Role));
     let parameter = |position| check.is(position, CheckedNodeKind::Value(ValueForm::Parameter));
@@ -2878,20 +3046,22 @@ fn check_member(
                 node_work(meter, check.position)?;
                 if !owners.selects(identity) {
                     return Err(check.refuse(
+                        meter,
                         Code::MissingDeclaration,
                         Some(Cause::MissingSelection),
-                        node_pointer(check.position),
+                        node_path(check.position),
                     ));
                 }
                 if !members(replication).is_some_and(|fields| fields.is_empty()) {
                     return Err(check.refuse(
+                        meter,
                         Code::InvalidModelBinding,
                         Some(Cause::MalformedDeclaration),
-                        node_pointer(check.position),
+                        node_path(check.position),
                     ));
                 }
             } else {
-                let model = check.target_at(arguments, 0, |position| {
+                let model = check.target_at(meter, arguments, 0, |position| {
                     matches!(
                         check.kinds[position],
                         CheckedNodeKind::Model(
@@ -2905,12 +3075,14 @@ fn check_member(
                 })?;
                 if !members(replication).is_some_and(|fields| fields.is_empty()) {
                     check.nonnegative(
+                        meter,
                         group_value(replication, "max").expect("validated replication"),
                         check.argument_path(1).key("members").index(1).key("value"),
                         true,
                     )?;
                     let binder = group_value(replication, "binder").expect("validated replication");
                     let binder = check.check_target(
+                        meter,
                         binder,
                         || check.argument_path(1).key("members").index(2).key("value"),
                         parameter,
@@ -2928,14 +3100,14 @@ fn check_member(
                                 matches!(items, [CheckedTerm::Reference { target }] if target == &check.nodes[model].node_id)
                             })
                     }) {
-                        return Err(check.refuse(
+                        return Err(check.refuse(meter,
                             Code::IllTyped,
                             Some(Cause::TypeMismatch),
-                            node_pointer(check.position),
+                            node_path(check.position),
                         ));
                     }
                     if let Some(until) = group_value(replication, "until") {
-                        check.boolean(until, || node_pointer(check.position))?;
+                        check.boolean(meter, until, || node_path(check.position))?;
                     }
                 }
             }
@@ -2943,16 +3115,17 @@ fn check_member(
         }
         ProtocolForm::Channel => {
             for ordinal in [0, 1] {
-                let target = check.target_at(arguments, ordinal, role)?;
+                let target = check.target_at(meter, arguments, ordinal, role)?;
                 if !check.same_clause(target, "role", meter)? {
                     return Err(check.refuse(
+                        meter,
                         Code::InvalidModelBinding,
                         Some(Cause::MalformedDeclaration),
                         check.argument_path(ordinal).key("target"),
                     ));
                 }
             }
-            let carries = check.target_at(arguments, 2, |position| {
+            let carries = check.target_at(meter, arguments, 2, |position| {
                 matches!(
                     check.kinds[position],
                     CheckedNodeKind::ScalarType(_)
@@ -2968,11 +3141,12 @@ fn check_member(
             if argument_text(ordering, 0) == Some("fifo") {
                 let binder = group_value(ordering, "binder").expect("validated fifo");
                 let position = check.check_target(
+                    meter,
                     binder,
                     || check.argument_path(3).key("members").index(1).key("value"),
                     parameter,
                 )?;
-                check.same_type(position, &check.nodes[carries].node_id)?;
+                check.same_type(meter, position, &check.nodes[carries].node_id)?;
                 let key = group_value(ordering, "key").expect("validated fifo");
                 let key_type = check.term_type(key);
                 let stable = match key_type {
@@ -2981,6 +3155,7 @@ fn check_member(
                 };
                 if !stable {
                     return Err(check.refuse(
+                        meter,
                         Code::IllTyped,
                         Some(Cause::OperatorIneligible),
                         check.argument_path(3).key("members").index(2).key("value"),
@@ -2989,20 +3164,20 @@ fn check_member(
             }
         }
         ProtocolForm::Queue => {
-            check.target_at(arguments, 0, |position| {
+            check.target_at(meter, arguments, 0, |position| {
                 check.is(position, CheckedNodeKind::Protocol(ProtocolForm::Channel))
             })?;
         }
         ProtocolForm::Obligation => match operator {
             "finish" => {
-                check.target_at(arguments, 0, parameter)?;
-                check.boolean(check.at(arguments, 1), || node_pointer(check.position))?;
+                check.target_at(meter, arguments, 0, parameter)?;
+                check.boolean(meter, check.at(arguments, 1), || node_path(check.position))?;
             }
             "terminal" => {
                 if let Some(condition) =
                     members(check.at(arguments, 1)).and_then(|items| items.first())
                 {
-                    check.boolean(condition, || node_pointer(check.position))?;
+                    check.boolean(meter, condition, || node_path(check.position))?;
                 }
             }
             _ => unreachable!("validated protocol operator"),
@@ -3167,7 +3342,7 @@ fn validate_protocol_declaration_paths(
                 .as_ref()
                 .map(|d| d.qualified_name.as_slice())
             else {
-                return Err(declaration_defect(position, node));
+                return Err(declaration_defect(meter, position, node));
             };
             let matches = match holder {
                 PathHolder::ClauseMember {
@@ -3196,7 +3371,7 @@ fn validate_protocol_declaration_paths(
                 }
             };
             if !matches {
-                return Err(declaration_defect(position, node));
+                return Err(declaration_defect(meter, position, node));
             }
         }
     }
@@ -3372,6 +3547,7 @@ pub(super) fn validate_temporal_fairness(
             validate_protocol_fairness_target(&context, target, fair, clause, meter)?;
         } else {
             return Err(fairness_defect(
+                meter,
                 fair,
                 graph.nodes,
                 target_identity(target).1,
@@ -3449,7 +3625,7 @@ fn validate_protocol_membership(
             || repeated[position]
             || (*form == ProtocolForm::Channel && queue_count[position] != 1)
         {
-            return Err(declaration_defect(position, &nodes[position]));
+            return Err(declaration_defect(meter, position, &nodes[position]));
         }
     }
     Ok(())
@@ -3548,6 +3724,7 @@ fn validate_protocol_fairness(
         }
         node_work(meter, fair)?;
         return Err(fairness_defect(
+            meter,
             fair,
             nodes,
             target_identity(&target).1,
@@ -3626,29 +3803,31 @@ fn target_identity(target: &CheckedFairnessTarget) -> (&CheckedNodeId, &'static 
 }
 
 fn fairness_defect(
+    meter: &mut WorkMeter,
     fair: usize,
     nodes: &[RawSemanticNodeV2],
     field: &str,
     malformed: bool,
 ) -> ValidationFailure {
-    ValidationFailure::refused_at(
+    refuse_at(
+        meter,
         if malformed {
             Code::InvalidModelBinding
         } else {
             Code::MissingDeclaration
         },
-        node_pointer(fair)
-            .key("body")
-            .key("operation")
-            .key("member")
-            .key("target")
-            .key(field),
         Some(if malformed {
             Cause::MalformedDeclaration
         } else {
             Cause::MissingName
         }),
-        nodes[fair].node_id.clone(),
+        node_path(fair)
+            .key("body")
+            .key("operation")
+            .key("member")
+            .key("target")
+            .key(field),
+        &nodes[fair].node_id,
     )
 }
 
@@ -3671,13 +3850,13 @@ fn validate_protocol_fairness_target(
     let (identity, field) = target_identity(target);
     node_work(meter, fair)?;
     if identity.package != nodes[clause].node_id.package {
-        return Err(fairness_defect(fair, nodes, field, false));
+        return Err(fairness_defect(meter, fair, nodes, field, false));
     }
     let Some(&position) = index.get(identity) else {
-        return Err(fairness_defect(fair, nodes, field, false));
+        return Err(fairness_defect(meter, fair, nodes, field, false));
     };
     if position != clause && owners[position] != Some(clause) {
-        return Err(fairness_defect(fair, nodes, field, false));
+        return Err(fairness_defect(meter, fair, nodes, field, false));
     }
     let kind_matches = match target {
         CheckedFairnessTarget::ProtocolRoot { .. } => position == clause,
@@ -3696,7 +3875,7 @@ fn validate_protocol_fairness_target(
         | CheckedFairnessTarget::HybridTransition { .. } => return Ok(()),
     };
     if !kind_matches {
-        return Err(fairness_defect(fair, nodes, field, true));
+        return Err(fairness_defect(meter, fair, nodes, field, true));
     }
     if let CheckedFairnessTarget::ParallelBranch { branch, .. } = target {
         let mut found = false;
@@ -3710,7 +3889,7 @@ fn validate_protocol_fairness_target(
             }
         }
         if !found {
-            return Err(fairness_defect(fair, nodes, "branch", false));
+            return Err(fairness_defect(meter, fair, nodes, "branch", false));
         }
     }
     Ok(())
@@ -3852,23 +4031,31 @@ fn validate_compensation_commit_position(
                 break;
             }
             if commit_is_taken(earlier, commit, validated, check.index, &mut scratch, meter)? {
-                let mut failure = ValidationFailure::refused_at(
+                let commit_id = &check.nodes[commit].node_id;
+                let effect_id = &check.nodes[effect].node_id;
+                return Err(refuse_detailed(
+                    meter,
                     Code::UnsupportedConstruct,
-                    node_pointer(commit),
-                    Some(Cause::DeclarationForm),
-                    check.nodes[commit].node_id.clone(),
-                );
-                if let ValidationFailure::Refused(ref mut refusal) = failure {
-                    refusal.protocol_detail =
-                        Some(Box::new(CheckedProtocolRefusalDetail::CommitPosition {
-                            profile: check.profile.clone(),
-                            member: "commit".into(),
-                            commit: check.nodes[commit].node_id.clone(),
-                            effect: check.nodes[effect].node_id.clone(),
-                            reason: "commit-precedes-effect".into(),
-                        }));
-                }
-                return Err(failure);
+                    Cause::DeclarationForm,
+                    node_path(commit),
+                    commit_id,
+                    check
+                        .profile
+                        .authority
+                        .len()
+                        .saturating_add(check.profile.identity.len())
+                        .saturating_add("commit".len())
+                        .saturating_add(node_id_clone_bytes(commit_id))
+                        .saturating_add(node_id_clone_bytes(effect_id))
+                        .saturating_add("commit-precedes-effect".len()),
+                    || CheckedProtocolRefusalDetail::CommitPosition {
+                        profile: check.profile.clone(),
+                        member: "commit".into(),
+                        commit: commit_id.clone(),
+                        effect: effect_id.clone(),
+                        reason: "commit-precedes-effect".into(),
+                    },
+                ));
             }
         }
         child = parent;
@@ -3884,12 +4071,13 @@ fn check_clause(
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
     let parameter = |position| check.is(position, CheckedNodeKind::Value(ValueForm::Parameter));
-    let over = check.target_at(arguments, 0, parameter)?;
+    let over = check.target_at(meter, arguments, 0, parameter)?;
     let activation = check.at(arguments, 1);
     let each = group_value(activation, "kind").and_then(text_value) == Some("each");
     let trigger_position = if each {
         let trigger = group_value(activation, "trigger").expect("validated each trigger");
         Some(check.check_target(
+            meter,
             trigger,
             || check.argument_path(1).key("members").index(1).key("value"),
             parameter,
@@ -3903,6 +4091,7 @@ fn check_clause(
         node_work(meter, check.position)?;
         let binder = group_value(record, "binder").expect("validated capture binder");
         capture_positions.push(check.check_target(
+            meter,
             binder,
             || {
                 check
@@ -3924,11 +4113,12 @@ fn check_clause(
             .and_then(|body| group_value(body, "level"))
             .and_then(integer_value);
         if actual != Some(Numeral::exact(expected)) {
-            return Err(ValidationFailure::refused_at(
+            return Err(refuse_at(
+                meter,
                 Code::InvalidSemanticGraph,
-                node_pointer(position),
                 None,
-                check.nodes[position].node_id.clone(),
+                node_path(position),
+                &check.nodes[position].node_id,
             ));
         }
         let Some(name) = check.terms[position]
@@ -3936,19 +4126,21 @@ fn check_clause(
             .and_then(|body| group_value(body, "name"))
             .and_then(text_value)
         else {
-            return Err(ValidationFailure::refused_at(
+            return Err(refuse_at(
+                meter,
                 Code::MalformedWire,
-                node_pointer(position).key("body"),
                 None,
-                check.nodes[position].node_id.clone(),
+                node_path(position).key("body"),
+                &check.nodes[position].node_id,
             ));
         };
         if !meter.insert_sorted(&mut readable_names, name)? {
-            return Err(ValidationFailure::refused_at(
+            return Err(refuse_at(
+                meter,
                 Code::AmbiguousDeclaration,
-                node_pointer(position),
                 Some(Cause::AmbiguousName),
-                check.nodes[position].node_id.clone(),
+                node_path(position),
+                &check.nodes[position].node_id,
             ));
         }
         Ok(())
@@ -3968,24 +4160,26 @@ fn check_clause(
         {
             node_work(meter, check.position)?;
             let path = || check.argument_path(ordinal).key("members").index(entry);
-            let position = check.check_target(target, path, |_| true)?;
+            let position = check.check_target(meter, target, path, |_| true)?;
             if !check.is(position, expected) {
                 let cause = if ordinal == 4 {
                     Cause::WrongExport
                 } else {
                     Cause::MalformedDeclaration
                 };
-                return Err(ValidationFailure::refused_at(
+                return Err(refuse_at(
+                    meter,
                     Code::InvalidModelBinding,
-                    path().key("target"),
                     Some(cause),
-                    check.nodes[position].node_id.clone(),
+                    path().key("target"),
+                    &check.nodes[position].node_id,
                 ));
             }
         }
     }
     if let Some(terminal) = members(check.at(arguments, 9)).and_then(|items| items.first()) {
         check.check_target(
+            meter,
             terminal,
             || check.argument_path(9).key("members").index(0),
             |position| {
@@ -4002,7 +4196,7 @@ fn check_clause(
         } else {
             ProtocolForm::Obligation
         };
-        check.target_at(arguments, ordinal, |position| {
+        check.target_at(meter, arguments, ordinal, |position| {
             check.is(position, CheckedNodeKind::Protocol(expected))
                 && (ordinal == 11
                     || validated[position].is_some_and(|(operator, _)| operator == "finish"))
@@ -4031,8 +4225,8 @@ fn check_clause_slots(
     let scope = ProtocolScope::new(check, arguments, validated, meter)?;
     let activation = check.at(arguments, 1);
     if let Some(guard) = group_value(activation, "guard") {
-        let path = || check.argument_path(1).key("members").index(2).key("value");
-        check_member_targets(check, guard, &path)?;
+        let path = check.argument_path(1).key("members").index(2).key("value");
+        check_member_targets(check, meter, guard, &Trail::Base(path.steps()))?;
         let triggers: &[usize] = match &scope.activation {
             Some(trigger) => std::slice::from_ref(trigger),
             None => &[],
@@ -4047,22 +4241,20 @@ fn check_clause_slots(
             None,
             meter,
         )?;
-        check.boolean(guard, path)?;
+        check.boolean(meter, guard, || path)?;
     }
     let captures = members(check.at(arguments, 2)).expect("validated captures");
     for (entry, record) in captures.iter().enumerate() {
         node_work(meter, check.position)?;
         let initializer = group_value(record, "initializer").expect("validated initializer");
-        let path = || {
-            check
-                .argument_path(2)
-                .key("members")
-                .index(entry)
-                .key("members")
-                .index(1)
-                .key("value")
-        };
-        check_member_targets(check, initializer, &path)?;
+        let path = check
+            .argument_path(2)
+            .key("members")
+            .index(entry)
+            .key("members")
+            .index(1)
+            .key("value");
+        check_member_targets(check, meter, initializer, &Trail::Base(path.steps()))?;
         let allowed = PositionSet::of(
             &[
                 &scope.c0[..1 + usize::from(scope.activation.is_some())],
@@ -4129,7 +4321,7 @@ impl<'a, 'b> ProtocolScope<'a, 'b> {
         validated: &'a [Option<(&'a str, &'a [CheckedTerm])>],
         meter: &mut WorkMeter,
     ) -> Result<Self, ValidationFailure> {
-        let over = check.target_at(arguments, 0, |_| true)?;
+        let over = check.target_at(meter, arguments, 0, |_| true)?;
         let activation = group_value(check.at(arguments, 1), "trigger")
             .and_then(reference_target)
             .and_then(|id| check.index.get(id).copied());
@@ -4538,19 +4730,15 @@ impl<'a, 'b> ProtocolScope<'a, 'b> {
                 .map(|_| self.c0[0])
                 .or(state_read);
             if let Some(position) = barred {
-                let mut failure = ValidationFailure::refused_at(
+                return Err(refuse_detailed(
+                    meter,
                     Code::IllTyped,
-                    node_pointer(position),
-                    Some(Cause::OperatorIneligible),
-                    self.check.nodes[position].node_id.clone(),
-                );
-                if let ValidationFailure::Refused(ref mut refusal) = failure {
-                    refusal.protocol_detail =
-                        Some(Box::new(CheckedProtocolRefusalDetail::ModelStateRead {
-                            slot: slot.into(),
-                        }));
-                }
-                return Err(failure);
+                    Cause::OperatorIneligible,
+                    node_path(position),
+                    &self.check.nodes[position].node_id,
+                    slot.len(),
+                    || CheckedProtocolRefusalDetail::ModelStateRead { slot: slot.into() },
+                ));
             }
         }
         for position in reads.iter().copied() {
@@ -4584,30 +4772,32 @@ impl<'a, 'b> ProtocolScope<'a, 'b> {
             } else {
                 "stage"
             };
-            let mut failure = ValidationFailure::refused_at(
+            let scope_owner = if self
+                .check
+                .is(owner, CheckedNodeKind::Protocol(ProtocolForm::Compensation))
+            {
+                owner
+            } else {
+                self.check.position
+            };
+            let scope_owner = &self.check.nodes[scope_owner].node_id;
+            return Err(refuse_detailed(
+                meter,
                 Code::MissingDeclaration,
-                node_pointer(owner),
-                Some(Cause::MissingName),
-                self.check.nodes[owner].node_id.clone(),
-            );
-            if let ValidationFailure::Refused(ref mut refusal) = failure {
-                let scope_owner = if self
-                    .check
-                    .is(owner, CheckedNodeKind::Protocol(ProtocolForm::Compensation))
-                {
-                    owner
-                } else {
-                    self.check.position
-                };
-                refusal.protocol_detail =
-                    Some(Box::new(CheckedProtocolRefusalDetail::BinderScope {
-                        name: name.into(),
-                        stage: stage.into(),
-                        owner: self.check.nodes[scope_owner].node_id.clone(),
-                        read: read.into(),
-                    }));
-            }
-            return Err(failure);
+                Cause::MissingName,
+                node_path(owner),
+                &self.check.nodes[owner].node_id,
+                name.len()
+                    .saturating_add(stage.len())
+                    .saturating_add(node_id_clone_bytes(scope_owner))
+                    .saturating_add(read.len()),
+                || CheckedProtocolRefusalDetail::BinderScope {
+                    name: name.into(),
+                    stage: stage.into(),
+                    owner: scope_owner.clone(),
+                    read: read.into(),
+                },
+            ));
         }
         Ok(())
     }
@@ -4670,30 +4860,30 @@ impl<'a, 'b> ProtocolScope<'a, 'b> {
                                         None => Some("ineligible-kind"),
                                     };
                                     if let Some(reason) = reason {
-                                        let node = self.check.nodes[position].node_id.clone();
-                                        let mut failure = ValidationFailure::refused_at(
+                                        let node = &self.check.nodes[position].node_id;
+                                        let owner_id = &self.check.nodes[owner].node_id;
+                                        let binder_id = &self.check.nodes[binder].node_id;
+                                        return Err(refuse_detailed(
+                                            meter,
                                             Code::WrongSnapshot,
-                                            node_pointer(position),
-                                            Some(Cause::WrongObservation),
-                                            node.clone(),
-                                        );
-                                        if let ValidationFailure::Refused(ref mut refusal) = failure
-                                        {
-                                            refusal.protocol_detail = Some(Box::new(
-                                                CheckedProtocolRefusalDetail::DecisionFact {
-                                                    node,
-                                                    owner: self.check.nodes[owner].node_id.clone(),
-                                                    read: CheckedProtocolDecisionRead {
-                                                        binder: self.check.nodes[binder]
-                                                            .node_id
-                                                            .clone(),
-                                                        field: field.into(),
-                                                    },
-                                                    reason: reason.into(),
+                                            Cause::WrongObservation,
+                                            node_path(position),
+                                            node,
+                                            node_id_clone_bytes(node)
+                                                .saturating_add(node_id_clone_bytes(owner_id))
+                                                .saturating_add(node_id_clone_bytes(binder_id))
+                                                .saturating_add(field.len())
+                                                .saturating_add(reason.len()),
+                                            || CheckedProtocolRefusalDetail::DecisionFact {
+                                                node: node.clone(),
+                                                owner: owner_id.clone(),
+                                                read: CheckedProtocolDecisionRead {
+                                                    binder: binder_id.clone(),
+                                                    field: field.into(),
                                                 },
-                                            ));
-                                        }
-                                        return Err(failure);
+                                                reason: reason.into(),
+                                            },
+                                        ));
                                     }
                                 }
                                 continue;
@@ -4762,19 +4952,15 @@ impl<'a, 'b> ProtocolScope<'a, 'b> {
                 _ => None,
             };
             if let Some(read) = bare {
-                let mut failure = ValidationFailure::refused_at(
+                return Err(refuse_detailed(
+                    meter,
                     Code::IllTyped,
-                    node_pointer(read),
-                    Some(Cause::OperatorIneligible),
-                    self.check.nodes[read].node_id.clone(),
-                );
-                if let ValidationFailure::Refused(ref mut refusal) = failure {
-                    refusal.protocol_detail =
-                        Some(Box::new(CheckedProtocolRefusalDetail::ModelStateRead {
-                            slot: slot.into(),
-                        }));
-                }
-                return Err(failure);
+                    Cause::OperatorIneligible,
+                    node_path(read),
+                    &self.check.nodes[read].node_id,
+                    slot.len(),
+                    || CheckedProtocolRefusalDetail::ModelStateRead { slot: slot.into() },
+                ));
             }
             if projection {
                 continue;
@@ -4817,11 +5003,12 @@ impl<'a, 'b> ProtocolScope<'a, 'b> {
             .and_then(|body| group_value(body, "level"))
             .and_then(integer_value);
         if actual != Some(Numeral::exact(input.len())) {
-            return Err(ValidationFailure::refused_at(
+            return Err(refuse_at(
+                meter,
                 Code::InvalidSemanticGraph,
-                node_pointer(position),
                 None,
-                self.check.nodes[position].node_id.clone(),
+                node_path(position),
+                &self.check.nodes[position].node_id,
             ));
         }
         let name = self.check.terms[position]
@@ -4837,11 +5024,12 @@ impl<'a, 'b> ProtocolScope<'a, 'b> {
                 .and_then(text_value)
                 .expect("validated binder name");
             if name == other_name {
-                return Err(ValidationFailure::refused_at(
+                return Err(refuse_at(
+                    meter,
                     Code::AmbiguousDeclaration,
-                    node_pointer(position),
                     Some(Cause::AmbiguousName),
-                    self.check.nodes[position].node_id.clone(),
+                    node_path(position),
+                    &self.check.nodes[position].node_id,
                 ));
             }
         }
@@ -5113,11 +5301,12 @@ impl<'a, 'b> ProtocolScope<'a, 'b> {
                             duplicate |= name == previous_name;
                         }
                         if duplicate {
-                            return Err(ValidationFailure::refused_at(
+                            return Err(refuse_at(
+                                meter,
                                 Code::AmbiguousDeclaration,
-                                node_pointer(*binder),
                                 Some(Cause::AmbiguousName),
-                                self.check.nodes[*binder].node_id.clone(),
+                                node_path(*binder),
+                                &self.check.nodes[*binder].node_id,
                             ));
                         }
                         parent.output.insert(*binder, meter)?;
@@ -5748,16 +5937,18 @@ fn check_clause_causality(
     let mut edges: Vec<Vec<usize>> = meter.filled(preorder.len() * 2, Vec::new())?;
     let port =
         |position: usize, exit: bool| order[position].map(|index| index * 2 + usize::from(exit));
-    let cross_port = |target: usize, exit: bool, owner: usize, path: JsonPointer| {
-        port(target, exit).ok_or_else(|| {
-            ValidationFailure::refused_at(
-                Code::InvalidModelBinding,
-                path,
-                Some(Cause::MalformedDeclaration),
-                check.nodes[owner].node_id.clone(),
-            )
-        })
-    };
+    let cross_port =
+        |meter: &mut WorkMeter, target: usize, exit: bool, owner: usize, path: Path<'static>| {
+            port(target, exit).ok_or_else(|| {
+                refuse_at(
+                    meter,
+                    Code::InvalidModelBinding,
+                    Some(Cause::MalformedDeclaration),
+                    path,
+                    &check.nodes[owner].node_id,
+                )
+            })
+        };
     for &position in &preorder {
         node_work(meter, position)?;
         let (operator, args) = validated[position].expect("validated control");
@@ -5891,10 +6082,11 @@ fn check_clause_causality(
                             .and_then(|id| check.index.get(id).copied())
                             .expect("validated forward effect");
                         cross_port(
+                            meter,
                             effect,
                             false,
                             position,
-                            node_pointer(position)
+                            node_path(position)
                                 .key("body")
                                 .key("arguments")
                                 .index(0)
@@ -5906,10 +6098,11 @@ fn check_clause_causality(
                         )?
                     } else {
                         cross_port(
+                            meter,
                             target,
                             true,
                             position,
-                            node_pointer(position)
+                            node_path(position)
                                 .key("body")
                                 .key("arguments")
                                 .index(0)
@@ -5929,10 +6122,11 @@ fn check_clause_causality(
                     .and_then(|id| check.index.get(id).copied())
                     .expect("validated source");
                 let source_port = cross_port(
+                    meter,
                     source,
                     true,
                     position,
-                    node_pointer(position)
+                    node_path(position)
                         .key("body")
                         .key("arguments")
                         .index(usize::from(operator == "receive"))
@@ -5966,24 +6160,28 @@ fn check_clause_causality(
                     ordinals.extend(stack[first..].iter().map(|(node, _)| *node / 2));
                     ordinals.sort_unstable();
                     ordinals.dedup();
-                    let controls = ordinals
-                        .into_iter()
-                        .map(|ordinal| check.nodes[preorder[ordinal]].node_id.clone())
-                        .collect();
                     let position = preorder[successor / 2];
-                    let mut failure = ValidationFailure::refused_at(
+                    let control_bytes = ordinals.iter().fold(0_usize, |total, &ordinal| {
+                        total
+                            .saturating_add(size_of::<CheckedNodeId>())
+                            .saturating_add(node_id_clone_bytes(
+                                &check.nodes[preorder[ordinal]].node_id,
+                            ))
+                    });
+                    return Err(refuse_detailed(
+                        meter,
                         Code::InvalidPackage,
-                        node_pointer(position),
-                        Some(Cause::DefinitionCycle),
-                        check.nodes[position].node_id.clone(),
-                    );
-                    if let ValidationFailure::Refused(ref mut refusal) = failure {
-                        refusal.protocol_detail =
-                            Some(Box::new(CheckedProtocolRefusalDetail::CausalCycle {
-                                controls,
-                            }));
-                    }
-                    return Err(failure);
+                        Cause::DefinitionCycle,
+                        node_path(position),
+                        &check.nodes[position].node_id,
+                        control_bytes,
+                        || CheckedProtocolRefusalDetail::CausalCycle {
+                            controls: ordinals
+                                .iter()
+                                .map(|&ordinal| check.nodes[preorder[ordinal]].node_id.clone())
+                                .collect(),
+                        },
+                    ));
                 }
                 if colors[successor] == 0 {
                     colors[successor] = 1;
@@ -6057,20 +6255,21 @@ fn check_clause_causality(
             .and_then(|id| check.index.get(id).copied())
             .expect("validated repeat body");
         if !steps[body] {
-            let mut failure = ValidationFailure::refused_at(
+            let control = &check.nodes[position].node_id;
+            return Err(refuse_detailed(
+                meter,
                 Code::UnsupportedConstruct,
-                node_pointer(position),
-                Some(Cause::DeclarationForm),
-                check.nodes[position].node_id.clone(),
-            );
-            if let ValidationFailure::Refused(ref mut refusal) = failure {
-                refusal.protocol_detail =
-                    Some(Box::new(CheckedProtocolRefusalDetail::RepeatProgress {
-                        control: check.nodes[position].node_id.clone(),
-                        profile: check.profile.clone(),
-                    }));
-            }
-            return Err(failure);
+                Cause::DeclarationForm,
+                node_path(position),
+                control,
+                node_id_clone_bytes(control)
+                    .saturating_add(check.profile.authority.len())
+                    .saturating_add(check.profile.identity.len()),
+                || CheckedProtocolRefusalDetail::RepeatProgress {
+                    control: control.clone(),
+                    profile: check.profile.clone(),
+                },
+            ));
         }
     }
     Ok(())
@@ -6173,6 +6372,7 @@ pub(super) fn validate_protocol_nodes(
             Some(CheckedNodeKind::Protocol(form)) if *form != ProtocolForm::ProtocolReference
         ) {
             return Err(body_defect(
+                meter,
                 position,
                 &nodes[position],
                 ProtocolBodyDefect::OperatorIneligible,
@@ -6198,11 +6398,12 @@ pub(super) fn validate_protocol_nodes(
                 });
             }
             if has_protocol_member_reference {
-                return Err(ValidationFailure::refused_at(
+                return Err(refuse_at(
+                    meter,
                     Code::IllTyped,
-                    node_pointer(position),
                     Some(Cause::OperatorIneligible),
-                    nodes[position].node_id.clone(),
+                    node_path(position),
+                    &nodes[position].node_id,
                 ));
             }
         }
@@ -6226,32 +6427,35 @@ pub(super) fn validate_protocol_nodes(
         super::natural::work_at(meter, work_site, 1)?;
         let Some(body) = terms.get(position).and_then(Option::as_ref) else {
             return Err(body_defect(
+                meter,
                 position,
                 node,
                 ProtocolBodyDefect::OperatorIneligible,
             ));
         };
         if !has_temporal_profile && uses_temporal_protocol_operator(body) {
-            return Err(ValidationFailure::refused_at(
+            return Err(refuse_at(
+                meter,
                 Code::MissingDeclaration,
-                node_pointer(position),
                 Some(Cause::MissingSelection),
-                node.node_id.clone(),
+                node_path(position),
+                &node.node_id,
             ));
         }
         let (operator, arguments) =
             validate_envelope(form, body, &node.semantic_type, selected_profile)
-                .map_err(|defect| body_defect(position, node, defect))?;
+                .map_err(|defect| body_defect(meter, position, node, defect))?;
         if index
             .get(&node.semantic_type)
             .and_then(|&type_position| kinds.get(type_position))
             != Some(&CheckedNodeKind::ScalarType(ScalarTypeForm::Boolean))
         {
-            return Err(ValidationFailure::refused_at(
+            return Err(refuse_at(
+                meter,
                 Code::IllTyped,
-                node_pointer(position),
                 Some(Cause::OperatorIneligible),
-                node.node_id.clone(),
+                node_path(position),
+                &node.node_id,
             ));
         }
         validated[position] = Some((operator, arguments));
@@ -6273,19 +6477,20 @@ pub(super) fn validate_protocol_nodes(
             }
             let Some((operator, arguments)) = validated[position] else {
                 return Err(body_defect(
+                    meter,
                     position,
                     &nodes[position],
                     ProtocolBodyDefect::OperatorIneligible,
                 ));
             };
             validate_layout(form, operator, arguments)
-                .map_err(|defect| body_defect(position, &nodes[position], defect))?;
+                .map_err(|defect| body_defect(meter, position, &nodes[position], defect))?;
             meter.at_node(
                 position,
                 super::graph_storage::node_form(&nodes[position].node_tag),
             );
             if let Some(defect) = validate_related_order(form, operator, arguments, bytes, meter)? {
-                return Err(body_defect(position, &nodes[position], defect));
+                return Err(body_defect(meter, position, &nodes[position], defect));
             }
             let check = MemberCheck {
                 catalog,
@@ -6306,54 +6511,60 @@ pub(super) fn validate_protocol_nodes(
         }
         let node = &nodes[position];
         let Some(owner_model) = node.owner_model.as_ref() else {
-            return Err(ValidationFailure::refused(
+            return Err(refuse_unlocated(
+                meter,
                 Code::MalformedWire,
-                node_pointer(position),
+                node_path(position),
             ));
         };
-        let owner_at = || node_pointer(position).key("owner_model");
+        let owner_at = || node_path(position).key("owner_model");
         let owner_position = index.get(owner_model).copied().ok_or_else(|| {
-            ValidationFailure::refused_at(
+            refuse_at(
+                meter,
                 Code::MissingDeclaration,
-                owner_at(),
                 Some(Cause::MissingName),
-                node.node_id.clone(),
+                owner_at(),
+                &node.node_id,
             )
         })?;
         let target = &nodes[owner_position];
         if kinds[owner_position] != CheckedNodeKind::Model(ModelForm::ObjectType) {
-            return Err(ValidationFailure::refused_at(
+            return Err(refuse_at(
+                meter,
                 Code::InvalidModelBinding,
-                owner_at(),
                 Some(Cause::MalformedDeclaration),
-                node.node_id.clone(),
+                owner_at(),
+                &node.node_id,
             ));
         }
         let owner = owners.recover(target).map_err(|failure| {
-            ValidationFailure::refused_at(
+            refuse_at(
+                meter,
                 failure.code,
-                owner_at(),
                 Some(failure.cause),
-                node.node_id.clone(),
+                owner_at(),
+                &node.node_id,
             )
         })?;
         if owner.form != super::model_members::DeclarationForm::ObjectType {
-            return Err(ValidationFailure::refused_at(
+            return Err(refuse_at(
+                meter,
                 Code::InvalidModelBinding,
-                owner_at(),
                 Some(Cause::MalformedDeclaration),
-                node.node_id.clone(),
+                owner_at(),
+                &node.node_id,
             ));
         }
         let Some((operator, arguments)) = validated[position] else {
             return Err(body_defect(
+                meter,
                 position,
                 &nodes[position],
                 ProtocolBodyDefect::OperatorIneligible,
             ));
         };
         validate_layout(ProtocolForm::ProtocolClause, operator, arguments)
-            .map_err(|defect| body_defect(position, &nodes[position], defect))?;
+            .map_err(|defect| body_defect(meter, position, &nodes[position], defect))?;
         let check = MemberCheck {
             catalog,
             position,

@@ -41,9 +41,10 @@ pub(super) struct Path<'a> {
 
 impl<'a> Path<'a> {
     /// The deepest position a stage names.
-    // A schedulability task value reaches twelve closed-shape steps.
-    // Arbitrary-depth expressions use Position::Trail instead.
-    const CAPACITY: usize = 12;
+    // A protocol clause capture initializer target reaches thirteen
+    // closed-shape steps. Arbitrary-depth expressions use Position::Trail
+    // instead.
+    const CAPACITY: usize = 16;
 
     /// The document root.
     pub(super) const fn root() -> Self {
@@ -213,6 +214,9 @@ fn build_trail_pointer(trail: &Trail<'_>) -> JsonPointer {
 
 /// A position a charge or a refusal names: a fixed path, or a chain of borrowed
 /// steps of any depth.
+// A position is built on the stack at the moment a diagnostic is paid for;
+// boxing the stack path would be a heap request of its own.
+#[allow(clippy::large_enum_variant)]
 #[derive(Clone, Copy, Debug)]
 pub(super) enum Position<'a> {
     Path(Path<'a>),
@@ -515,6 +519,8 @@ pub(super) struct Refusal<'a> {
     /// The refusal of an extension node whose selected definition is not held,
     /// which carries its pointer twice.
     pub(super) unheld_definition: bool,
+    /// The package-document position the refusal also names.
+    pub(super) document_pointer: Option<Position<'a>>,
 }
 
 impl<'a> Refusal<'a> {
@@ -526,7 +532,14 @@ impl<'a> Refusal<'a> {
             locus: None,
             extra: 0,
             unheld_definition: false,
+            document_pointer: None,
         }
+    }
+
+    /// Also names the package-document position `pointer`.
+    pub(super) fn in_document(mut self, pointer: impl Into<Position<'a>>) -> Self {
+        self.document_pointer = Some(pointer.into());
+        self
     }
 
     /// The `unknown_required_capability` refusal of the extension node `locus`
@@ -569,6 +582,10 @@ impl<'a> Refusal<'a> {
                 0
             })
             .saturating_add(self.locus.map_or(0, node_id_clone_bytes))
+            .saturating_add(
+                self.document_pointer
+                    .map_or(0, |pointer| pointer.pointer_len()),
+            )
             .saturating_add(self.extra)
     }
 
@@ -578,13 +595,19 @@ impl<'a> Refusal<'a> {
         if let (true, Some(locus)) = (self.unheld_definition, self.locus) {
             return ValidationFailure::unknown_extension_definition(path, locus.clone());
         }
-        match (self.cause, self.locus) {
+        let mut failure = match (self.cause, self.locus) {
             (cause, Some(locus)) => {
                 ValidationFailure::refused_at(self.code, path, cause, locus.clone())
             }
             (Some(cause), None) => ValidationFailure::refused_because(self.code, path, cause),
             (None, None) => ValidationFailure::refused(self.code, path),
+        };
+        if let (ValidationFailure::Refused(refusal), Some(pointer)) =
+            (&mut failure, self.document_pointer)
+        {
+            refusal.document_pointer = Some(pointer.build());
         }
+        failure
     }
 }
 
@@ -624,6 +647,41 @@ pub(super) fn refuse_charged(
         return meter.denial();
     }
     refusal.build()
+}
+
+/// The position of `/semantic_graph/nodes/{position}` on the stack.
+pub(super) fn node_path(position: usize) -> Path<'static> {
+    Path::root()
+        .key("semantic_graph")
+        .key("nodes")
+        .index(position)
+}
+
+/// A refusal located at `node`, its whole owned diagnostic charged before any
+/// of it is built.
+pub(super) fn refuse_at<'a>(
+    meter: &mut WorkMeter<'_>,
+    code: CheckedPackageRefusalCode,
+    cause: Option<CheckedPackageRefusalCause>,
+    at: impl Into<Position<'a>>,
+    node: &'a CheckedNodeId,
+) -> ValidationFailure {
+    let at = at.into();
+    let site = super::natural::site(meter, at);
+    let mut refusal = Refusal::new(code, at).at_node(node);
+    refusal.cause = cause;
+    refuse(meter, &site, refusal)
+}
+
+/// A refusal about the value at `at`, not located at any node.
+pub(super) fn refuse_unlocated<'a>(
+    meter: &mut WorkMeter<'_>,
+    code: CheckedPackageRefusalCode,
+    at: impl Into<Position<'a>>,
+) -> ValidationFailure {
+    let at = at.into();
+    let site = super::natural::site(meter, at);
+    refuse(meter, &site, Refusal::new(code, at))
 }
 
 /// Moves a pointer whose String buffer was already paid by the canonical
