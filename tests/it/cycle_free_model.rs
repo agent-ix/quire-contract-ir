@@ -719,11 +719,18 @@ fn type_is(ty: &syn::Type, name: &str) -> bool {
 /// The budget-plumbing callback shapes, allowed by exact shape: a scoped thunk
 /// `FnOnce() -> R`, a budget observer `fn(NativeBudgetEvent)`, and a position
 /// accessor `Fn(usize) -> &CheckedNodeId`. Every other callback is flagged.
-fn plumbing_callback(name: Option<&str>, inputs: &[&syn::Type], output: &syn::ReturnType) -> bool {
+/// The thunk's result must be an unbounded generic parameter of the function
+/// itself (`unbounded`).
+fn plumbing_callback(
+    name: Option<&str>,
+    inputs: &[&syn::Type],
+    output: &syn::ReturnType,
+    unbounded: &[String],
+) -> bool {
     let generic_result = matches!(output, syn::ReturnType::Type(_, ty)
         if matches!(&**ty, syn::Type::Path(path) if path.qself.is_none()
             && path.path.segments.len() == 1
-            && path.path.segments[0].ident.to_string().len() == 1));
+            && unbounded.contains(&path.path.segments[0].ident.to_string())));
     match (name, inputs) {
         (Some("FnOnce"), []) => generic_result,
         (None, [event]) => {
@@ -742,8 +749,33 @@ fn plumbing_callback(name: Option<&str>, inputs: &[&syn::Type], output: &syn::Re
 #[derive(Default)]
 struct AdmissionSignature {
     has_callback: bool,
+    /// Type parameters of the visited function with no bound of any kind.
+    unbounded: Vec<String>,
 }
 impl<'ast> Visit<'ast> for AdmissionSignature {
+    fn visit_signature(&mut self, signature: &'ast syn::Signature) {
+        let mentioned: Vec<String> = signature
+            .generics
+            .where_clause
+            .iter()
+            .flat_map(|clause| clause.predicates.iter())
+            .filter_map(|predicate| match predicate {
+                syn::WherePredicate::Type(predicate) => match &predicate.bounded_ty {
+                    syn::Type::Path(path) => path.path.get_ident().map(ToString::to_string),
+                    _ => None,
+                },
+                _ => None,
+            })
+            .collect();
+        self.unbounded = signature
+            .generics
+            .type_params()
+            .filter(|param| param.bounds.is_empty() && param.default.is_none())
+            .map(|param| param.ident.to_string())
+            .filter(|name| !mentioned.contains(name))
+            .collect();
+        visit::visit_signature(self, signature);
+    }
     fn visit_type_trait_object(&mut self, object: &'ast syn::TypeTraitObject) {
         // The read-storage sink only charges a budget; any other trait object
         // is an outsourced decision.
@@ -763,7 +795,7 @@ impl<'ast> Visit<'ast> for AdmissionSignature {
     }
     fn visit_type_bare_fn(&mut self, function: &'ast syn::TypeBareFn) {
         let inputs: Vec<_> = function.inputs.iter().map(|input| &input.ty).collect();
-        if !plumbing_callback(None, &inputs, &function.output) {
+        if !plumbing_callback(None, &inputs, &function.output, &self.unbounded) {
             self.has_callback = true;
         }
     }
@@ -773,7 +805,8 @@ impl<'ast> Visit<'ast> for AdmissionSignature {
             match &segment.arguments {
                 syn::PathArguments::Parenthesized(arguments) => {
                     let inputs: Vec<_> = arguments.inputs.iter().collect();
-                    if !plumbing_callback(Some(&name), &inputs, &arguments.output) {
+                    if !plumbing_callback(Some(&name), &inputs, &arguments.output, &self.unbounded)
+                    {
                         self.has_callback = true;
                     }
                 }
@@ -1052,6 +1085,9 @@ fn boundary_control_rejects_copied_owner_types_parsers_callbacks_and_trust_flags
         "pub fn admit(verdict: impl Fn(&[u8]) -> u8) {}",
         "pub fn admit(verdict: impl Fn(&[u8], &mut Verdict)) {}",
         "pub fn admit<R>(verdict: impl Fn(&[u8]) -> R) {}",
+        "pub fn admit(read: impl FnOnce() -> Verdict) {}",
+        "pub fn admit<R: Into<bool>>(read: impl FnOnce() -> R) {}",
+        "pub fn admit<R>(read: impl FnOnce() -> R) where R: Into<bool> {}",
     ] {
         assert!(!boundary(source).is_empty(), "callback control {source}");
     }

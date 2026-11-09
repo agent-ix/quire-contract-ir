@@ -1252,68 +1252,27 @@ mod tests {
         b: u64,
     }
 
-    #[derive(Serialize)]
-    struct Link {
-        next: Option<Box<Link>>,
-        end: u64,
-    }
-
-    fn chain(depth: usize, end: u64) -> Link {
-        let mut link = Link { next: None, end };
-        for _ in 1..depth {
-            link = Link {
-                next: Some(Box::new(link)),
-                end,
-            };
-        }
-        link
-    }
-
-    fn chain_text(depth: usize, end: u64) -> String {
-        let mut text = format!(r#"{{"next":null,"end":{end}}}"#);
-        for _ in 1..depth {
-            text = format!(r#"{{"next":{text},"end":{end}}}"#);
-        }
-        text
-    }
-
     #[test]
-    fn a_chain_past_the_remembered_steps_compares_like_a_shallow_one() {
-        std::thread::Builder::new()
-            .stack_size(64 << 20)
-            .spawn(chain_past_the_remembered_steps)
-            .expect("spawn")
-            .join()
-            .expect("chain comparison");
-    }
-
-    fn chain_past_the_remembered_steps() {
-        for depth in [10, 200] {
-            let document = quire_canonical::read(chain_text(depth, 1).as_bytes(), u64::MAX)
-                .expect("source document");
-            let mut budget = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(u64::MAX);
-            let mut meter = WorkMeter::over(&mut budget);
-            compare(
-                TermNode::from_ref(document.root()),
-                &chain(depth, 1),
-                BasePath::root().key("row"),
-                &[],
-                &mut meter,
-            )
-            .unwrap_or_else(|_| panic!("equal chain of {depth} compares equal"));
-            let mut meter = WorkMeter::over(&mut budget);
-            assert!(
-                compare(
-                    TermNode::from_ref(document.root()),
-                    &chain(depth, 2),
-                    BasePath::root().key("row"),
-                    &[],
-                    &mut meter,
-                )
-                .is_err(),
-                "a differing chain of {depth} is refused"
-            );
+    fn a_position_past_the_remembered_steps_still_pushes_and_pops() {
+        let mut budget = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(u64::MAX);
+        let mut meter = WorkMeter::over(&mut budget);
+        let mut path = super::Path {
+            base: BasePath::root(),
+            segments: std::array::from_fn(|_| None),
+            depth: 0,
+            best: std::cell::RefCell::new(None),
+            denied: std::cell::RefCell::new(None),
+            meter: std::cell::RefCell::new(&mut meter),
+        };
+        for index in 0..super::PATH_SLOTS + 50 {
+            assert!(path.push(super::PathSegment::Index(index)));
         }
+        assert_eq!(path.depth, super::PATH_SLOTS + 50);
+        assert_eq!(path.stored(), super::PATH_SLOTS);
+        for _ in 0..super::PATH_SLOTS + 50 {
+            path.pop();
+        }
+        assert_eq!(path.depth, 0);
     }
 
     #[test]

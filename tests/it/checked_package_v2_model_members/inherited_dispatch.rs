@@ -385,6 +385,41 @@ fn static_context_and_each_candidate_stay_bound_to_the_selected_family() {
     );
 }
 
+/// Any owner effective type refuses `unsupported_construct` at the candidate's
+/// selection key, whatever the length of the owner chain.
+#[trace("TC-472", "FR-354-AC-13", "FR-038-AC-117")]
+#[test]
+fn an_owner_chain_of_any_depth_refuses_at_its_selection_key() {
+    let document = family_document();
+    let package = family_package(&document, PRIORITY_ORDER);
+    let mut seen = Vec::new();
+    for depth in [1_usize, 3, 2000] {
+        let mut owner = json!({"owner_effective_type": null,
+            "original": {"package": IDENTITY, "node": ORDER}});
+        for _ in 1..depth {
+            owner = json!({"owner_effective_type": owner,
+                "original": {"package": IDENTITY, "node": ORDER}});
+        }
+        let mut owned = package.clone();
+        owned["checked_term_data"]["dispatch_tables"][0]["candidates"][0]["selection_key"]
+            ["owner_effective_type"] = owner;
+        let evidence = evidence_with_document(&owned, IDENTITY, &document);
+        let CheckedPackageV2ReadResult::Refused(refusal) = read(&owned, &evidence) else {
+            panic!("an owner chain of {depth} admitted");
+        };
+        seen.push((
+            refusal.code,
+            refusal.loci[0].path.as_ref().unwrap().as_str().to_owned(),
+        ));
+    }
+    assert!(seen.windows(2).all(|pair| pair[0] == pair[1]), "{seen:?}");
+    assert_eq!(seen[0].0, CheckedPackageRefusalCode::UnsupportedConstruct);
+    assert_eq!(
+        seen[0].1,
+        "/checked_term_data/dispatch_tables/0/candidates/0/selection_key"
+    );
+}
+
 /// The D10 fixture is the QSL #950 emission converted to the FR-322 operand
 /// slot form (see the fixture README). Resolving its slots must give back the
 /// index-form graph the admitted package holds, node for node.

@@ -117,6 +117,50 @@ fn source_occurrences<'w, Body>(
     Ok(held)
 }
 
+/// Refuses a dispatch candidate whose selection key names an owner effective
+/// type, before any typed decode of the sidecar: an owner chain nests with the
+/// input, and every owner is refused here whatever its depth, so neither the
+/// decode nor any later walk follows the chain. Reads the document only.
+pub(super) fn refuse_owner_chains(
+    package: super::TermNode<'_>,
+    meter: &mut WorkMeter,
+) -> Result<(), ValidationFailure> {
+    let Some(tables) = package
+        .get("checked_term_data")
+        .and_then(|data| data.get("dispatch_tables"))
+        .and_then(super::TermNode::items)
+    else {
+        return Ok(());
+    };
+    let root = Path::root().key("checked_term_data").key("dispatch_tables");
+    for (row_index, table) in tables.enumerate() {
+        let Some(candidates) = table.get("candidates").and_then(super::TermNode::items) else {
+            continue;
+        };
+        for (candidate_index, candidate) in candidates.enumerate() {
+            let owned = candidate
+                .get("selection_key")
+                .and_then(|key| key.get("owner_effective_type"))
+                .is_some_and(|owner| !owner.is_null());
+            if owned {
+                let at = root
+                    .index(row_index)
+                    .key("candidates")
+                    .index(candidate_index)
+                    .key("selection_key");
+                return Err(fail(
+                    meter,
+                    row_index,
+                    CheckedPackageRefusalCode::UnsupportedConstruct,
+                    None,
+                    at,
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Checks the producer-captured sidecar after graph and source-map admission.
 pub(super) fn validate_checked_term_data<Body>(
     data: &CheckedTermDataV2,

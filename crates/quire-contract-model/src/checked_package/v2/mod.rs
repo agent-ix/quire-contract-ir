@@ -1548,6 +1548,7 @@ impl CheckedPackageV2 {
                 stage_storage::Refusal::new(CheckedPackageRefusalCode::MalformedWire, path),
             ));
         }
+        dispatch_projection::refuse_owner_chains(package, &mut WorkMeter::over(budget))?;
         let (mut wire, bodies) = intake::decode_borrowed_wire(&document, budget)
             .map_err(|failure| classify_dependency_entry_shape(failure, &document))?;
         intake::check_lossless_source(&document, &wire, budget)?;
