@@ -133,8 +133,8 @@ interned application and is not selected. A bounded collection row projects its
 unbounded base node together with the `collection_bounds` wrapper.
 
 The one bounded read on `CheckedMonitorPlanRef` SHALL seed a fixed traversal
-from State, Inputs, Scope, Results, the `tick_unit` premise and the four entry signatures and bodies in
-`init`, `on_event`, `on_watermark`, `on_gap` order. It SHALL use an iterative
+from State, Inputs, Scope, Results, the four entry signatures and bodies in
+`init`, `on_event`, `on_watermark`, `on_gap` order, and last the `tick_unit` premise. It SHALL use an iterative
 worklist and visited sets for full admitted structural node IDs and directed
 edge roles. For each reached node it SHALL inspect only selected graph
 dependencies needed by its ordinary body, the node's `semantic_type`, every
