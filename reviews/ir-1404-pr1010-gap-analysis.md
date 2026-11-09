@@ -48,3 +48,31 @@ fail if both gates were removed.
 | FND-004 | fixed | Verified at 8f9659178 |
 | FND-005 | fixed | Verified at 8f9659178 |
 | FND-003 | fixed | Verified at 591c893d6: AC-511 is scoped to the shapes and names exercised |
+
+
+## New findings (disposition pass 4)
+
+| ID | Severity | Summary | Refs | Escape Cause |
+| --- | --- | --- | --- | --- |
+| FND-006 | medium | The new AC-511-tagged denial control has no assertion distinguishing a budget denial from an ordinary refusal. It can pass on a malformed-wire result before the destination-type read, so it supplies no evidence that this changed denial path reaches its typed budget outcome. | tests/it/checked_package_v2_model_members.rs:4354-4361 | correct-requirement-no-evidence |
+
+## Continuation review (delta 591c893d..17dcb1808)
+
+**Delta verdict: CONDITIONAL** — the changed allocations are tied to the existing strict-read contract and the abstraction-relation accounting test uses the real reader and allocation proof, but the added relationship-destination test does not establish its claimed typed-denial result.
+
+This was a scoped gap analysis of the three-commit delta only. Examined units: FR-038-AC-510 (budget-denial outcome), FR-038-AC-511 (whole-read accounting); the new relationship-destination denial test; the new abstraction-relation whole-read accounting test; and the production functions changed in `flat_wire.rs`, `v2/mod.rs`, `term_view.rs`, and `typed_terms.rs`. The changed tests carry the FR-038-AC-511 trace tag; the allocation proof reaches the real strict reader. No repo-wide matrix or source inventory was run because it would exceed the requested delta. No claim is made that AC-511's whole corpus is qualified. Plan completion: not assessed. The coder's focused results were accepted as reported and not rerun. No spec or plan files changed; semantic review was not requested.
+| FND-006 | still-open | New in continuation review pass 3; the denial control must distinguish the typed budget outcome from an ordinary refusal before it can evidence this changed path. |
+
+| FND-006 | fixed | Verified on 487d43b4b: the test now requires `BudgetIncomplete` or `Exhausted` with `ReadStorage`, checks the denied amount and locus, and panics on every other result. |
+
+### FND-006 after_excerpt (round 5)
+
+```rust
+            other => panic!("limit {limit} did not produce a typed budget denial: {other:?}"),
+        };
+        assert_eq!(
+            budget.first_unpaid_read_storage(),
+            Some(denied.amount),
+            "limit {limit} preserves the original denied read-storage request"
+        );
+```

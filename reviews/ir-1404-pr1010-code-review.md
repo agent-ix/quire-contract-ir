@@ -66,3 +66,31 @@ genuine closed-string intake functions, as FR-056-AC-3 expects.
 | FND-009 | fixed | Verified at 8f9659178: the thunk result must be an unbounded generic of the function |
 | FND-010 | still-open | New this round: the early check reorders refusals |
 | FND-010 | fixed | Verified at 591c893d6: refuse_owner_chains and its call are deleted |
+
+
+## New findings (disposition pass 4)
+
+| ID | Severity | Summary | Refs | Escape Cause |
+| --- | --- | --- | --- | --- |
+| FND-011 | medium | The denied relationship-destination test asserts only that each limited read is not admitted; it never checks that a read-storage denial returns `BudgetIncomplete` or `Exhausted` with the original denied charge and locus. An earlier malformed-wire refusal would satisfy every assertion, so the test does not guard the typed denial behavior it names. | tests/it/checked_package_v2_model_members.rs:4354-4361 | implementation-bug-despite-evidence |
+
+## Continuation review (delta 591c893d..17dcb1808)
+
+**Delta verdict: CONDITIONAL** — the production changes correctly charge the new refusal diagnostics and exact-size abstraction vectors, but the added denial regression does not assert the typed budget outcome on the path it claims to cover.
+
+Scope examined: `flat_wire::check`'s relationship destination read and denial mapping; `validate_domain_packages`'s document-pointer refusal builder; `decode_vec_field` and `document_de::exact_vec`'s reservation path; the changed abstraction-relation serde fields; and the two added integration tests plus the changed allocation-proof assertion. The relevant contract clauses are FR-038-AC-510 and FR-038-AC-511. The coder's focused results were accepted as reported and not rerun. No other paths or prior findings were re-reviewed.
+| FND-011 | still-open | New in continuation review pass 3; add an assertion that identifies the denied `ReadStorage` outcome and its first unpaid request/locus so an earlier semantic refusal cannot pass. |
+
+| FND-011 | fixed | Verified on 487d43b4b: only typed budget outcomes can pass; the test checks the denied resource and amount, retains the `WireChecks` first-unpaid locus, and compares the `Exhausted` locus with that original locus. |
+
+### FND-011 after_excerpt (round 5)
+
+```rust
+            other => panic!("limit {limit} did not produce a typed budget denial: {other:?}"),
+        };
+        assert_eq!(
+            budget.first_unpaid_read_storage(),
+            Some(denied.amount),
+            "limit {limit} preserves the original denied read-storage request"
+        );
+```
