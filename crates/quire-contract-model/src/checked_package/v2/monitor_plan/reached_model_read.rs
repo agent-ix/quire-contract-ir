@@ -1158,7 +1158,8 @@ mod tests {
                 .iter_mut()
                 .find(|member| member["name"] == "tick_unit")
                 .expect("tick_unit binding");
-            let source_unit = std::mem::replace(&mut binding["value"]["target"], model_unit.clone());
+            let source_unit =
+                std::mem::replace(&mut binding["value"]["target"], model_unit.clone());
             let dependencies = plan["dependencies"].as_array_mut().unwrap();
             dependencies.retain(|dependency| *dependency != source_unit);
             dependencies.push(model_unit);
@@ -1535,7 +1536,10 @@ mod tests {
                     .iter()
                     .any(|unit| unit.structural_node == tick));
             } else {
-                assert!(types.units().iter().any(|unit| unit.structural_node == tick));
+                assert!(types
+                    .units()
+                    .iter()
+                    .any(|unit| unit.structural_node == tick));
             }
             assert!(
                 types
@@ -1555,12 +1559,17 @@ mod tests {
             // The seed charge is the first unpaid charge at some small allowance.
             let spent = measured.consumed();
             // Some work allowance makes the tick-unit seed the first unpaid
-            // charge: its own charge is denied with the seed's locus, and one
-            // unit more pays it.
-            let tick_index = 8 + [plan.init(), plan.on_event(), plan.on_watermark(), plan.on_gap()]
-                .iter()
-                .map(|entry| entry.parameter_types().len() + 1)
-                .sum::<usize>();
+            // charge: its own charge is denied at the seed's locus, and the walk
+            // stops without overspending.
+            let tick_index = 8 + [
+                plan.init(),
+                plan.on_event(),
+                plan.on_watermark(),
+                plan.on_gap(),
+            ]
+            .iter()
+            .map(|entry| entry.parameter_types().len() + 1)
+            .sum::<usize>();
             let tick_seed = crate::NativeJoinLocusSource::MonitorSeed(tick_index);
             let mut first = None;
             for work in 0..spent.work {
@@ -1584,7 +1593,10 @@ mod tests {
                     &mut NativeJoinBudget::new(spent.work, spent.storage),
                 )
                 .expect("exact allowance");
-            for (w, s) in [(spent.work - 1, spent.storage), (spent.work, spent.storage - 1)] {
+            for (w, s) in [
+                (spent.work - 1, spent.storage),
+                (spent.work, spent.storage - 1),
+            ] {
                 let rows = parts.view(&authority);
                 assert!(plan_for(&package)
                     .project_selected_type_closure(rows, &mut NativeJoinBudget::new(w, s))
@@ -2554,7 +2566,10 @@ mod tests {
             .iter()
             .map(|unit| unit.qualified_declaration.last().unwrap().as_ref())
             .collect();
-        assert!(names.contains(&"Metre") && names.contains(&"Second"), "{names:?}");
+        assert!(
+            names.contains(&"Metre") && names.contains(&"Second"),
+            "{names:?}"
+        );
         assert_eq!(result.types.objects()[0].operations().len(), 2);
         assert_eq!(result.types.objects()[0].operations()[0].name(), "deposit");
         assert_eq!(
@@ -2599,15 +2614,9 @@ mod tests {
             .iter()
             .find(|unit| unit.qualified_declaration.last().unwrap().as_ref() == "Metre")
             .expect("reached Metre");
-        assert_eq!(
-            metre.unit_id,
-            UnitId::Declared(key("Metre"))
-        );
+        assert_eq!(metre.unit_id, UnitId::Declared(key("Metre")));
         assert!(matches!(
-            package
-                .node(&metre.structural_node)
-                .unwrap()
-                .owner,
+            package.node(&metre.structural_node).unwrap().owner,
             Some(CheckedNodeOwner::Source { .. })
         ));
         assert!(matches!(
