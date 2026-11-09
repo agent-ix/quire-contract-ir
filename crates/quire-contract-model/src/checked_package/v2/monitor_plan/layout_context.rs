@@ -78,7 +78,7 @@ impl<'a> SelectedMonitorLayoutContext<'a> {
     pub fn subject(&self) -> &str {
         &self.subject
     }
-    /// The canonical `model-time` clock-binding value.
+    /// The canonical `model-time` clock-binding value: UTF-8 RFC 8785 JSON text.
     pub fn clock_binding(&self) -> &[u8] {
         &self.clock_binding
     }
@@ -238,30 +238,76 @@ fn encoded<T: Encode + ?Sized>(
 }
 
 fn text(bytes: Vec<u8>) -> String {
+    // The canonical writer emits only escaped `&str` content, so it is UTF-8.
     String::from_utf8(bytes).expect("canonical JSON is UTF-8")
 }
 
-/// A 64-digit lowercase hex identity text (its `Display`), paid before it is built.
-fn hex_text(
+/// Counts the bytes a `Display` produces without storing them.
+struct Measure(u64);
+
+impl std::fmt::Write for Measure {
+    fn write_str(&mut self, text: &str) -> std::fmt::Result {
+        self.0 = self.0.saturating_add(text.len() as u64);
+        Ok(())
+    }
+}
+
+/// Writes into a pre-paid `String` and refuses to grow it past its payment.
+struct Prepaid<'s>(&'s mut String);
+
+impl std::fmt::Write for Prepaid<'_> {
+    fn write_str(&mut self, text: &str) -> std::fmt::Result {
+        if self.0.len() + text.len() > self.0.capacity() {
+            return Err(std::fmt::Error);
+        }
+        self.0.push_str(text);
+        Ok(())
+    }
+}
+
+/// An identity's `Display` text: its length is measured, exactly that is paid,
+/// and only then is it built. No fixed length is assumed.
+pub(super) fn hex_text(
     identity: &impl std::fmt::Display,
+    at: &CheckedNodeId,
     budget: &mut NativeJoinBudget,
 ) -> Result<String, SelectedMonitorTypeClosureError> {
     use std::fmt::Write as _;
-    let bytes = owned_bytes(budget, 64)?;
-    let mut out = text(bytes);
-    write!(out, "{identity}").expect("writing to a String");
+    let mut measure = Measure(0);
+    let unavailable = |budget: &mut NativeJoinBudget| {
+        refusal(
+            SelectedMonitorAuthorityErrorCode::LayoutIdentityUnavailable,
+            at,
+            None,
+            budget,
+        )
+    };
+    if write!(measure, "{identity}").is_err() {
+        return Err(unavailable(budget));
+    }
+    let mut out = text(owned_bytes(budget, measure.0)?);
+    if write!(Prepaid(&mut out), "{identity}").is_err() || out.len() as u64 != measure.0 {
+        return Err(unavailable(budget));
+    }
     Ok(out)
 }
 
 /// A model or operation node's name: its declaration path joined by '.', or
 /// the original identity of its owning model declaration, verbatim.
-fn declared_name<'p>(
+pub(super) fn declared_name<'p>(
     package: &'p crate::CheckedPackageV2,
     node: &CheckedNodeId,
     budget: &mut NativeJoinBudget,
 ) -> Result<std::borrow::Cow<'p, str>, SelectedMonitorTypeClosureError> {
     work(budget, 1)?;
-    let admitted = package.node(node).expect("an admitted reference resolves");
+    let Some(admitted) = package.node(node) else {
+        return Err(refusal(
+            SelectedMonitorAuthorityErrorCode::LayoutIdentityUnavailable,
+            node,
+            None,
+            budget,
+        ));
+    };
     if let Some(declaration) = &admitted.declaration {
         let mut length = declaration.qualified_name.len().saturating_sub(1);
         for segment in &declaration.qualified_name {
@@ -306,15 +352,6 @@ impl<'a> CheckedMonitorPlanRef<'a> {
             source: NativeJoinLocusSource::MonitorSeed(index),
             form: FORM,
         }));
-        let CheckedMonitorClock::ModelTime {
-            model,
-            source,
-            unit,
-            ..
-        } = clock.clock()
-        else {
-            unreachable!("authority binding admits only model-time clocks");
-        };
         let unavailable = |at: &CheckedNodeId, budget: &mut NativeJoinBudget| {
             refusal(
                 SelectedMonitorAuthorityErrorCode::LayoutIdentityUnavailable,
@@ -322,6 +359,15 @@ impl<'a> CheckedMonitorPlanRef<'a> {
                 None,
                 budget,
             )
+        };
+        let CheckedMonitorClock::ModelTime {
+            model,
+            source,
+            unit,
+            ..
+        } = clock.clock()
+        else {
+            return Err(unavailable(self.clause(), budget));
         };
         let package = self.package;
         // The borrowed structural keys: one inspection each.
@@ -345,17 +391,20 @@ impl<'a> CheckedMonitorPlanRef<'a> {
                 break;
             }
         }
-        let entry = entry.expect("an admitted claim occurrence has its source-map entry");
+        let Some(entry) = entry else {
+            return Err(unavailable(self.clause(), budget));
+        };
         let occurrence = encoded(entry, budget)?;
         // The clause profile: its one law joined to the lock's selection row.
         work(budget, 1)?;
         let law = match package.term(self.clause()) {
-            Some(crate::CheckedTerm::Application { operation, .. }) => operation
-                .law_definitions()
-                .ok()
-                .and_then(<[_]>::first)
-                .expect("an admitted Timed clause has its profile law"),
-            _ => unreachable!("an admitted clause is an application"),
+            Some(crate::CheckedTerm::Application { operation, .. }) => {
+                operation.law_definitions().ok().and_then(<[_]>::first)
+            }
+            _ => None,
+        };
+        let Some(law) = law else {
+            return Err(unavailable(self.clause(), budget));
         };
         let mut selection = None;
         for candidate in &package.lock().profile_selections {
@@ -367,7 +416,9 @@ impl<'a> CheckedMonitorPlanRef<'a> {
                 break;
             }
         }
-        let selection = selection.expect("an admitted Timed clause has its profile selection");
+        let Some(selection) = selection else {
+            return Err(unavailable(self.clause(), budget));
+        };
         let profile = text(encoded(&Profile(selection), budget)?);
         // The subject: one declaration row of the clause's model.
         let mut found = None;
@@ -380,7 +431,7 @@ impl<'a> CheckedMonitorPlanRef<'a> {
             }
         }
         let subject = match (count, found) {
-            (1, Some(SelectedExactIdentity::Record(key))) => hex_text(key, budget)?,
+            (1, Some(SelectedExactIdentity::Record(key))) => hex_text(key, model, budget)?,
             (1, Some(SelectedExactIdentity::Object(effective))) => {
                 text(encoded(&Effective(effective), budget)?)
             }
@@ -411,19 +462,22 @@ impl<'a> CheckedMonitorPlanRef<'a> {
             (1, Some(UnitId::Declared(key))) => key,
             _ => return Err(unavailable(unit, budget)),
         };
-        let unit_text = hex_text(unit_bytes, budget)?;
+        let unit_text = hex_text(unit_bytes, unit, budget)?;
         let unit_text = unit_text.as_str();
         // The clock-binding value.
         budget.set_locus_form(CLOCK_FORM);
         work(budget, 1)?;
-        let admitted =
-            admitted_time_source(package, source).expect("an admitted model-time source");
+        let Some(admitted) = admitted_time_source(package, source) else {
+            return Err(unavailable(source, budget));
+        };
         let (model_name, tick) = match admitted {
             AdmittedTimeSource::Dense => (declared_name(package, model, budget)?, None),
             AdmittedTimeSource::Tick { period } => {
                 work(budget, 1)?;
-                let (source_model, operation) = tick_source_references(package, source)
-                    .expect("an admitted tick source names its model and operation");
+                let Some((source_model, operation)) = tick_source_references(package, source)
+                else {
+                    return Err(unavailable(source, budget));
+                };
                 let model_name = declared_name(package, source_model, budget)?;
                 let operation = declared_name(package, operation, budget)?;
                 let (numerator, denominator) = period.split_once('/').unwrap_or((period, "1"));
@@ -441,10 +495,12 @@ impl<'a> CheckedMonitorPlanRef<'a> {
             },
             budget,
         )?;
-        let clause_key = package
+        let Some(clause_key) = package
             .node_with_position(self.clause())
             .and_then(|(position, _)| package.structural_key_at(position))
-            .expect("an admitted clause has its structural key");
+        else {
+            return Err(unavailable(self.clause(), budget));
+        };
         Ok(SelectedMonitorLayoutContext {
             root_key: self.structural_key(),
             entry_keys,

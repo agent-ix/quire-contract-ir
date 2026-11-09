@@ -841,7 +841,10 @@ mod tests {
     use crate::checked_package::v2::{
         ExactTypeProjectionErrorCode, SelectedExactDeclarationForm, SelectedExactIdentity,
     };
-    use crate::{SelectedMonitorClosureRows, SelectedMonitorTypeClosureErrorCode};
+    use crate::{
+        NativeJoinChargeKind, SelectedMonitorClosureRows, SelectedMonitorTypeClosureError,
+        SelectedMonitorTypeClosureErrorCode,
+    };
     use ix_trace_rs::trace;
     use quire_exact::{
         CollectionKind, CollectionType, EffectiveId, Location, MemberId, MemberOwner, NodeKey,
@@ -873,17 +876,21 @@ mod tests {
         let CheckedMonitorClock::ModelTime { source, .. } = clock.clock() else {
             panic!("the fixture clause is a Timed model-time clause");
         };
-        let time_source = match package.term(source) {
-            Some(crate::CheckedTerm::Aggregate { members }) if members.len() == 2 => {
-                SelectedMonitorTimeSource::Dense
-            }
-            _ => SelectedMonitorTimeSource::Tick {
-                period: crate::CheckedRational {
-                    numerator: "1".into(),
-                    denominator: "1".into(),
-                },
-            },
-        };
+        let time_source =
+            match crate::checked_package::v2::timed_model::admitted_time_source(package, source) {
+                Some(crate::checked_package::v2::timed_model::AdmittedTimeSource::Tick {
+                    period,
+                }) => {
+                    let (numerator, denominator) = period.split_once('/').unwrap_or((period, "1"));
+                    SelectedMonitorTimeSource::Tick {
+                        period: crate::CheckedRational {
+                            numerator: numerator.into(),
+                            denominator: denominator.into(),
+                        },
+                    }
+                }
+                _ => SelectedMonitorTimeSource::Dense,
+            };
         SelectedMonitorAuthorityRow::try_new(
             package.admission_binding(),
             clause,
@@ -955,6 +962,7 @@ mod tests {
             bounded_sequence,
             maps,
             model_tick_unit,
+            None,
         );
         admit_wire(&wire, &document)
     }
@@ -965,6 +973,7 @@ mod tests {
         bounded_sequence: bool,
         maps: bool,
         model_tick_unit: bool,
+        tick: Option<&str>,
     ) -> (serde_json::Value, serde_json::Value) {
         let (mut wire, mut document) =
             monitor_plan_fixtures::model_fact_monitor_with_status(false, status);
@@ -1182,7 +1191,7 @@ mod tests {
             dependencies.push(model_unit);
             monitor_plan_fixtures::rekey(&mut wire, plan_at);
         }
-        use_model_time(&mut wire);
+        use_model_time_with(&mut wire, tick);
         fixture_support::rebuild_complete_source_map(&mut wire);
         fixture_support::refresh_identity(&mut wire);
         for node in wire["semantic_graph"]["nodes"].as_array_mut().unwrap() {
@@ -1201,6 +1210,12 @@ mod tests {
     /// Give the closure fixture an admitted dense model clock. Its existing
     /// entry, type, equality and map facts stay the subjects of their tests.
     fn use_model_time(wire: &mut serde_json::Value) {
+        use_model_time_with(wire, None);
+    }
+
+    /// As `use_model_time`; `tick` is the period of a tick source whose model is
+    /// the clause's model and whose operation is an attached `operation_anchor`.
+    fn use_model_time_with(wire: &mut serde_json::Value, tick: Option<&str>) {
         use monitor_plan_fixtures::{aggregate, binding, reference};
         use serde_json::json;
         let model = monitor_plan_fixtures::find(wire, "object_type");
@@ -1258,20 +1273,77 @@ mod tests {
                 "kind",
                 monitor_plan_fixtures::literal(&text, "text", json!("origin")),
             )]);
-        let source = monitor_plan_fixtures::append(
-            wire,
-            "timed_model",
-            "time_source",
-            None,
-            aggregate(vec![
-                binding(
-                    "kind",
-                    monitor_plan_fixtures::literal(&text, "text", json!("dense")),
-                ),
-                binding("unit", reference(&unit)),
-            ]),
-            "dense",
-        );
+        let source = if let Some(period) = tick {
+            let rational = monitor_plan_fixtures::append(
+                wire,
+                "scalar_type",
+                "rational",
+                None,
+                aggregate(vec![]),
+                "rational",
+            );
+            let frame = monitor_plan_fixtures::append(
+                wire,
+                "state",
+                "frame",
+                Some(&model),
+                json!({"term":"frame","creates":[],"deletes":[],"deletes_scoped":[],"modifies":[]}),
+                "frame",
+            );
+            let anchor = monitor_plan_fixtures::append(
+                wire,
+                "state",
+                "operation_anchor",
+                Some(&model),
+                aggregate(vec![
+                    binding("context", reference(&model)),
+                    binding(
+                        "operation",
+                        monitor_plan_fixtures::literal(&text, "text", json!("deposit")),
+                    ),
+                    binding("frame", reference(&frame)),
+                ]),
+                "deposit",
+            );
+            let anchor_at = monitor_plan_fixtures::position(wire, &anchor);
+            wire["semantic_graph"]["nodes"][anchor_at]["occurrences"] =
+                json!([{"role":"anchor","ordinal":0}]);
+            monitor_plan_fixtures::append(
+                wire,
+                "timed_model",
+                "time_source",
+                None,
+                aggregate(vec![
+                    binding(
+                        "kind",
+                        monitor_plan_fixtures::literal(&text, "text", json!("tick")),
+                    ),
+                    binding("unit", reference(&unit)),
+                    binding("model", reference(&model)),
+                    binding("operation", reference(&anchor)),
+                    binding(
+                        "period",
+                        monitor_plan_fixtures::literal(&rational, "rational", json!(period)),
+                    ),
+                ]),
+                "tick",
+            )
+        } else {
+            monitor_plan_fixtures::append(
+                wire,
+                "timed_model",
+                "time_source",
+                None,
+                aggregate(vec![
+                    binding(
+                        "kind",
+                        monitor_plan_fixtures::literal(&text, "text", json!("dense")),
+                    ),
+                    binding("unit", reference(&unit)),
+                ]),
+                "dense",
+            )
+        };
         let source_at = monitor_plan_fixtures::position(wire, &source);
         wire["semantic_graph"]["nodes"][source_at]["occurrences"] =
             json!([{"role":"expression", "ordinal":0}]);
@@ -1629,9 +1701,22 @@ mod tests {
             false,
             false,
             false,
+            None,
         );
         let package = admit_wire(&wire, &document);
         (wire, package)
+    }
+
+    fn tick_closure(period: &str) -> CheckedPackageV2 {
+        let (wire, document) = closure_monitor_wire(
+            "integer",
+            serde_json::json!([{"role":"expression","ordinal":0}]),
+            false,
+            false,
+            false,
+            Some(period),
+        );
+        admit_wire(&wire, &document)
     }
 
     const PROFILE: &str = r#"{"authority":"agent-ix","identity":"quire.temporal.timed/v1","role":"temporal_profile"}"#;
@@ -1695,47 +1780,151 @@ mod tests {
         );
     }
 
+    fn claim_clock<'a>(
+        plan: &crate::CheckedMonitorPlanRef<'a>,
+        package: &CheckedPackageV2,
+    ) -> crate::CheckedMonitorClockRead<'a> {
+        let occurrence = package
+            .node(plan.clause())
+            .unwrap()
+            .occurrences
+            .iter()
+            .find(|o| o.role == crate::CheckedOccurrenceRole::Claim)
+            .unwrap()
+            .clone();
+        plan.clock_for_claim(
+            plan.clause(),
+            &occurrence,
+            &mut NativeJoinBudget::new(u64::MAX, u64::MAX),
+        )
+        .unwrap()
+    }
+
+    /// The subject text the layout read yields once the model's declaration row
+    /// carries `identity`.
+    fn subject_text(package: &CheckedPackageV2, identity: SelectedExactIdentity) -> String {
+        let mut parts = TickRows::new(package);
+        let authority = test_authority(package);
+        let plan = plan_for(package);
+        let clock = claim_clock(&plan, package);
+        let crate::CheckedMonitorClock::ModelTime { model, .. } = clock.clock() else {
+            panic!("model time")
+        };
+        parts
+            .declarations
+            .iter_mut()
+            .find(|row| row.structural_node == *model)
+            .expect("subject row")
+            .exact_identity = identity;
+        plan.layout_context(
+            &parts.view(&authority),
+            &clock,
+            0,
+            &mut NativeJoinBudget::new(u64::MAX, u64::MAX),
+        )
+        .expect("the layout reads")
+        .subject()
+        .to_owned()
+    }
+
     #[trace("TC-471", "FR-361-AC-3")]
     #[test]
     fn a_record_subject_is_its_node_key_text() {
         let (_, package) = dense_closure();
-        let mut parts = TickRows::new(&package);
-        let authority = test_authority(&package);
-        let plan = plan_for(&package);
-        let crate::CheckedMonitorClock::ModelTime { model, .. } = plan
-            .clock_for_claim(
-                plan.clause(),
-                package
-                    .node(plan.clause())
-                    .unwrap()
-                    .occurrences
-                    .iter()
-                    .find(|o| o.role == crate::CheckedOccurrenceRole::Claim)
-                    .unwrap(),
-                &mut NativeJoinBudget::new(u64::MAX, u64::MAX),
-            )
-            .unwrap()
-            .clock()
-        else {
-            panic!("model time")
-        };
-        let row = parts
-            .declarations
-            .iter_mut()
-            .find(|row| row.structural_node == *model)
-            .expect("subject row");
-        row.exact_identity = SelectedExactIdentity::Record(key("Subject"));
-        // The record identity is joined to the subject only by its row here, so
-        // the row shape check of the Exact projection must still accept it.
-        let result = plan.project_selected_type_closure(
-            parts.view(&authority),
-            &mut NativeJoinBudget::new(u64::MAX, u64::MAX),
+        assert_eq!(
+            subject_text(&package, SelectedExactIdentity::Record(key("Subject"))),
+            key("Subject").to_string()
         );
-        if let Ok(closure) = result {
-            assert_eq!(
-                closure.layout_context().subject(),
-                key("Subject").to_string()
+    }
+
+    #[trace("TC-471", "FR-361-AC-3")]
+    #[test]
+    fn a_two_level_object_subject_is_the_fr150_text_root_innermost() {
+        let (_, package) = dense_closure();
+        let root = EffectiveId::new(
+            None,
+            OriginalDeclarationKey::new("pkg/root", "ix://root/Outer"),
+        );
+        let leaf = EffectiveId::new(
+            Some(root),
+            OriginalDeclarationKey::new("pkg/leaf", "ix://leaf/Inner"),
+        );
+        let text = subject_text(&package, SelectedExactIdentity::Object(leaf));
+        // The member's own declaration is outermost; the root type is the
+        // innermost owner and the only one whose owner is null.
+        assert_eq!(
+            text,
+            r#"{"original":{"node":"ix://leaf/Inner","package":"pkg/leaf"},"owner_effective_type":{"original":{"node":"ix://root/Outer","package":"pkg/root"},"owner_effective_type":null}}"#
+        );
+        // And it is byte for byte IR's own `CheckedEffectiveId` encoding.
+        let checked = crate::CheckedEffectiveId {
+            owner_effective_type: Some(Box::new(crate::CheckedEffectiveId {
+                owner_effective_type: None,
+                original: crate::CheckedOriginalDeclarationId {
+                    package: "pkg/root".into(),
+                    node: "ix://root/Outer".into(),
+                },
+            })),
+            original: crate::CheckedOriginalDeclarationId {
+                package: "pkg/leaf".into(),
+                node: "ix://leaf/Inner".into(),
+            },
+        };
+        assert_eq!(
+            text.as_bytes(),
+            quire_canonical::to_vec(&checked, quire_canonical::Limits::new(u64::MAX)).unwrap()
+        );
+    }
+
+    /// Every charge of `read`, found by walking the allowance: the charge that
+    /// refuses at allowance `a` started after `consumed` units and asked for
+    /// `amount`; allowance `consumed + amount - 1` is the exact one-below, and
+    /// must refuse that same charge at that same locus. Allowance
+    /// `consumed + amount` pays it, so the walk moves to the next charge.
+    fn each_charge_refuses_exactly_one_below<T: std::fmt::Debug>(
+        kind: NativeJoinChargeKind,
+        read: impl Fn(&mut NativeJoinBudget) -> Result<T, SelectedMonitorTypeClosureError>,
+    ) -> Vec<(crate::NativeJoinLocus, u128)> {
+        let budget_for = |allowance: u64| match kind {
+            NativeJoinChargeKind::Work => NativeJoinBudget::new(allowance, u64::MAX),
+            NativeJoinChargeKind::Storage => NativeJoinBudget::new(u64::MAX, allowance),
+        };
+        let consumed = |budget: &NativeJoinBudget| match kind {
+            NativeJoinChargeKind::Work => budget.consumed().work,
+            NativeJoinChargeKind::Storage => budget.consumed().storage,
+        };
+        let mut charges = Vec::new();
+        let mut allowance = 0_u64;
+        loop {
+            let mut budget = budget_for(allowance);
+            let Err(error) = read(&mut budget) else {
+                return charges;
+            };
+            let denied = budget.first_unpaid().expect("a refusal names its charge");
+            assert_eq!(denied.kind, kind, "allowance {allowance}");
+            let before = consumed(&budget);
+            let locus = error.denied_locus.expect("a refusal names its locus");
+            let amount = u64::try_from(denied.amount).expect("a small charge");
+            assert!(
+                before <= allowance && allowance < before + amount,
+                "allowance {allowance}: {before} + {amount}"
             );
+            let below = before + amount - 1;
+            let mut budget = budget_for(below);
+            let again = read(&mut budget).expect_err("one below refuses");
+            let repeated = budget.first_unpaid().expect("the same charge");
+            assert_eq!(
+                (repeated.kind, repeated.amount, consumed(&budget)),
+                (kind, denied.amount, before),
+                "one below {before} + {amount}"
+            );
+            assert_eq!(
+                again.denied_locus,
+                Some(locus),
+                "one below {before} + {amount}"
+            );
+            charges.push((locus, denied.amount));
+            allowance = before + amount;
         }
     }
 
@@ -1758,40 +1947,170 @@ mod tests {
             .expect("exact allowance on a clone");
         assert_eq!(cloned.layout_context(), closure.layout_context());
         assert_eq!(clone_budget.consumed(), spent);
-        let forms = ["selected_layout_context", "selected_clock_binding"];
-        let mut denied_forms = std::collections::BTreeSet::new();
-        // The layout reads are the last storage charges: each of the few
-        // units below the total lands on a layout or clock-binding charge.
-        for back in (1..=6000).step_by(7) {
-            let Some(storage) = spent.storage.checked_sub(back) else {
-                break;
-            };
-            let mut budget = NativeJoinBudget::new(spent.work, storage);
-            let error = plan
-                .project_selected_type_closure(parts.view(&authority), &mut budget)
-                .expect_err("one below refuses");
+        // The layout read itself, charge by charge, on both resources.
+        let clock = claim_clock(&plan, &package);
+        let rows = parts.view(&authority);
+        let read = |budget: &mut NativeJoinBudget| plan.layout_context(&rows, &clock, 0, budget);
+        for kind in [NativeJoinChargeKind::Work, NativeJoinChargeKind::Storage] {
+            let charges = each_charge_refuses_exactly_one_below(kind, read);
+            let forms: std::collections::BTreeSet<_> = charges
+                .iter()
+                .map(|(locus, _)| {
+                    assert_eq!(locus.source, crate::NativeJoinLocusSource::MonitorSeed(0));
+                    locus.form
+                })
+                .collect();
+            assert_eq!(
+                forms,
+                ["selected_clock_binding", "selected_layout_context"].into(),
+                "{kind:?}"
+            );
+        }
+        // Whole closure: one below on either resource still refuses.
+        for (work, storage) in [
+            (spent.work - 1, spent.storage),
+            (spent.work, spent.storage - 1),
+        ] {
+            assert!(plan
+                .project_selected_type_closure(
+                    parts.view(&authority),
+                    &mut NativeJoinBudget::new(work, storage)
+                )
+                .is_err());
+        }
+    }
+
+    #[trace("TC-471", "FR-361-AC-3")]
+    #[trace("TC-471", "FR-361-AC-4")]
+    #[test]
+    fn a_tick_source_binds_its_period_operation_and_model_end_to_end() {
+        let spelled = |period: &str| {
+            let package = tick_closure(period);
+            let parts = TickRows::new(&package);
+            let authority = test_authority(&package);
+            let plan = plan_for(&package);
+            let closure = plan
+                .project_selected_type_closure(
+                    parts.view(&authority),
+                    &mut NativeJoinBudget::new(u64::MAX, u64::MAX),
+                )
+                .expect("the tick closure reads");
+            let layout = closure.layout_context();
+            let clock = claim_clock(&plan, &package);
+            let rows = parts.view(&authority);
+            let read =
+                |budget: &mut NativeJoinBudget| plan.layout_context(&rows, &clock, 0, budget);
+            for kind in [NativeJoinChargeKind::Work, NativeJoinChargeKind::Storage] {
+                each_charge_refuses_exactly_one_below(kind, read);
+            }
+            (
+                std::str::from_utf8(layout.clock_binding())
+                    .unwrap()
+                    .to_owned(),
+                layout.subject().to_owned(),
+            )
+        };
+        let unit = serde_json::to_string(&key("Second").to_string()).unwrap();
+        let binding = |model: &str, numerator: &str, denominator: &str| {
+            format!(
+                r#"{{"binding_kind":"model-time","period":{{"denominator":"{denominator}","numerator":"{numerator}"}},"selected_profile_identity":{PROFILE},"sequence_authority":"step-order","time_source":{{"kind":"tick","model":"{model}","operation":"deposit"}},"unit":{unit}}}"#
+            )
+        };
+        // The model document's node has no declaration: its owning model
+        // identity is the name. The operation anchor's own text is verbatim.
+        let (fraction, subject) = spelled("2/1");
+        assert_eq!(fraction, binding("ix://test/families/Account", "2", "1"));
+        assert_eq!(subject, OBJECT_SUBJECT);
+        let (integer, _) = spelled("5");
+        assert_eq!(integer, binding("ix://test/families/Account", "5", "1"));
+        assert!(!integer.contains("5/"), "the integer period has no '/'");
+        let (ratio, _) = spelled("3/4");
+        assert_eq!(ratio, binding("ix://test/families/Account", "3", "4"));
+    }
+
+    /// An identity whose `Display` is not 64 bytes is paid for exactly, and one
+    /// that changes length between its two renderings is refused unbuilt.
+    #[trace("TC-471", "FR-361-AC-4")]
+    #[test]
+    fn an_identity_text_is_paid_at_its_measured_length() {
+        use super::super::layout_context::hex_text;
+        struct Shown(&'static str);
+        impl std::fmt::Display for Shown {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                f.write_str(self.0)
+            }
+        }
+        struct Growing(std::cell::Cell<bool>);
+        impl std::fmt::Display for Growing {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                f.write_str(if self.0.replace(true) {
+                    "much longer"
+                } else {
+                    "short"
+                })
+            }
+        }
+        let (_, package) = dense_closure();
+        let at = plan_for(&package).clause().clone();
+        for text in [
+            "",
+            "ab",
+            "a text much longer than sixty-four bytes: 0123456789012345678901234567890123456789",
+        ] {
+            let mut budget = NativeJoinBudget::new(u64::MAX, u64::MAX);
+            assert_eq!(hex_text(&Shown(text), &at, &mut budget).unwrap(), text);
+            assert_eq!(budget.consumed().storage, text.len() as u64 + 1, "{text:?}");
+            let mut below = NativeJoinBudget::new(u64::MAX, text.len() as u64);
+            let error = hex_text(&Shown(text), &at, &mut below).expect_err("one below");
             assert_eq!(
                 error.code,
                 SelectedMonitorTypeClosureErrorCode::StorageLimit
             );
-            let locus = error.denied_locus.expect("locus");
-            if forms.contains(&locus.form) {
-                assert_eq!(locus.source, crate::NativeJoinLocusSource::MonitorSeed(0));
-                denied_forms.insert(locus.form);
-            }
         }
-        assert!(
-            denied_forms.contains("selected_layout_context"),
-            "{denied_forms:?}"
+        let mut budget = NativeJoinBudget::new(u64::MAX, u64::MAX);
+        let error = hex_text(&Growing(false.into()), &at, &mut budget).expect_err("unstable");
+        assert_eq!(
+            error.code,
+            SelectedMonitorTypeClosureErrorCode::Authority(
+                crate::SelectedMonitorAuthorityErrorCode::LayoutIdentityUnavailable
+            )
         );
-        assert!(
-            denied_forms.contains("selected_clock_binding"),
-            "{denied_forms:?}"
-        );
-        let mut below = NativeJoinBudget::new(spent.work - 1, spent.storage);
-        assert!(plan
-            .project_selected_type_closure(parts.view(&authority), &mut below)
+    }
+
+    #[trace("TC-471", "FR-361-AC-3")]
+    #[test]
+    fn a_declared_node_is_named_by_its_declaration_path_joined_by_dots() {
+        let package = tick_closure("2/1");
+        let plan = plan_for(&package);
+        let clock = claim_clock(&plan, &package);
+        // The timed-model root is source-declared as `Example.Timed`.
+        let crate::CheckedMonitorClock::ModelTime { timed_root, .. } = clock.clock() else {
+            panic!("model time")
+        };
+        let timed = package.node(timed_root).expect("the timed root");
+        assert!(timed.declaration.is_some());
+        let name = super::super::layout_context::declared_name(
+            &package,
+            timed_root,
+            &mut NativeJoinBudget::new(u64::MAX, u64::MAX),
+        )
+        .expect("declared");
+        assert_eq!(name, "Example.Timed");
+        // One-below on its storage refuses at its own charge.
+        let mut exact = NativeJoinBudget::new(u64::MAX, u64::MAX);
+        super::super::layout_context::declared_name(&package, timed_root, &mut exact).unwrap();
+        let spent = exact.consumed();
+        for (work, storage) in [
+            (spent.work - 1, spent.storage),
+            (spent.work, spent.storage - 1),
+        ] {
+            assert!(super::super::layout_context::declared_name(
+                &package,
+                timed_root,
+                &mut NativeJoinBudget::new(work, storage)
+            )
             .is_err());
+        }
     }
 
     /// The layout read on rows that the preceding reached-model steps would

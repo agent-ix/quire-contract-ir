@@ -197,6 +197,17 @@ The read SHALL check, stopping at the first failure:
    context adds no `tick_unit` member: the driver takes the tick unit from
    `plan.tick_unit()` and the closure's units.
 
+   The same code also refuses, at the node that failed, any identity the read
+   cannot resolve (a missing claim source-map entry, profile law or selection,
+   time source, model or operation name, or clause key) and a non-model-time
+   clock. These are defense in depth: package admission and the authority
+   binding already guarantee them, so they are not reachable through the
+   closure read. Of the row checks, a missing or ambiguous subject or unit row,
+   a `Union` subject and a compound unit are likewise refused earlier in the
+   closure read by the reached-model steps, and are reachable only through a
+   direct `layout_context` call with rows the closure read would not accept.
+   No refusal of this step panics.
+
 Locus: `ForeignEmission` and `ClauseMismatch` at the plan root node;
 `OccurrenceMismatch` and `TimeSourceMismatch` at the clause node with the row
 occurrence. Equal clause names, labels, numeric indices or equal package
