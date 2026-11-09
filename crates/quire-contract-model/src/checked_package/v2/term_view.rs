@@ -1519,9 +1519,9 @@ fn decode_term<'d>(
             deletes_scoped: decode_field(context, term, TermField::DeletesScoped)?,
         }),
         TermTag::Known(BodyTerm::AbstractionRelation) => Ok(CheckedTerm::AbstractionRelation {
-            objects: decode_field(context, term, TermField::Objects)?,
-            populations: decode_field(context, term, TermField::Populations)?,
-            frames: decode_field(context, term, TermField::Frames)?,
+            objects: decode_vec_field(context, term, TermField::Objects)?,
+            populations: decode_vec_field(context, term, TermField::Populations)?,
+            frames: decode_vec_field(context, term, TermField::Frames)?,
         }),
         TermTag::ExtensionForm => Ok(CheckedTerm::ExtensionForm {
             definition: decode_field(context, term, TermField::Definition)?,

@@ -29,7 +29,7 @@ use std::collections::BTreeSet;
 use CheckedPackageRefusalCause as Cause;
 use CheckedPackageRefusalCode as Code;
 
-const IDENTITY: &str = "acme/config";
+pub(crate) const IDENTITY: &str = "acme/config";
 const OTHER_IDENTITY: &str = "acme/other";
 const CONFIG_VERSION: &str = "ix://acme/config/ConfigVersion";
 const DRAFT: &str = "ix://acme/config/ConfigVersionDraft";
@@ -152,7 +152,7 @@ fn domain_population(identity: &str) -> Value {
     })
 }
 
-fn domain_document() -> Value {
+pub(crate) fn domain_document() -> Value {
     json!({
         "contractVersion": "2.0.0",
         "package": {"identity": IDENTITY, "version": "1.0.0"},
@@ -457,7 +457,7 @@ fn minimal() -> Value {
 }
 
 /// A body with an entry of every array.
-fn rich() -> Value {
+pub(crate) fn rich() -> Value {
     ordered(body(
         vec![object(
             &config_version(),
@@ -522,7 +522,7 @@ fn relation_node(body: &Value) -> Value {
 }
 
 /// `base()` holding one relation node per body.
-fn relations(bodies: &[Value]) -> Value {
+pub(crate) fn relations(bodies: &[Value]) -> Value {
     with_nodes(
         base(),
         bodies

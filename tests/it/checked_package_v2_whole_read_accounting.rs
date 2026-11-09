@@ -1550,3 +1550,19 @@ fn original_enclosing_allocator_observes_only_its_original_read() {
         "result drop included: original retained allocation count preserved"
     );
 }
+
+/// A denied charge in the abstraction relation's arrays allocates nothing of
+/// its own: each array is charged at its exact length before serde sizes it.
+#[trace("TC-472", "FR-038-AC-511")]
+#[test]
+fn an_abstraction_relation_denial_allocates_no_unpaid_array() {
+    use crate::checked_package_v2_abstraction_relation as relation;
+    initialize_operation_catalog().expect("catalog gate");
+    let package = relation::relations(&[relation::rich()]);
+    let evidence = crate::support::checked_package::evidence_with_document(
+        &package,
+        relation::IDENTITY,
+        &relation::domain_document(),
+    );
+    proof::every_request::<IntegrationCounter>(&canonical(&package), &evidence);
+}

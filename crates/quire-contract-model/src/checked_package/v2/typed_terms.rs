@@ -3764,8 +3764,10 @@ pub struct CheckedAbstractionObject {
     pub type_id: CheckedNodeId,
     /// Rust type path.
     #[serde(rename = "rust_type")]
+    #[serde(deserialize_with = "super::document_de::exact_vec")]
     pub type_path: Vec<Box<str>>,
     /// Field mappings.
+    #[serde(deserialize_with = "super::document_de::exact_vec")]
     pub fields: Vec<CheckedAbstractionField>,
 }
 
@@ -3787,6 +3789,7 @@ pub struct CheckedAbstractionPopulation {
     /// Population node.
     pub population: CheckedNodeId,
     /// Rust collection path.
+    #[serde(deserialize_with = "super::document_de::exact_vec")]
     pub collection: Vec<Box<str>>,
 }
 
@@ -3799,10 +3802,12 @@ pub struct CheckedAbstractionFrame {
     /// Operation name.
     pub operation: Box<str>,
     /// Rust function path.
+    #[serde(deserialize_with = "super::document_de::exact_vec")]
     pub function: Vec<Box<str>>,
     /// Rust receiver name.
     pub receiver: Box<str>,
     /// Parameter mappings.
+    #[serde(deserialize_with = "super::document_de::exact_vec")]
     pub parameters: Vec<CheckedAbstractionParameter>,
 }
 
