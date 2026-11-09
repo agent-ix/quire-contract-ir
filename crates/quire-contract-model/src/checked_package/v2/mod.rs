@@ -172,8 +172,9 @@ pub use monitor_plan::{
     CheckedMonitorClockReadError, CheckedMonitorClockReadErrorCode, CheckedMonitorEntryRef,
     CheckedMonitorPlanRef, SelectedMonitorAuthorityComponent, SelectedMonitorAuthorityErrorCode,
     SelectedMonitorAuthorityReceipt, SelectedMonitorAuthorityRow, SelectedMonitorAuthorityRowError,
-    SelectedMonitorClosureRows, SelectedMonitorTimeSource, SelectedMonitorTypeClosure,
-    SelectedMonitorTypeClosureError, SelectedMonitorTypeClosureErrorCode,
+    SelectedMonitorClosureRows, SelectedMonitorLayoutContext, SelectedMonitorTimeSource,
+    SelectedMonitorTypeClosure, SelectedMonitorTypeClosureError,
+    SelectedMonitorTypeClosureErrorCode,
 };
 #[cfg(feature = "test-support")]
 mod native_budget_observer;
