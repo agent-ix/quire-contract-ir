@@ -71,9 +71,21 @@ fn flat_refusal_at<'a>(
     at: impl Into<stage_storage::Position<'a>>,
     node: &'a crate::checked_package::shared::CheckedNodeId,
 ) -> ValidationFailure {
+    flat_refusal_at_site(meter, flat_site(position), code, cause, at, node)
+}
+
+/// [`flat_refusal_at`] charged at `site`.
+fn flat_refusal_at_site<'a>(
+    meter: &Meter<'_>,
+    site: Site,
+    code: CheckedPackageRefusalCode,
+    cause: Option<CheckedPackageRefusalCause>,
+    at: impl Into<stage_storage::Position<'a>>,
+    node: &'a crate::checked_package::shared::CheckedNodeId,
+) -> ValidationFailure {
     let mut refusal = Refusal::new(code, at).at_node(node);
     refusal.cause = cause;
-    stage_storage::refuse_charged(meter, flat_site(position), refusal)
+    stage_storage::refuse_charged(meter, site, refusal)
 }
 
 /// The charge site of the interval-bound checks at graph node `index`.
@@ -156,10 +168,7 @@ pub(super) fn check(
         wire.semantic_graph.nodes.len(),
     )?;
     for (position, node) in wire.semantic_graph.nodes.iter().enumerate() {
-        let kind = super::decode_node_kind(node, |member| {
-            crate::checked_package::common::node_pointer(position).key(member)
-        })
-        .map_err(|failure| {
+        let kind = super::node_kind_or_fault(node).map_err(|(code, member)| {
             // These families' malformed forms precede even a bad schema
             // version. Decode the successful header only once; inspect the
             // typed vocabulary again solely to preserve that refusal order.
@@ -177,7 +186,12 @@ pub(super) fn check(
                     stage_storage::node_path(position).key("semantic_form"),
                 )
             } else {
-                failure
+                flat_refusal(
+                    &meter,
+                    position,
+                    code,
+                    stage_storage::node_path(position).key(member),
+                )
             }
         })?;
         if let CheckedNodeKind::Protocol(form) = kind {
@@ -593,23 +607,21 @@ pub(super) fn check_interval_bounds(
                 .is_none_or(|formulas| !formulas.contains(&node.node_id));
         }
         if let Some(bound) = outside_pattern.or(nonhybrid_open_upper.then_some("upper")) {
-            let steps = [
-                Step::Key("semantic_graph"),
-                Step::Key("nodes"),
-                Step::Index(position),
-                Step::Key("body"),
-            ];
-            let failure = ValidationFailure::refused_because(
+            let interval = stage_storage::node_path(position)
+                .key("body")
+                .key("operation")
+                .key("member")
+                .key("interval")
+                .key(bound);
+            let meter = Meter::new(&mut *budget);
+            return Err(flat_refusal_at_site(
+                &meter,
+                interval_site(position),
                 CheckedPackageRefusalCode::InvalidPackage,
-                Trail::Base(&steps)
-                    .key("operation")
-                    .key("member")
-                    .key("interval")
-                    .key(bound)
-                    .pointer(),
-                CheckedPackageRefusalCause::InvalidValue,
-            );
-            return Err(super::with_node_locus(failure, &node.node_id));
+                Some(CheckedPackageRefusalCause::InvalidValue),
+                interval,
+                &node.node_id,
+            ));
         }
     }
     read_charge::end_stage(budget);
