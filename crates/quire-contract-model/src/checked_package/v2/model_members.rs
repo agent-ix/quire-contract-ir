@@ -2359,6 +2359,7 @@ impl DomainModel {
     }
 
     /// Render the selected field type used by a timed clock-place path.
+    #[ix_trace_rs::string_edge]
     pub(super) fn clock_type_name_in(
         &self,
         type_ref: &SelectedTypeRef,
