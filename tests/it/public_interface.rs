@@ -944,6 +944,10 @@ fn exported_items() -> BTreeMap<String, BTreeSet<String>> {
                         && [
                             "CheckedApplicationOperationFixture",
                             "CheckedApplicationOperationFixtureError",
+                            "NativeBudgetEvent",
+                            "NativeBudgetResource",
+                            "with_native_allocation_class",
+                            "with_native_budget_observer",
                         ]
                         .contains(&name.as_str()))
                 {

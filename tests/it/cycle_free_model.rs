@@ -712,20 +712,70 @@ fn owner_symbol(name: &str) -> bool {
         || name.starts_with("ProtocolWire")
 }
 
+/// Whether a callback's argument or result type carries an admission verdict
+/// (`bool`, `Result`, `Option`) or an owner value. A callback that only
+/// observes plumbing, or hands back a borrowed identifier, carries neither.
+#[derive(Default)]
+struct AdmissionValue {
+    found: bool,
+}
+impl<'ast> Visit<'ast> for AdmissionValue {
+    fn visit_path_segment(&mut self, segment: &'ast syn::PathSegment) {
+        let name = segment.ident.to_string();
+        if ["bool", "Result", "Option"].contains(&name.as_str()) || owner_symbol(&name) {
+            self.found = true;
+        }
+        visit::visit_path_segment(self, segment);
+    }
+}
+
+fn admission_value(inputs: &[&syn::Type], output: &syn::ReturnType) -> bool {
+    let mut value = AdmissionValue::default();
+    for input in inputs {
+        value.visit_type(input);
+    }
+    value.visit_return_type(output);
+    value.found
+}
+
 #[derive(Default)]
 struct AdmissionSignature {
     has_callback: bool,
 }
 impl<'ast> Visit<'ast> for AdmissionSignature {
-    fn visit_type_trait_object(&mut self, _: &'ast syn::TypeTraitObject) {
-        self.has_callback = true;
+    fn visit_type_trait_object(&mut self, object: &'ast syn::TypeTraitObject) {
+        // The read-storage sink only charges a budget; any other trait object
+        // is an outsourced decision.
+        for bound in &object.bounds {
+            if let syn::TypeParamBound::Trait(bound) = bound {
+                let Some(segment) = bound.path.segments.last() else {
+                    continue;
+                };
+                if !matches!(segment.arguments, syn::PathArguments::Parenthesized(_))
+                    && segment.ident != "ReadStorage"
+                {
+                    self.has_callback = true;
+                }
+            }
+        }
+        visit::visit_type_trait_object(self, object);
     }
-    fn visit_type_bare_fn(&mut self, _: &'ast syn::TypeBareFn) {
-        self.has_callback = true;
+    fn visit_type_bare_fn(&mut self, function: &'ast syn::TypeBareFn) {
+        let inputs: Vec<_> = function.inputs.iter().map(|input| &input.ty).collect();
+        if admission_value(&inputs, &function.output) {
+            self.has_callback = true;
+        }
     }
     fn visit_path_segment(&mut self, segment: &'ast syn::PathSegment) {
         if ["Fn", "FnMut", "FnOnce"].contains(&segment.ident.to_string().as_str()) {
-            self.has_callback = true;
+            if let syn::PathArguments::Parenthesized(arguments) = &segment.arguments {
+                let inputs: Vec<_> = arguments.inputs.iter().collect();
+                if admission_value(&inputs, &arguments.output) {
+                    self.has_callback = true;
+                }
+            } else {
+                self.has_callback = true;
+            }
         }
         visit::visit_path_segment(self, segment);
     }

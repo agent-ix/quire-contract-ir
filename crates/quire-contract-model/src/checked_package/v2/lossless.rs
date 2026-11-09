@@ -14,8 +14,12 @@ use serde::ser::{
 use serde::Serialize;
 use std::{cell::RefCell, cmp::Ordering, fmt, sync::Arc};
 
-const MAX_PATH_DEPTH: usize = 128;
-const MAX_FULL_DEPTH: usize = MAX_PATH_DEPTH + 12 + 1;
+/// Stack slots for a position in the closed envelope schema. The comparison
+/// covers only closed-schema members; the open bodies and details are skipped,
+/// so no input nests deeper than the schema and the slots bound nothing.
+const PATH_SLOTS: usize = 128;
+/// Slots for a full pointer: the base trail, a path and one extra key.
+const FULL_SLOTS: usize = PATH_SLOTS + 12 + 1;
 
 #[derive(Clone)]
 enum Key<'a> {
@@ -52,13 +56,13 @@ impl PathSegment<'_> {
     }
 }
 struct Snapshot<'a> {
-    segments: [Option<PathSegment<'a>>; MAX_PATH_DEPTH],
+    segments: [Option<PathSegment<'a>>; PATH_SLOTS],
     depth: usize,
     root: bool,
 }
 struct Path<'a, 'm, 'b> {
     base: BasePath<'static>,
-    segments: [Option<PathSegment<'a>>; MAX_PATH_DEPTH],
+    segments: [Option<PathSegment<'a>>; PATH_SLOTS],
     depth: usize,
     best: RefCell<Option<Snapshot<'a>>>,
     denied: RefCell<Option<ValidationFailure>>,
@@ -108,7 +112,7 @@ impl<'a> Path<'a, '_, '_> {
         }
     }
     fn request(&self, bytes: usize, extra: Option<&str>) -> Result<(), CompareError> {
-        let mut steps = [Step::Index(0); MAX_FULL_DEPTH];
+        let mut steps = [Step::Index(0); FULL_SLOTS];
         let mut length = 0;
         for step in self.base.steps() {
             steps[length] = *step;
@@ -160,7 +164,7 @@ impl<'a> Path<'a, '_, '_> {
             .best
             .into_inner()
             .expect("a mismatch records its borrowed path");
-        let mut steps = [Step::Index(0); MAX_FULL_DEPTH];
+        let mut steps = [Step::Index(0); FULL_SLOTS];
         let mut length = 0;
         if !selected.root {
             for step in self.base.steps() {

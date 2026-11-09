@@ -1117,6 +1117,7 @@ mod refinement_fault {
         }
     }
 
+    #[ix_trace_rs::string_edge]
     fn target(node: TermNode<'_>, at: &Trail<'_>, walk: &mut WalkReservation<'_>) -> Found {
         let kind = member(node, "kind", at)?
             .as_str()
@@ -1173,6 +1174,7 @@ mod refinement_fault {
     }
 
     /// The outer object of a refinement body.
+    #[ix_trace_rs::string_edge]
     pub(in super::super) fn header(body: TermNode<'_>, at: &Trail<'_>) -> Found {
         const REQUIRED: [&str; 9] = [
             "term",
@@ -1204,6 +1206,7 @@ mod refinement_fault {
 
     /// The class catalog's closed wire: memory entries refuse as malformed
     /// wire at the offending member, declared entries as an invalid graph.
+    #[ix_trace_rs::string_edge]
     pub(in super::super) fn catalog(catalog: TermNode<'_>, at: &Trail<'_>) -> Found {
         if !catalog.exact_members(&["concrete", "abstract"]) {
             return Err(invalid(at));
