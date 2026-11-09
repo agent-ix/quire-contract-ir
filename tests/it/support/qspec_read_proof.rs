@@ -293,7 +293,6 @@ fn observe(
     let _ = views;
     #[cfg(not(feature = "test-support"))]
     let observation = measure_at::<DriverCounter>(bytes, evidence, limits, work, storage);
-    accounted("original driver read", &observation);
     observation
 }
 

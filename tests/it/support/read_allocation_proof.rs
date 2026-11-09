@@ -11,7 +11,9 @@ use quire_contract_model::{
 };
 
 use crate::qspec_read_proof::observation;
-pub(crate) use observation::{accounted, drop_without_request, measure_at, Counter, Observation};
+pub(crate) use observation::{
+    accounted, drop_without_request, measure_at, unpaid, Counter, Observation, UNPAID_BOUND,
+};
 
 #[derive(Clone, Copy)]
 pub(crate) enum Expected {
