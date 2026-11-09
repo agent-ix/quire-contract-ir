@@ -6,16 +6,17 @@
 use super::frame::StepGraph;
 use super::graph_storage::GraphIndex;
 use super::model_members::ModelOwners;
+use super::stage_storage::{charge_at, node_path, refuse_at, Path};
 use super::structural::{typed_anchor_body, typed_clause_body, typed_parameter_binding};
 use super::{
     CheckedNodeKind, CheckedNodeOwner, CheckedSemanticNodeV2, CheckedTerm, ClaimForm,
     CompositeTypeForm, CorrespondenceForm, LiteralKind, ModelForm, RawSemanticNodeV2,
     ScalarTypeForm, StateClauseKind, StateForm, ValueForm, WorkMeter,
 };
-use crate::checked_package::common::{node_pointer, ValidationFailure};
+use crate::checked_package::common::ValidationFailure;
 use crate::checked_package::shared::{
     CheckedNodeId, CheckedOccurrenceRole, CheckedPackageRefusalCause as Cause,
-    CheckedPackageRefusalCode as Code, JsonPointer,
+    CheckedPackageRefusalCode as Code,
 };
 
 /// One execution variable in an admitted step relation.
@@ -115,7 +116,7 @@ impl CheckedSemanticNodeV2 {
     #[ix_trace_rs::string_edge]
     pub fn step_relation_body(&self) -> Option<CheckedStepRelationBody> {
         (self.node_tag.as_ref() == "claim" && self.semantic_form.as_ref() == "step_relation")
-            .then(|| parse(&self.body, node_pointer(0).key("body")).ok())
+            .then(|| parse(&self.body, node_path(0).key("body")))
             .flatten()
     }
 }
@@ -149,8 +150,13 @@ fn reference(term: &CheckedTerm) -> Option<&CheckedNodeId> {
 }
 
 /// A list of `reference` terms, every member a reference.
-fn reference_list(term: &CheckedTerm, at: JsonPointer) -> Result<&[CheckedTerm], JsonPointer> {
-    let entries = members(term).ok_or_else(|| at.clone())?;
+// The refusal position is a stack path; boxing it would be a heap request.
+#[allow(clippy::result_large_err)]
+fn reference_list<'a>(
+    term: &'a CheckedTerm,
+    at: Path<'static>,
+) -> Result<&'a [CheckedTerm], Path<'static>> {
+    let entries = members(term).ok_or(at)?;
     match entries.iter().position(|entry| reference(entry).is_none()) {
         Some(i) => Err(at.key("members").index(i)),
         None => Ok(entries),
@@ -162,18 +168,20 @@ fn targets(list: &[CheckedTerm]) -> impl Iterator<Item = &CheckedNodeId> + '_ {
     list.iter().filter_map(reference)
 }
 
+// The refusal position is a stack path; boxing it would be a heap request.
+#[allow(clippy::result_large_err)]
 fn ordered<'a, const N: usize>(
     term: &'a CheckedTerm,
     names: [&str; N],
-    at: JsonPointer,
-) -> Result<[&'a CheckedTerm; N], JsonPointer> {
-    let entries = members(term).ok_or_else(|| at.clone())?;
+    at: Path<'static>,
+) -> Result<[&'a CheckedTerm; N], Path<'static>> {
+    let entries = members(term).ok_or(at)?;
     if entries.len() != N {
         return Err(at.key("members").index(entries.len().min(N)));
     }
     let mut ordered = [term; N];
     for (i, ((entry, name), slot)) in entries.iter().zip(names).zip(&mut ordered).enumerate() {
-        *slot = binding(entry, name).ok_or_else(|| at.clone().key("members").index(i))?;
+        *slot = binding(entry, name).ok_or_else(|| at.key("members").index(i))?;
     }
     Ok(ordered)
 }
@@ -202,28 +210,24 @@ struct StepView<'a> {
 /// refusal is the pointer of the first value outside the shape.
 fn view<'a>(
     term: &'a CheckedTerm,
-    at: JsonPointer,
+    at: Path<'static>,
     meter: &mut WorkMeter,
-) -> Result<Result<StepView<'a>, JsonPointer>, ValidationFailure> {
-    let ordered_members = ordered(
-        term,
-        ["subjects", "executions", "invariants", "body"],
-        at.clone(),
-    );
+) -> Result<Result<StepView<'a>, Path<'static>>, ValidationFailure> {
+    let ordered_members = ordered(term, ["subjects", "executions", "invariants", "body"], at);
     let [subjects, executions, invariants, body] = match ordered_members {
         Ok(found) => found,
         Err(path) => return Ok(Err(path)),
     };
-    let subject_at = at.clone().key("members").index(0).key("value");
-    let execution_at = at.clone().key("members").index(1).key("value");
-    let invariant_at = at.clone().key("members").index(2).key("value");
+    let subject_at = at.key("members").index(0).key("value");
+    let execution_at = at.key("members").index(1).key("value");
+    let invariant_at = at.key("members").index(2).key("value");
     let body_at = at.key("members").index(3).key("value");
     let Some(subject_entries) = members(subjects) else {
         return Ok(Err(subject_at));
     };
     let mut selected = meter.vec(subject_entries.len())?;
     for (i, entry) in subject_entries.iter().enumerate() {
-        let path = subject_at.clone().key("members").index(i);
+        let path = subject_at.key("members").index(i);
         let Some((alias, target)) = named_binding(entry) else {
             return Ok(Err(path));
         };
@@ -237,7 +241,7 @@ fn view<'a>(
     };
     let mut variables = meter.vec(execution_entries.len())?;
     for (i, entry) in execution_entries.iter().enumerate() {
-        let path = execution_at.clone().key("members").index(i);
+        let path = execution_at.key("members").index(i);
         let Some((variable, value)) = named_binding(entry) else {
             return Ok(Err(path));
         };
@@ -251,20 +255,14 @@ fn view<'a>(
                 "postconditions",
                 "implementation",
             ],
-            path.clone().key("value"),
+            path.key("value"),
         );
         let [alias, operation, parameters, preconditions, postconditions, implementation] =
             match ordered_members {
                 Ok(found) => found,
                 Err(path) => return Ok(Err(path)),
             };
-        let member_at = |member: usize| {
-            path.clone()
-                .key("value")
-                .key("members")
-                .index(member)
-                .key("value")
-        };
+        let member_at = |member: usize| path.key("value").key("members").index(member).key("value");
         let alias = match alias {
             CheckedTerm::Literal {
                 value_kind: LiteralKind::Text,
@@ -314,7 +312,7 @@ fn view<'a>(
     };
     let mut invariant_sets = meter.vec(invariant_entries.len())?;
     for (i, entry) in invariant_entries.iter().enumerate() {
-        let path = invariant_at.clone().key("members").index(i);
+        let path = invariant_at.key("members").index(i);
         let Some((alias, value)) = named_binding(entry) else {
             return Ok(Err(path));
         };
@@ -336,14 +334,14 @@ fn view<'a>(
 
 /// The owned typed production of a step relation body. It is off the read
 /// path and holds no budget.
-fn parse(term: &CheckedTerm, at: JsonPointer) -> Result<CheckedStepRelationBody, JsonPointer> {
+fn parse(term: &CheckedTerm, at: Path<'static>) -> Option<CheckedStepRelationBody> {
     let mut unmetered = WorkMeter::new(u64::MAX);
     let Ok(parsed) = view(term, at, &mut unmetered) else {
-        return Err(JsonPointer::root());
+        return None;
     };
-    let view = parsed?;
+    let view = parsed.ok()?;
     let owned = |list: &[CheckedTerm]| targets(list).cloned().collect::<Vec<_>>();
-    Ok(CheckedStepRelationBody {
+    Some(CheckedStepRelationBody {
         subjects: view
             .subjects
             .iter()
@@ -373,16 +371,18 @@ fn parse(term: &CheckedTerm, at: JsonPointer) -> Result<CheckedStepRelationBody,
 }
 
 fn refuse(
+    meter: &mut WorkMeter,
     code: Code,
     cause: Option<Cause>,
-    path: JsonPointer,
+    path: Path<'_>,
     node: &CheckedNodeId,
 ) -> ValidationFailure {
-    ValidationFailure::refused_at(code, path, cause, node.clone())
+    refuse_at(meter, code, cause, path, node)
 }
 
-fn malformed(path: JsonPointer, node: &CheckedNodeId) -> ValidationFailure {
+fn malformed(meter: &mut WorkMeter, path: Path<'_>, node: &CheckedNodeId) -> ValidationFailure {
     refuse(
+        meter,
         Code::InvalidModelBinding,
         Some(Cause::MalformedDeclaration),
         path,
@@ -437,14 +437,14 @@ fn clauses_are(
     graph: &StepGraph<'_, '_>,
     terms: &[Option<CheckedTerm>],
     meter: &mut WorkMeter,
-    at: &dyn Fn() -> JsonPointer,
+    at: Path<'static>,
     provided: &[CheckedTerm],
     wants: impl Fn(&super::structural::ClauseBody<'_>) -> bool,
 ) -> Result<bool, ValidationFailure> {
     let mut expected = targets(provided);
     let mut agrees = true;
     for (clause_pos, clause) in graph.each(CheckedNodeKind::State(StateForm::StateClause)) {
-        meter.charge(1, at)?;
+        charge_at(meter, at)?;
         let parsed = terms
             .get(clause_pos)
             .and_then(Option::as_ref)
@@ -473,31 +473,16 @@ pub(super) fn validate_step_relations(
     };
     for (position, node) in graph.each(CheckedNodeKind::Claim(ClaimForm::StepRelation)) {
         meter.at_node(position, "claim");
-        let at = node_pointer(position).key("body");
+        let at = node_path(position).key("body");
         let term = terms
             .get(position)
             .and_then(Option::as_ref)
-            .ok_or_else(|| refuse(Code::InvalidSemanticGraph, None, at.clone(), &node.node_id))?;
-        let body = view(term, at.clone(), meter)?
-            .map_err(|path| refuse(Code::InvalidSemanticGraph, None, path, &node.node_id))?;
-        let subject_at = at
-            .clone()
-            .key("members")
-            .index(0)
-            .key("value")
-            .key("members");
-        let execution_at = at
-            .clone()
-            .key("members")
-            .index(1)
-            .key("value")
-            .key("members");
-        let invariant_at = at
-            .clone()
-            .key("members")
-            .index(2)
-            .key("value")
-            .key("members");
+            .ok_or_else(|| refuse(meter, Code::InvalidSemanticGraph, None, at, &node.node_id))?;
+        let body = view(term, at, meter)?
+            .map_err(|path| refuse(meter, Code::InvalidSemanticGraph, None, path, &node.node_id))?;
+        let subject_at = at.key("members").index(0).key("value").key("members");
+        let execution_at = at.key("members").index(1).key("value").key("members");
+        let invariant_at = at.key("members").index(2).key("value").key("members");
         let body_at = at.key("members").index(3).key("value").key("target");
         // The subjects' aliases, sorted for lookup; the first repeat refuses.
         let mut aliases = meter.vec::<(&str, usize)>(body.subjects.len())?;
@@ -510,9 +495,10 @@ pub(super) fn validate_step_relations(
         aliases.sort_unstable();
         if let Some(i) = first_repeated(&aliases) {
             return Err(refuse(
+                meter,
                 Code::InvalidSemanticGraph,
                 None,
-                subject_at.clone().index(i),
+                subject_at.index(i),
                 &node.node_id,
             ));
         }
@@ -530,9 +516,10 @@ pub(super) fn validate_step_relations(
         for (i, entry) in body.executions.iter().enumerate() {
             if repeated_variable == Some(i) {
                 return Err(refuse(
+                    meter,
                     Code::InvalidSemanticGraph,
                     None,
-                    execution_at.clone().index(i),
+                    execution_at.index(i),
                     &node.node_id,
                 ));
             }
@@ -541,14 +528,10 @@ pub(super) fn validate_step_relations(
                 .is_none_or(|(_, kind)| kind != CheckedNodeKind::ScalarType(ScalarTypeForm::Text))
             {
                 return Err(refuse(
+                    meter,
                     Code::InvalidSemanticGraph,
                     None,
-                    execution_at
-                        .clone()
-                        .index(i)
-                        .key("value")
-                        .key("members")
-                        .index(0),
+                    execution_at.index(i).key("value").key("members").index(0),
                     &node.node_id,
                 ));
             }
@@ -557,14 +540,10 @@ pub(super) fn validate_step_relations(
                 .is_err()
             {
                 return Err(refuse(
+                    meter,
                     Code::MissingDeclaration,
                     Some(Cause::MissingName),
-                    execution_at
-                        .clone()
-                        .index(i)
-                        .key("value")
-                        .key("members")
-                        .index(0),
+                    execution_at.index(i).key("value").key("members").index(0),
                     &node.node_id,
                 ));
             }
@@ -574,9 +553,10 @@ pub(super) fn validate_step_relations(
         for (i, &(alias, _)) in body.subjects.iter().enumerate() {
             if named.binary_search(&alias).is_err() {
                 return Err(refuse(
+                    meter,
                     Code::InvalidSemanticGraph,
                     None,
-                    subject_at.clone().index(i),
+                    subject_at.index(i),
                     &node.node_id,
                 ));
             }
@@ -608,9 +588,10 @@ pub(super) fn validate_step_relations(
         for (i, (&(alias, _), &first)) in body.subjects.iter().zip(&heads).enumerate() {
             if body.executions.get(first).map(|entry| entry.alias) != Some(alias) {
                 return Err(refuse(
+                    meter,
                     Code::InvalidSemanticGraph,
                     None,
-                    subject_at.clone().index(i),
+                    subject_at.index(i),
                     &node.node_id,
                 ));
             }
@@ -621,19 +602,22 @@ pub(super) fn validate_step_relations(
         for (i, &(alias, target)) in body.subjects.iter().enumerate() {
             let Some((model_node, kind)) = graph.node(target) else {
                 return Err(malformed(
-                    subject_at.clone().index(i).key("value").key("target"),
+                    meter,
+                    subject_at.index(i).key("value").key("target"),
                     target,
                 ));
             };
             if kind != CheckedNodeKind::Model(ModelForm::ModelRoot) {
                 return Err(malformed(
-                    subject_at.clone().index(i).key("value").key("target"),
+                    meter,
+                    subject_at.index(i).key("value").key("target"),
                     target,
                 ));
             }
             let Some(model) = subject_model(model_node) else {
                 return Err(malformed(
-                    subject_at.clone().index(i).key("value").key("target"),
+                    meter,
+                    subject_at.index(i).key("value").key("target"),
                     target,
                 ));
             };
@@ -650,8 +634,8 @@ pub(super) fn validate_step_relations(
         for (i, entry) in body.executions.iter().enumerate() {
             let Some((_, kind)) = graph.node(entry.operation) else {
                 return Err(malformed(
+                    meter,
                     execution_at
-                        .clone()
                         .index(i)
                         .key("value")
                         .key("members")
@@ -668,7 +652,6 @@ pub(super) fn validate_step_relations(
                 .and_then(Option::as_ref)
                 .and_then(typed_anchor_body);
             let operation_at = execution_at
-                .clone()
                 .index(i)
                 .key("value")
                 .key("members")
@@ -676,18 +659,14 @@ pub(super) fn validate_step_relations(
                 .key("value")
                 .key("target");
             let Some(anchor_body) = anchor_body else {
-                return Err(malformed(operation_at, entry.operation));
+                return Err(malformed(meter, operation_at, entry.operation));
             };
             let Some(model) = model_of(entry.alias) else {
                 return Err(refuse(
+                    meter,
                     Code::MissingDeclaration,
                     Some(Cause::MissingName),
-                    execution_at
-                        .clone()
-                        .index(i)
-                        .key("value")
-                        .key("members")
-                        .index(0),
+                    execution_at.index(i).key("value").key("members").index(0),
                     &node.node_id,
                 ));
             };
@@ -696,8 +675,8 @@ pub(super) fn validate_step_relations(
                 .is_some_and(|(context, _)| same_model(context, model, &graph));
             if kind != CheckedNodeKind::State(StateForm::OperationAnchor) || !context_ok {
                 return Err(malformed(
+                    meter,
                     execution_at
-                        .clone()
                         .index(i)
                         .key("value")
                         .key("members")
@@ -727,8 +706,8 @@ pub(super) fn validate_step_relations(
                 });
                 if !valid {
                     return Err(malformed(
+                        meter,
                         execution_at
-                            .clone()
                             .index(i)
                             .key("value")
                             .key("members")
@@ -744,28 +723,27 @@ pub(super) fn validate_step_relations(
         let mut level = 0usize;
         for (i, (entry, anchor)) in body.executions.iter().zip(&anchors).enumerate() {
             let param_at = execution_at
-                .clone()
                 .index(i)
                 .key("value")
                 .key("members")
                 .index(2)
                 .key("value");
             let Some((context, kind)) = graph.node(anchor.context) else {
-                return Err(malformed(param_at, entry.operation));
+                return Err(malformed(meter, param_at, entry.operation));
             };
             let expected =
                 super::state::resolve_operation(context, kind, anchor.operation, &graph, meter)?;
             let Ok(Some((owner, operation))) = expected else {
-                return Err(malformed(param_at, entry.operation));
+                return Err(malformed(meter, param_at, entry.operation));
             };
             let expected_count =
                 1 + usize::from(operation.result.is_some()) + operation.parameters.len();
             if entry.parameters.len() != expected_count {
-                return Err(malformed(param_at, entry.operation));
+                return Err(malformed(meter, param_at, entry.operation));
             }
             for (j, id) in targets(entry.parameters).enumerate() {
                 let Some((parameter, kind)) = graph.node(id) else {
-                    return Err(malformed(param_at.clone(), id));
+                    return Err(malformed(meter, param_at, id));
                 };
                 let declared = graph
                     .index
@@ -832,7 +810,7 @@ pub(super) fn validate_step_relations(
                     == expected_name.map(|name| (name, true));
                 if kind != CheckedNodeKind::Value(ValueForm::Parameter) || !type_ok || !declared_ok
                 {
-                    return Err(malformed(param_at.clone(), id));
+                    return Err(malformed(meter, param_at, id));
                 }
                 level += 1;
             }
@@ -844,14 +822,14 @@ pub(super) fn validate_step_relations(
                     &graph,
                     terms,
                     meter,
-                    &|| execution_at.clone().index(i),
+                    execution_at.index(i),
                     provided,
                     |parsed| parsed.clause == clause_kind && *parsed.anchor == *entry.operation,
                 )?;
                 if !matches {
                     return Err(malformed(
+                        meter,
                         execution_at
-                            .clone()
                             .index(i)
                             .key("value")
                             .key("members")
@@ -863,34 +841,33 @@ pub(super) fn validate_step_relations(
             }
         }
         if body.invariants.len() != body.subjects.len() {
-            return Err(malformed(invariant_at, &node.node_id));
+            return Err(malformed(meter, invariant_at, &node.node_id));
         }
         for (i, (&(alias, model_id), &(found, provided))) in
             body.subjects.iter().zip(&body.invariants).enumerate()
         {
-            let path = invariant_at.clone().index(i);
+            let path = invariant_at.index(i);
             if alias != found {
-                return Err(malformed(path, model_id));
+                return Err(malformed(meter, path, model_id));
             }
             let Some(model) = model_of(alias) else {
-                return Err(malformed(path, model_id));
+                return Err(malformed(meter, path, model_id));
             };
-            let matches =
-                clauses_are(&graph, terms, meter, &|| path.clone(), provided, |parsed| {
-                    parsed.clause == StateClauseKind::Invariant
-                        && graph.node(parsed.anchor).is_some_and(|(context, kind)| {
-                            matches!(
-                                kind,
-                                CheckedNodeKind::Model(
-                                    ModelForm::ObjectType
-                                        | ModelForm::Process
-                                        | ModelForm::StateMachine
-                                )
-                            ) && same_model(context, model, &graph)
-                        })
-                })?;
+            let matches = clauses_are(&graph, terms, meter, path, provided, |parsed| {
+                parsed.clause == StateClauseKind::Invariant
+                    && graph.node(parsed.anchor).is_some_and(|(context, kind)| {
+                        matches!(
+                            kind,
+                            CheckedNodeKind::Model(
+                                ModelForm::ObjectType
+                                    | ModelForm::Process
+                                    | ModelForm::StateMachine
+                            )
+                        ) && same_model(context, model, &graph)
+                    })
+            })?;
             if !matches {
-                return Err(malformed(path.key("value"), model_id));
+                return Err(malformed(meter, path.key("value"), model_id));
             }
         }
         let valid_body = graph.node(body.body).is_some_and(|(expression, kind)| {
@@ -903,6 +880,7 @@ pub(super) fn validate_step_relations(
         });
         if !valid_body {
             return Err(refuse(
+                meter,
                 Code::IllTyped,
                 Some(Cause::NonBooleanRoot),
                 body_at,
@@ -945,13 +923,13 @@ pub(super) fn validate_step_relations(
                     }
                 },
             }
-            meter.charge(1, || body_at.clone())?;
+            charge_at(meter, body_at)?;
             let Some((read, kind)) = graph.node(target) else {
                 continue;
             };
             if kind == CheckedNodeKind::Value(ValueForm::Parameter) {
                 if binders.binary_search(&target).is_err() {
-                    return Err(malformed(body_at.clone(), target));
+                    return Err(malformed(meter, body_at, target));
                 }
             } else {
                 meter.room(&mut pending, read.dependencies.len())?;
@@ -981,9 +959,10 @@ pub(super) fn validate_step_relations(
                 != 1
         {
             return Err(refuse(
+                meter,
                 Code::InvalidSemanticGraph,
                 None,
-                node_pointer(position),
+                node_path(position),
                 &node.node_id,
             ));
         }

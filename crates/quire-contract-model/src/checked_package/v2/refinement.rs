@@ -2,6 +2,9 @@
 
 use super::graph_storage::{GraphIndex, ResolvedKey, SortedTable};
 use super::protocol_body::ChannelDelivery;
+use super::stage_storage::{
+    charge_amount_at, charge_at, node_path, refuse_at, refuse_unlocated, Path,
+};
 use super::CheckedTerm;
 use crate::checked_package::common::{
     validate_term, Ids, ReferenceVisitor, TermGrammar, Trail, ValidationFailure,
@@ -10,9 +13,7 @@ use crate::checked_package::shared::{
     CheckedNodeId, CheckedOccurrenceRole, CheckedSourceMapEntry, CheckedSourceRef,
     CheckedSourceRegion,
 };
-use crate::checked_package::shared::{
-    CheckedPackageRefusalCause, CheckedPackageRefusalCode, JsonPointer,
-};
+use crate::checked_package::shared::{CheckedPackageRefusalCause, CheckedPackageRefusalCode};
 use crate::checked_package::terms::TermSource;
 use quire_canonical::{Encode, Error, FixedShape, Sink, Writer};
 #[cfg(test)]
@@ -43,8 +44,8 @@ impl Encode for CheckedRefinementStepRowRegion {
     }
 }
 
-fn node_at(position: usize) -> crate::checked_package::shared::JsonPointer {
-    crate::checked_package::common::node_pointer(position)
+fn node_at(position: usize) -> Path<'static> {
+    node_path(position)
 }
 
 /// A refinement target is either a local node or a node in a directly selected package.
@@ -1293,8 +1294,30 @@ impl RefinementKey {
     }
 }
 
-fn order_defect(position: usize, array: &str, index: usize) -> ValidationFailure {
-    ValidationFailure::refused(
+/// A refusal about the value at `at` with the `cause` this stage determined,
+/// its diagnostic charged before it is built.
+fn refuse_because(
+    meter: &mut super::WorkMeter,
+    code: CheckedPackageRefusalCode,
+    at: Path<'_>,
+    cause: CheckedPackageRefusalCause,
+) -> ValidationFailure {
+    let site = super::natural::site(meter, at);
+    super::stage_storage::refuse(
+        meter,
+        &site,
+        super::stage_storage::Refusal::new(code, at).because(cause),
+    )
+}
+
+fn order_defect(
+    meter: &mut super::WorkMeter,
+    position: usize,
+    array: &str,
+    index: usize,
+) -> ValidationFailure {
+    refuse_unlocated(
+        meter,
         CheckedPackageRefusalCode::InvalidSemanticGraph,
         node_at(position).key("body").key(array).index(index),
     )
@@ -1318,7 +1341,8 @@ fn canonical_order(
         ..
     } = body
     else {
-        return Err(ValidationFailure::refused(
+        return Err(refuse_unlocated(
+            meter,
             CheckedPackageRefusalCode::InvalidSemanticGraph,
             node_at(position).key("body"),
         ));
@@ -1329,13 +1353,14 @@ fn canonical_order(
             .order(&graph.resolved_key(&pair[1].r#abstract), meter)?
             != std::cmp::Ordering::Less
         {
-            return Err(order_defect(position, "populations", index + 1));
+            return Err(order_defect(meter, position, "populations", index + 1));
         }
     }
     for (index, object) in objects.iter().enumerate() {
         for (field_index, pair) in object.fields.windows(2).enumerate() {
             if pair[0].name >= pair[1].name {
-                return Err(ValidationFailure::refused(
+                return Err(refuse_unlocated(
+                    meter,
                     CheckedPackageRefusalCode::InvalidSemanticGraph,
                     node_at(position)
                         .key("body")
@@ -1353,13 +1378,14 @@ fn canonical_order(
             .order(&graph.resolved_key(&pair[1].abstract_type), meter)?
             != std::cmp::Ordering::Less
         {
-            return Err(order_defect(position, "objects", index + 1));
+            return Err(order_defect(meter, position, "objects", index + 1));
         }
     }
     for (index, history) in histories.iter().enumerate() {
         for (update_index, pair) in history.updates.windows(2).enumerate() {
             if pair[0].operation >= pair[1].operation {
-                return Err(ValidationFailure::refused(
+                return Err(refuse_unlocated(
+                    meter,
                     CheckedPackageRefusalCode::InvalidSemanticGraph,
                     node_at(position)
                         .key("body")
@@ -1383,7 +1409,7 @@ fn canonical_order(
             .then_with(|| pair[0].name.as_ref().cmp(pair[1].name.as_ref()))
             != std::cmp::Ordering::Less
         {
-            return Err(order_defect(position, "histories", index + 1));
+            return Err(order_defect(meter, position, "histories", index + 1));
         }
     }
     for (index, pair) in assume.windows(2).enumerate() {
@@ -1416,7 +1442,7 @@ fn canonical_order(
             .then_with(|| (first.1, first.2).cmp(&(second.1, second.2)))
             != std::cmp::Ordering::Less
         {
-            return Err(order_defect(position, "assume", index + 1));
+            return Err(order_defect(meter, position, "assume", index + 1));
         }
     }
     for (index, pair) in ensure.windows(2).enumerate() {
@@ -1449,20 +1475,26 @@ fn canonical_order(
             .then_with(|| (first.1, first.2).cmp(&(second.1, second.2)))
             != std::cmp::Ordering::Less
         {
-            return Err(order_defect(position, "ensure", index + 1));
+            return Err(order_defect(meter, position, "ensure", index + 1));
         }
     }
     if let Some(internal) = abstract_internal {
         for (index, pair) in internal.windows(2).enumerate() {
             if pair[0] >= pair[1] {
-                return Err(order_defect(position, "abstract_internal", index + 1));
+                return Err(order_defect(
+                    meter,
+                    position,
+                    "abstract_internal",
+                    index + 1,
+                ));
             }
         }
     }
     if let Some(catalog) = class_catalog {
         for (index, pair) in catalog.concrete.windows(2).enumerate() {
             if concrete_catalog_key(&pair[0]) >= concrete_catalog_key(&pair[1]) {
-                return Err(ValidationFailure::refused(
+                return Err(refuse_unlocated(
+                    meter,
                     CheckedPackageRefusalCode::InvalidSemanticGraph,
                     node_at(position)
                         .key("body")
@@ -1474,7 +1506,8 @@ fn canonical_order(
         }
         for (index, pair) in catalog.r#abstract.windows(2).enumerate() {
             if abstract_catalog_key(&pair[0]) >= abstract_catalog_key(&pair[1]) {
-                return Err(ValidationFailure::refused(
+                return Err(refuse_unlocated(
+                    meter,
                     CheckedPackageRefusalCode::InvalidSemanticGraph,
                     node_at(position)
                         .key("body")
@@ -1566,12 +1599,17 @@ impl RefinementGraph<'_, '_> {
         self.nodes.get(*self.index.get(id)?)
     }
 
+    fn local_owner_identity(&self, id: &CheckedNodeId) -> Option<&str> {
+        let owner = self.local_node(id)?.owner_model.as_ref()?;
+        match self.local_node(owner)?.owner.as_ref()? {
+            super::CheckedNodeOwner::Model { identity, .. } => Some(identity),
+            _ => None,
+        }
+    }
+
     fn key_owner_identity(&self, key: &RefinementKey) -> Option<&str> {
         let owner = match key {
-            RefinementKey::Local(id) => {
-                let owner = self.local_node(id)?.owner_model.as_ref()?;
-                self.local_node(owner)?.owner.as_ref()?
-            }
+            RefinementKey::Local(id) => return self.local_owner_identity(id),
             RefinementKey::External(external) => {
                 let selected = self.dependencies.selected_package(&external.package)?;
                 let owner = selected.node(&external.node)?.owner_model.as_ref()?;
@@ -1584,71 +1622,82 @@ impl RefinementGraph<'_, '_> {
         }
     }
 
-    fn key_anchor(&self, key: &RefinementKey) -> Option<(CheckedNodeId, Box<str>)> {
+    fn local_anchor(&self, id: &CheckedNodeId) -> Option<(&CheckedNodeId, &str)> {
+        let anchor = super::structural::typed_anchor_body(self.local_term(id)?)?;
+        Some((anchor.context, anchor.operation))
+    }
+
+    fn key_anchor(&self, key: &RefinementKey) -> Option<(&CheckedNodeId, &str)> {
         let term = match key {
-            RefinementKey::Local(id) => self.local_term(id)?,
+            RefinementKey::Local(id) => return self.local_anchor(id),
             RefinementKey::External(external) => self
                 .dependencies
                 .selected_package(&external.package)?
                 .term(&external.node)?,
         };
         let anchor = super::structural::typed_anchor_body(term)?;
-        Some((anchor.context.clone(), Box::from(anchor.operation)))
+        Some((anchor.context, anchor.operation))
     }
 
     fn local_kind(
         &self,
+        meter: &mut super::WorkMeter,
         id: &CheckedNodeId,
-        at: JsonPointer,
+        at: Path<'_>,
         locus: &CheckedNodeId,
     ) -> Result<super::CheckedNodeKind, ValidationFailure> {
         let Some(&position) = self.index.get(id) else {
-            return Err(ValidationFailure::refused_at(
+            return Err(refuse_at(
+                meter,
                 CheckedPackageRefusalCode::MissingDeclaration,
-                at,
                 Some(CheckedPackageRefusalCause::MissingName),
-                locus.clone(),
+                at,
+                locus,
             ));
         };
         self.kinds.get(position).copied().ok_or_else(|| {
-            ValidationFailure::refused(CheckedPackageRefusalCode::InvalidSemanticGraph, at)
+            refuse_unlocated(meter, CheckedPackageRefusalCode::InvalidSemanticGraph, at)
         })
     }
 
     fn key_kind(
         &self,
+        meter: &mut super::WorkMeter,
         key: &RefinementKey,
-        at: JsonPointer,
+        at: Path<'_>,
         locus: &CheckedNodeId,
     ) -> Result<super::CheckedNodeKind, ValidationFailure> {
         match key {
-            RefinementKey::Local(id) => self.local_kind(id, at, locus),
+            RefinementKey::Local(id) => self.local_kind(meter, id, at, locus),
             RefinementKey::External(key) => {
                 if key.package.as_ref() == self.package_name {
-                    return Err(ValidationFailure::refused_at(
+                    return Err(refuse_at(
+                        meter,
                         CheckedPackageRefusalCode::InvalidSemanticGraph,
-                        at.key("package"),
                         None,
-                        locus.clone(),
+                        at.key("package"),
+                        locus,
                     ));
                 }
                 let selected = self
                     .dependencies
                     .selected_package(&key.package)
                     .ok_or_else(|| {
-                        ValidationFailure::refused_at(
+                        refuse_at(
+                            meter,
                             CheckedPackageRefusalCode::MissingDeclaration,
-                            at.clone().key("package"),
                             Some(CheckedPackageRefusalCause::MissingSelection),
-                            locus.clone(),
+                            at.key("package"),
+                            locus,
                         )
                     })?;
                 selected.node_kind(&key.node).ok_or_else(|| {
-                    ValidationFailure::refused_at(
+                    refuse_at(
+                        meter,
                         CheckedPackageRefusalCode::MissingDeclaration,
-                        at,
                         Some(CheckedPackageRefusalCause::MissingName),
-                        locus.clone(),
+                        at,
+                        locus,
                     )
                 })
             }
@@ -1657,61 +1706,75 @@ impl RefinementGraph<'_, '_> {
 
     fn require_kind(
         &self,
+        meter: &mut super::WorkMeter,
         key: &RefinementKey,
         expected: super::CheckedNodeKind,
-        at: JsonPointer,
+        at: Path<'_>,
         locus: &CheckedNodeId,
     ) -> Result<(), ValidationFailure> {
-        let actual = self.key_kind(key, at.clone(), locus)?;
+        let actual = self.key_kind(meter, key, at, locus)?;
         if actual == expected {
             Ok(())
         } else {
-            Err(ValidationFailure::refused_at(
+            Err(refuse_at(
+                meter,
                 CheckedPackageRefusalCode::InvalidModelBinding,
-                at,
                 Some(CheckedPackageRefusalCause::MalformedDeclaration),
-                locus.clone(),
+                at,
+                locus,
             ))
         }
     }
 
     fn require_local_kind(
         &self,
+        meter: &mut super::WorkMeter,
         id: &CheckedNodeId,
         expected: super::CheckedNodeKind,
-        at: JsonPointer,
+        at: Path<'_>,
         locus: &CheckedNodeId,
     ) -> Result<(), ValidationFailure> {
-        self.require_kind(&RefinementKey::Local(id.clone()), expected, at, locus)
+        let actual = self.local_kind(meter, id, at, locus)?;
+        if actual == expected {
+            Ok(())
+        } else {
+            Err(refuse_at(
+                meter,
+                CheckedPackageRefusalCode::InvalidModelBinding,
+                Some(CheckedPackageRefusalCause::MalformedDeclaration),
+                at,
+                locus,
+            ))
+        }
     }
 
-    fn require_anchor_subject(
-        &self,
+    fn require_anchor_subject<'s>(
+        &'s self,
+        meter: &mut super::WorkMeter,
         key: &RefinementKey,
         subject: &RefinementKey,
-        at: JsonPointer,
+        at: Path<'_>,
         locus: &CheckedNodeId,
-    ) -> Result<Box<str>, ValidationFailure> {
+    ) -> Result<&'s str, ValidationFailure> {
         use super::{CheckedNodeKind as K, CheckedNodeOwner, ModelForm};
         self.require_kind(
+            meter,
             key,
             K::State(super::StateForm::OperationAnchor),
-            at.clone(),
+            at,
             locus,
         )?;
         let Some((context, operation)) = self.key_anchor(key) else {
-            return Err(wrong_binding(at, locus));
+            return Err(wrong_binding(meter, at, locus));
         };
         // An anchor names its declaring type, while `subject` names the selected model root.
         let (declaring_kind, declaring_identity, selected_identity) = match (key, subject) {
             (RefinementKey::Local(_), RefinementKey::Local(root)) => {
-                let kind = self.local_kind(&context, at.clone(), locus)?;
-                let declaring = self
-                    .local_node(&context)
-                    .and_then(|node| match &node.owner {
-                        Some(CheckedNodeOwner::Model { identity, .. }) => Some(identity.as_ref()),
-                        _ => None,
-                    });
+                let kind = self.local_kind(meter, context, at, locus)?;
+                let declaring = self.local_node(context).and_then(|node| match &node.owner {
+                    Some(CheckedNodeOwner::Model { identity, .. }) => Some(identity.as_ref()),
+                    _ => None,
+                });
                 let selected = self.local_node(root).and_then(|node| match &node.owner {
                     Some(CheckedNodeOwner::ModelRoot { identity, .. }) => Some(identity.as_ref()),
                     _ => None,
@@ -1722,12 +1785,12 @@ impl RefinementGraph<'_, '_> {
                 if anchor.package == root.package =>
             {
                 let Some(selected) = self.dependencies.selected_package(&anchor.package) else {
-                    return Err(wrong_binding(at, locus));
+                    return Err(wrong_binding(meter, at, locus));
                 };
-                let Some(kind) = selected.node_kind(&context) else {
-                    return Err(wrong_binding(at, locus));
+                let Some(kind) = selected.node_kind(context) else {
+                    return Err(wrong_binding(meter, at, locus));
                 };
-                let declaring = selected.node(&context).and_then(|node| match &node.owner {
+                let declaring = selected.node(context).and_then(|node| match &node.owner {
                     Some(CheckedNodeOwner::Model { identity, .. }) => Some(identity.as_ref()),
                     _ => None,
                 });
@@ -1741,7 +1804,7 @@ impl RefinementGraph<'_, '_> {
                     });
                 (kind, declaring, selected)
             }
-            _ => return Err(wrong_binding(at, locus)),
+            _ => return Err(wrong_binding(meter, at, locus)),
         };
         if !matches!(
             declaring_kind,
@@ -1749,32 +1812,33 @@ impl RefinementGraph<'_, '_> {
         ) || declaring_identity.is_none()
             || declaring_identity != selected_identity
         {
-            return Err(wrong_binding(at, locus));
+            return Err(wrong_binding(meter, at, locus));
         }
         Ok(operation)
     }
 
-    fn require_concrete_step_anchor(
-        &self,
+    fn require_concrete_step_anchor<'s>(
+        &'s self,
+        meter: &mut super::WorkMeter,
         source: &CheckedNodeId,
         selected_root: &CheckedNodeId,
-        at: JsonPointer,
+        at: Path<'_>,
         locus: &CheckedNodeId,
-    ) -> Result<Box<str>, ValidationFailure> {
+    ) -> Result<&'s str, ValidationFailure> {
         use super::{CheckedNodeKind as K, CheckedNodeOwner, ModelForm};
         self.require_local_kind(
+            meter,
             source,
             K::State(super::StateForm::OperationAnchor),
-            at.clone(),
+            at,
             locus,
         )?;
-        let Some((context, operation)) = self.key_anchor(&RefinementKey::Local(source.clone()))
-        else {
-            return Err(wrong_binding(at, locus));
+        let Some((context, operation)) = self.local_anchor(source) else {
+            return Err(wrong_binding(meter, at, locus));
         };
         let declaring_kind = self
             .index
-            .get(&context)
+            .get(context)
             .and_then(|&index| self.kinds.get(index));
         if !matches!(
             declaring_kind,
@@ -1782,7 +1846,7 @@ impl RefinementGraph<'_, '_> {
                 ModelForm::ObjectType | ModelForm::Process | ModelForm::StateMachine
             ))
         ) {
-            return Err(wrong_binding(at, locus));
+            return Err(wrong_binding(meter, at, locus));
         }
         let selected_identity = self.local_node(selected_root).and_then(|root| {
             if let Some(CheckedNodeOwner::ModelRoot { identity, .. }) = &root.owner {
@@ -1791,7 +1855,7 @@ impl RefinementGraph<'_, '_> {
                 None
             }
         });
-        let declaring_identity = self.local_node(&context).and_then(|declaration| {
+        let declaring_identity = self.local_node(context).and_then(|declaration| {
             if let Some(CheckedNodeOwner::Model { identity, .. }) = &declaration.owner {
                 Some(identity.as_ref())
             } else {
@@ -1799,16 +1863,17 @@ impl RefinementGraph<'_, '_> {
             }
         });
         if selected_identity.is_none() || selected_identity != declaring_identity {
-            return Err(wrong_binding(at, locus));
+            return Err(wrong_binding(meter, at, locus));
         }
         Ok(operation)
     }
 
     fn require_concrete_owner(
         &self,
+        meter: &mut super::WorkMeter,
         declaration: &CheckedNodeId,
         selected_root: &CheckedNodeId,
-        at: JsonPointer,
+        at: Path<'_>,
         locus: &CheckedNodeId,
     ) -> Result<(), ValidationFailure> {
         use super::CheckedNodeOwner;
@@ -1827,7 +1892,7 @@ impl RefinementGraph<'_, '_> {
         if selected.is_some() && selected == declared {
             Ok(())
         } else {
-            Err(wrong_binding(at, locus))
+            Err(wrong_binding(meter, at, locus))
         }
     }
 
@@ -1835,18 +1900,18 @@ impl RefinementGraph<'_, '_> {
         &self,
         source: &CheckedNodeId,
         selected_root: &CheckedNodeId,
-        at: JsonPointer,
+        at: Path<'_>,
         locus: &CheckedNodeId,
         meter: &mut super::WorkMeter,
     ) -> Result<(), ValidationFailure> {
         use super::{CheckedNodeKind as K, CheckedNodeOwner};
-        let kind = self.local_kind(source, at.clone(), locus)?;
+        let kind = self.local_kind(meter, source, at, locus)?;
         if kind == K::State(super::StateForm::OperationAnchor) {
-            self.require_concrete_step_anchor(source, selected_root, at, locus)?;
+            self.require_concrete_step_anchor(meter, source, selected_root, at, locus)?;
             return Ok(());
         }
         if matches!(kind, K::Model(_)) {
-            return self.require_concrete_owner(source, selected_root, at, locus);
+            return self.require_concrete_owner(meter, source, selected_root, at, locus);
         }
         let selected_identity = self.local_node(selected_root).and_then(|root| {
             if let Some(CheckedNodeOwner::ModelRoot { identity, .. }) = &root.owner {
@@ -1863,7 +1928,7 @@ impl RefinementGraph<'_, '_> {
                 .and_then(|node| node.declaration.as_ref());
             let mut closest = None;
             for &position in self.index.values() {
-                meter.charge(1, || at.clone())?;
+                charge_at(meter, at)?;
                 let candidate = &self.nodes[position];
                 if self.kinds[position] != K::Protocol(super::ProtocolForm::ProtocolClause) {
                     continue;
@@ -1889,7 +1954,7 @@ impl RefinementGraph<'_, '_> {
         // Only compare an otherwise valid concrete class against the selected
         // root here, so that this row check does not mask that owner defect.
         let Some(clause) = clause else {
-            return Err(wrong_binding(at, locus));
+            return Err(wrong_binding(meter, at, locus));
         };
         let valid_clause_owner = self
             .local_node(clause)
@@ -1901,30 +1966,40 @@ impl RefinementGraph<'_, '_> {
         }) {
             return Ok(());
         }
-        let declared_identity = self.key_owner_identity(&RefinementKey::Local(clause.clone()));
+        let declared_identity = self.local_owner_identity(clause);
         if selected_identity.is_some() && selected_identity == declared_identity {
             Ok(())
         } else {
-            Err(wrong_binding(at, locus))
+            Err(wrong_binding(meter, at, locus))
         }
     }
 }
 
-fn wrong_binding(at: JsonPointer, locus: &CheckedNodeId) -> ValidationFailure {
-    ValidationFailure::refused_at(
+fn wrong_binding(
+    meter: &mut super::WorkMeter,
+    at: Path<'_>,
+    locus: &CheckedNodeId,
+) -> ValidationFailure {
+    refuse_at(
+        meter,
         CheckedPackageRefusalCode::InvalidModelBinding,
-        at,
         Some(CheckedPackageRefusalCause::MalformedDeclaration),
-        locus.clone(),
+        at,
+        locus,
     )
 }
 
-fn missing_class(at: JsonPointer, locus: &CheckedNodeId) -> ValidationFailure {
-    ValidationFailure::refused_at(
+fn missing_class(
+    meter: &mut super::WorkMeter,
+    at: Path<'_>,
+    locus: &CheckedNodeId,
+) -> ValidationFailure {
+    refuse_at(
+        meter,
         CheckedPackageRefusalCode::MissingDeclaration,
-        at,
         Some(CheckedPackageRefusalCause::MissingName),
-        locus.clone(),
+        at,
+        locus,
     )
 }
 
@@ -1971,7 +2046,7 @@ fn validate_catalog(
     let root = node_at(position).key("body").key("class_catalog");
     let mut requires_catalog = protocol.is_some();
     for step in steps {
-        meter.charge(1, || root.clone())?;
+        charge_at(meter, root)?;
         requires_catalog |= step.source_node.is_none()
             || matches!(step.target, RefinementStepTarget::ProtocolStep { .. });
     }
@@ -1983,7 +2058,7 @@ fn validate_catalog(
         }
     });
     for &source_position in graph.index.values() {
-        meter.charge(1, || root.clone())?;
+        charge_at(meter, root)?;
         if graph.kinds.get(source_position)
             != Some(&super::CheckedNodeKind::Protocol(
                 super::ProtocolForm::ProtocolClause,
@@ -2010,7 +2085,8 @@ fn validate_catalog(
         }
     }
     if requires_catalog && class_catalog.is_none() {
-        return Err(ValidationFailure::refused(
+        return Err(refuse_unlocated(
+            meter,
             CheckedPackageRefusalCode::InvalidSemanticGraph,
             root,
         ));
@@ -2019,47 +2095,48 @@ fn validate_catalog(
         return Ok(());
     };
     if protocol.is_none() && catalog.concrete.is_empty() && catalog.r#abstract.is_empty() {
-        return Err(ValidationFailure::refused(
+        return Err(refuse_unlocated(
+            meter,
             CheckedPackageRefusalCode::InvalidSemanticGraph,
             root,
         ));
     }
     for (index, entry) in catalog.concrete.iter().enumerate() {
-        let at = root.clone().key("concrete").index(index);
-        meter.charge(1, || at.clone())?;
+        let at = root.key("concrete").index(index);
+        charge_at(meter, at)?;
         if let RefinementConcreteClass::Declared {
             node, binder_types, ..
         } = entry
         {
-            let node_at = at.clone().key("node");
-            if !class_node_kind(graph.local_kind(node, node_at.clone(), locus)?) {
-                return Err(wrong_binding(node_at, locus));
+            let node_at = at.key("node");
+            if !class_node_kind(graph.local_kind(meter, node, node_at, locus)?) {
+                return Err(wrong_binding(meter, node_at, locus));
             }
             for (binder_index, binder) in binder_types.iter().enumerate() {
-                let binder_at = at.clone().key("binder_types").index(binder_index);
-                meter.charge(1, || binder_at.clone())?;
-                if !class_type_kind(graph.local_kind(binder, binder_at.clone(), locus)?) {
-                    return Err(wrong_binding(binder_at, locus));
+                let binder_at = at.key("binder_types").index(binder_index);
+                charge_at(meter, binder_at)?;
+                if !class_type_kind(graph.local_kind(meter, binder, binder_at, locus)?) {
+                    return Err(wrong_binding(meter, binder_at, locus));
                 }
             }
         }
     }
     for (index, entry) in catalog.r#abstract.iter().enumerate() {
-        let at = root.clone().key("abstract").index(index);
-        meter.charge(1, || at.clone())?;
+        let at = root.key("abstract").index(index);
+        charge_at(meter, at)?;
         if let RefinementAbstractClass::Declared {
             node, binder_types, ..
         } = entry
         {
-            let node_at = at.clone().key("node");
-            if !class_node_kind(graph.key_kind(node, node_at.clone(), locus)?) {
-                return Err(wrong_binding(node_at, locus));
+            let node_at = at.key("node");
+            if !class_node_kind(graph.key_kind(meter, node, node_at, locus)?) {
+                return Err(wrong_binding(meter, node_at, locus));
             }
             for (binder_index, binder) in binder_types.iter().enumerate() {
-                let binder_at = at.clone().key("binder_types").index(binder_index);
-                meter.charge(1, || binder_at.clone())?;
-                if !class_type_kind(graph.key_kind(binder, binder_at.clone(), locus)?) {
-                    return Err(wrong_binding(binder_at, locus));
+                let binder_at = at.key("binder_types").index(binder_index);
+                charge_at(meter, binder_at)?;
+                if !class_type_kind(graph.key_kind(meter, binder, binder_at, locus)?) {
+                    return Err(wrong_binding(meter, binder_at, locus));
                 }
             }
         }
@@ -2088,7 +2165,8 @@ fn validate_rows(
         ..
     } = body
     else {
-        return Err(ValidationFailure::refused(
+        return Err(refuse_unlocated(
+            meter,
             CheckedPackageRefusalCode::InvalidSemanticGraph,
             node_at(position).key("body"),
         ));
@@ -2096,21 +2174,24 @@ fn validate_rows(
     let root = node_at(position).key("body");
     let locus = &node.node_id;
     for (index, row) in populations.iter().enumerate() {
-        let at = root.clone().key("populations").index(index);
-        meter.charge(1, || at.clone())?;
+        let at = root.key("populations").index(index);
+        charge_at(meter, at)?;
         graph.require_kind(
+            meter,
             &row.r#abstract,
             K::Relation(RelationForm::Population),
-            at.clone().key("abstract"),
+            at.key("abstract"),
             locus,
         )?;
         graph.require_local_kind(
+            meter,
             &row.concrete,
             K::Relation(RelationForm::Population),
-            at.clone().key("concrete"),
+            at.key("concrete"),
             locus,
         )?;
         graph.require_concrete_owner(
+            meter,
             &row.concrete,
             &node.semantic_type,
             at.key("concrete"),
@@ -2118,53 +2199,57 @@ fn validate_rows(
         )?;
     }
     for (index, row) in objects.iter().enumerate() {
-        let at = root.clone().key("objects").index(index);
-        meter.charge(1, || at.clone())?;
+        let at = root.key("objects").index(index);
+        charge_at(meter, at)?;
         graph.require_kind(
+            meter,
             &row.abstract_type,
             K::Model(ModelForm::ObjectType),
-            at.clone().key("abstract_type"),
+            at.key("abstract_type"),
             locus,
         )?;
         graph.require_local_kind(
+            meter,
             &row.concrete_type,
             K::Model(ModelForm::ObjectType),
-            at.clone().key("concrete_type"),
+            at.key("concrete_type"),
             locus,
         )?;
         graph.require_concrete_owner(
+            meter,
             &row.concrete_type,
             &node.semantic_type,
-            at.clone().key("concrete_type"),
+            at.key("concrete_type"),
             locus,
         )?;
         let known = abstract_fields(&row.abstract_type, owners, graph.dependencies);
         for (field_index, field) in row.fields.iter().enumerate() {
-            let field_at = at.clone().key("fields").index(field_index);
-            meter.charge(1, || field_at.clone())?;
+            let field_at = at.key("fields").index(field_index);
+            charge_at(meter, field_at)?;
             if !known
                 .as_ref()
                 .is_some_and(|names| names.contains(&field.name))
             {
-                return Err(ValidationFailure::refused_at(
+                return Err(refuse_at(
+                    meter,
                     CheckedPackageRefusalCode::MissingDeclaration,
-                    field_at.key("name"),
                     Some(CheckedPackageRefusalCause::MissingName),
-                    locus.clone(),
+                    field_at.key("name"),
+                    locus,
                 ));
             }
         }
     }
     for (index, row) in steps.iter().enumerate() {
-        let at = root.clone().key("steps").index(index);
-        meter.charge(1, || at.clone())?;
+        let at = root.key("steps").index(index);
+        charge_at(meter, at)?;
         if let Some(catalog) = class_catalog {
             let Some(class) = catalog
                 .concrete
                 .iter()
                 .find(|entry| entry.class() == row.source_class.as_ref())
             else {
-                return Err(missing_class(at.clone().key("source_class"), locus));
+                return Err(missing_class(meter, at.key("source_class"), locus));
             };
             let matches_node = match (class, &row.source_node) {
                 (RefinementConcreteClass::Declared { node, .. }, Some(source)) => node == source,
@@ -2172,34 +2257,36 @@ fn validate_rows(
                 _ => false,
             };
             if !matches_node {
-                return Err(wrong_binding(at.clone().key("source_node"), locus));
+                return Err(wrong_binding(meter, at.key("source_node"), locus));
             }
             if let Some(source) = &row.source_node {
                 graph.require_concrete_class_source(
                     source,
                     &node.semantic_type,
-                    at.clone().key("source_node"),
+                    at.key("source_node"),
                     locus,
                     meter,
                 )?;
             }
         } else if let Some(source) = &row.source_node {
             let operation = graph.require_concrete_step_anchor(
+                meter,
                 source,
                 &node.semantic_type,
-                at.clone().key("source_node"),
+                at.key("source_node"),
                 locus,
             )?;
-            if row.source_class.as_ref() != operation.as_ref() {
-                return Err(wrong_binding(at.clone().key("source_class"), locus));
+            if row.source_class.as_ref() != operation {
+                return Err(wrong_binding(meter, at.key("source_class"), locus));
             }
         } else {
-            return Err(missing_class(at.clone().key("source_class"), locus));
+            return Err(missing_class(meter, at.key("source_class"), locus));
         }
         let target_at = at.key("target");
         match &row.target {
             RefinementStepTarget::Operation { operation, .. } => {
                 graph.require_anchor_subject(
+                    meter,
                     operation,
                     abstract_key,
                     target_at.key("operation"),
@@ -2219,7 +2306,7 @@ fn validate_rows(
                             .iter()
                             .find(|entry| entry.class() == class.as_ref())
                     })
-                    .ok_or_else(|| missing_class(target_at.clone().key("class"), locus))?;
+                    .ok_or_else(|| missing_class(meter, target_at.key("class"), locus))?;
                 let (matches_node, binders) = match selected {
                     RefinementAbstractClass::Declared {
                         node: declared,
@@ -2232,15 +2319,16 @@ fn validate_rows(
                     RefinementAbstractClass::Memory(_) => (node.is_none(), None),
                 };
                 if !matches_node {
-                    return Err(wrong_binding(target_at.clone().key("node"), locus));
+                    return Err(wrong_binding(meter, target_at.key("node"), locus));
                 }
                 let expected = binders.map_or(0, <[_]>::len);
                 if !arguments.is_empty() && arguments.len() != expected {
-                    return Err(ValidationFailure::refused_at(
+                    return Err(refuse_at(
+                        meter,
                         CheckedPackageRefusalCode::IllTyped,
-                        target_at.key("arguments"),
                         Some(CheckedPackageRefusalCause::OperatorIneligible),
-                        locus.clone(),
+                        target_at.key("arguments"),
+                        locus,
                     ));
                 }
             }
@@ -2248,33 +2336,37 @@ fn validate_rows(
         }
     }
     for (index, row) in histories.iter().enumerate() {
-        let at = root.clone().key("histories").index(index);
-        meter.charge(1, || at.clone())?;
+        let at = root.key("histories").index(index);
+        charge_at(meter, at)?;
         graph.require_local_kind(
+            meter,
             &row.concrete_type,
             K::Model(ModelForm::ObjectType),
-            at.clone().key("concrete_type"),
+            at.key("concrete_type"),
             locus,
         )?;
         graph.require_concrete_owner(
+            meter,
             &row.concrete_type,
             &node.semantic_type,
-            at.clone().key("concrete_type"),
+            at.key("concrete_type"),
             locus,
         )?;
-        graph.local_kind(&row.type_id, at.clone().key("type"), locus)?;
+        graph.local_kind(meter, &row.type_id, at.key("type"), locus)?;
         if let CheckedTerm::Reference { target } = &row.initial {
             graph.require_local_kind(
+                meter,
                 target,
                 K::Value(super::ValueForm::Literal),
-                at.clone().key("initial").key("target"),
+                at.key("initial").key("target"),
                 locus,
             )?;
         }
         for (update_index, update) in row.updates.iter().enumerate() {
-            let update_at = at.clone().key("updates").index(update_index);
-            meter.charge(1, || update_at.clone())?;
+            let update_at = at.key("updates").index(update_index);
+            charge_at(meter, update_at)?;
             graph.require_concrete_step_anchor(
+                meter,
                 &update.operation,
                 &node.semantic_type,
                 update_at.key("operation"),
@@ -2283,9 +2375,10 @@ fn validate_rows(
         }
     }
     for (index, row) in assume.iter().enumerate() {
-        let at = root.clone().key("assume").index(index);
-        meter.charge(1, || at.clone())?;
+        let at = root.key("assume").index(index);
+        charge_at(meter, at)?;
         graph.require_concrete_step_anchor(
+            meter,
             &row.operation,
             &node.semantic_type,
             at.key("operation"),
@@ -2293,14 +2386,21 @@ fn validate_rows(
         )?;
     }
     for (index, row) in ensure.iter().enumerate() {
-        let at = root.clone().key("ensure").index(index);
-        meter.charge(1, || at.clone())?;
-        graph.require_anchor_subject(&row.operation, abstract_key, at.key("operation"), locus)?;
+        let at = root.key("ensure").index(index);
+        charge_at(meter, at)?;
+        graph.require_anchor_subject(
+            meter,
+            &row.operation,
+            abstract_key,
+            at.key("operation"),
+            locus,
+        )?;
     }
     Ok(())
 }
 
 fn check_headers(
+    meter: &mut super::WorkMeter,
     node: &super::RawSemanticNodeV2,
     body: &CheckedTerm,
     position: usize,
@@ -2315,7 +2415,8 @@ fn check_headers(
         ..
     } = body
     else {
-        return Err(ValidationFailure::refused(
+        return Err(refuse_unlocated(
+            meter,
             CheckedPackageRefusalCode::InvalidSemanticGraph,
             node_at(position).key("body"),
         ));
@@ -2323,22 +2424,25 @@ fn check_headers(
     let root = node_at(position);
     let locus = &node.node_id;
     graph.require_local_kind(
+        meter,
         &node.semantic_type,
         K::Model(ModelForm::ModelRoot),
-        root.clone().key("semantic_type"),
+        root.key("semantic_type"),
         locus,
     )?;
     graph.require_kind(
+        meter,
         abstract_key,
         K::Model(ModelForm::ModelRoot),
-        root.clone().key("body").key("abstract"),
+        root.key("body").key("abstract"),
         locus,
     )?;
     if let Some(protocol) = protocol {
         graph.require_kind(
+            meter,
             protocol,
             K::Protocol(ProtocolForm::ProtocolClause),
-            root.clone().key("body").key("protocol"),
+            root.key("body").key("protocol"),
             locus,
         )?;
         let root_identity = match abstract_key.as_ref() {
@@ -2351,13 +2455,15 @@ fn check_headers(
         };
         let Some(super::CheckedNodeOwner::ModelRoot { identity, .. }) = root_identity else {
             return Err(wrong_binding(
-                root.clone().key("body").key("abstract"),
+                meter,
+                root.key("body").key("abstract"),
                 locus,
             ));
         };
         if graph.key_owner_identity(protocol) != Some(identity.as_ref()) {
             return Err(wrong_binding(
-                root.clone().key("body").key("protocol"),
+                meter,
+                root.key("body").key("protocol"),
                 locus,
             ));
         }
@@ -2369,11 +2475,12 @@ fn check_headers(
                 == Some(super::TemporalProfile::InfiniteTrace)
     });
     if !selected {
-        return Err(ValidationFailure::refused_at(
+        return Err(refuse_at(
+            meter,
             CheckedPackageRefusalCode::InvalidModelBinding,
-            root.key("body").key("profile"),
             Some(CheckedPackageRefusalCause::MalformedDeclaration),
-            locus.clone(),
+            root.key("body").key("profile"),
+            locus,
         ));
     }
     Ok(())
@@ -2421,9 +2528,11 @@ fn proof_eligible(
             // A missing or wrong-kind key receives its ordered meaning refusal later.
             return Ok(None);
         };
-        meter.charge(u64::try_from(fields.len()).unwrap_or(u64::MAX), || {
-            node_at(position).key("body").key("objects").index(index)
-        })?;
+        charge_amount_at(
+            meter,
+            node_at(position).key("body").key("objects").index(index),
+            u64::try_from(fields.len()).unwrap_or(u64::MAX),
+        )?;
         let mut mapped: Vec<&str> = meter.vec(object.fields.len())?;
         mapped.extend(object.fields.iter().map(|field| field.name.as_ref()));
         mapped.sort_unstable();
@@ -2458,9 +2567,11 @@ pub(super) fn validate_step_rows(
             continue;
         }
         if let Some(CheckedTerm::Refinement { steps, .. }) = terms[position].as_ref() {
-            meter.charge(u64::try_from(steps.len()).unwrap_or(u64::MAX), || {
-                node_at(position).key("body").key("steps")
-            })?;
+            charge_amount_at(
+                meter,
+                node_at(position).key("body").key("steps"),
+                u64::try_from(steps.len()).unwrap_or(u64::MAX),
+            )?;
             entries.push((&node.node_id, steps.len()));
         }
     }
@@ -2469,27 +2580,28 @@ pub(super) fn validate_step_rows(
     let count = expected
         .iter()
         .try_fold(0usize, |total, (_, len)| total.checked_add(*len))
-        .ok_or_else(|| invalid_step_rows(None))?;
+        .ok_or_else(|| invalid_step_rows(meter, None))?;
     if count == 0 && rows.is_none() {
         return Ok(());
     }
     if count == 0 {
-        return Err(invalid_step_rows(None));
+        return Err(invalid_step_rows(meter, None));
     }
     let Some(rows) = rows else {
-        return Err(invalid_step_rows(None));
+        return Err(invalid_step_rows(meter, None));
     };
-    meter.charge(
+    charge_amount_at(
+        meter,
+        Path::root().key("lock").key("sources"),
         u64::try_from(locked_sources.len()).unwrap_or(u64::MAX),
-        || JsonPointer::root().key("lock").key("sources"),
     )?;
     let mut locked: Vec<&CheckedSourceRef> = meter.vec(locked_sources.len())?;
     locked.extend(locked_sources.iter());
     locked.sort_unstable();
     let mut previous: Option<(&CheckedNodeId, u64)> = None;
     for (index, row) in rows.iter().enumerate() {
-        meter.charge(1, || {
-            JsonPointer::root().key("refinement_step_rows").index(index)
+        charge_at(meter, {
+            Path::root().key("refinement_step_rows").index(index)
         })?;
         let in_range = expected
             .get(&&row.node_id)
@@ -2497,38 +2609,44 @@ pub(super) fn validate_step_rows(
         let ordered =
             previous.is_none_or(|(node, ordinal)| (node, ordinal) < (&row.node_id, row.ordinal));
         if !in_range || !ordered {
-            return Err(invalid_step_rows(Some(index)));
+            return Err(invalid_step_rows(meter, Some(index)));
         }
         if locked.binary_search(&&row.region.source).is_err() {
-            return Err(invalid_step_row_region(index, true));
+            return Err(invalid_step_row_region(meter, index, true));
         }
         if row.region.start >= row.region.end {
-            return Err(invalid_step_row_region(index, false));
+            return Err(invalid_step_row_region(meter, index, false));
         }
         previous = Some((&row.node_id, row.ordinal));
     }
     if rows.len() != count {
-        return Err(invalid_step_rows(None));
+        return Err(invalid_step_rows(meter, None));
     }
     Ok(())
 }
 
-fn invalid_step_row_region(index: usize, source: bool) -> ValidationFailure {
-    let region = JsonPointer::root()
+fn invalid_step_row_region(
+    meter: &mut super::WorkMeter,
+    index: usize,
+    source: bool,
+) -> ValidationFailure {
+    let region = Path::root()
         .key("refinement_step_rows")
         .index(index)
         .key("region");
-    ValidationFailure::refused_because(
+    refuse_because(
+        meter,
         CheckedPackageRefusalCode::InvalidPackage,
         if source { region.key("source") } else { region },
         CheckedPackageRefusalCause::InvalidValue,
     )
 }
 
-fn invalid_step_rows(index: Option<usize>) -> ValidationFailure {
-    let path = JsonPointer::root().key("refinement_step_rows");
-    let path = index.map_or(path.clone(), |index| path.index(index));
-    ValidationFailure::refused_because(
+fn invalid_step_rows(meter: &mut super::WorkMeter, index: Option<usize>) -> ValidationFailure {
+    let path = Path::root().key("refinement_step_rows");
+    let path = index.map_or(path, |index| path.index(index));
+    refuse_because(
+        meter,
         CheckedPackageRefusalCode::InvalidPackage,
         path,
         CheckedPackageRefusalCause::InvalidValue,
@@ -2547,8 +2665,8 @@ pub(super) fn validate_occurrences(
     let mut row_entries = meter.vec(rows.map_or(0, <[_]>::len))?;
     if let Some(rows) = rows {
         for (index, row) in rows.iter().enumerate() {
-            meter.charge(1, || {
-                JsonPointer::root().key("refinement_step_rows").index(index)
+            charge_at(meter, {
+                Path::root().key("refinement_step_rows").index(index)
             })?;
             row_entries.push(((&row.node_id, row.ordinal), &row.region));
         }
@@ -2562,7 +2680,7 @@ pub(super) fn validate_occurrences(
     };
     let mut declaration_entries = meter.vec(source_map.iter().filter(is_declaration).count())?;
     for (index, entry) in source_map.iter().enumerate() {
-        meter.charge(1, || JsonPointer::root().key("source_map").index(index))?;
+        charge_at(meter, Path::root().key("source_map").index(index))?;
         if is_declaration(&entry) {
             declaration_entries.push((&entry.node_id, entry.regions.as_slice()));
         }
@@ -2595,9 +2713,7 @@ pub(super) fn validate_occurrences(
         let declaration = declarations.get(&&node.node_id);
         let mut present: Vec<(CheckedOccurrenceRole, u64)> = Vec::new();
         for (entry_index, entry) in source_map.iter().enumerate() {
-            meter.charge(1, || {
-                JsonPointer::root().key("source_map").index(entry_index)
-            })?;
+            charge_at(meter, Path::root().key("source_map").index(entry_index))?;
             if entry.node_id != node.node_id {
                 continue;
             }
@@ -2619,11 +2735,12 @@ pub(super) fn validate_occurrences(
                         .get(&(&node.node_id, entry.ordinal - 1))
                         .is_some_and(|region| entry.regions.first() != Some(*region)))
             {
-                return Err(ValidationFailure::refused_at(
+                return Err(refuse_at(
+                    meter,
                     CheckedPackageRefusalCode::InvalidPackage,
-                    JsonPointer::root().key("source_map").index(entry_index),
                     Some(CheckedPackageRefusalCause::InvalidValue),
-                    node.node_id.clone(),
+                    Path::root().key("source_map").index(entry_index),
+                    &node.node_id,
                 ));
             }
             meter.insert_sorted(&mut present, (entry.role.clone(), entry.ordinal))?;
@@ -2638,11 +2755,12 @@ pub(super) fn validate_occurrences(
                 })
             })
         {
-            return Err(ValidationFailure::refused_at(
+            return Err(refuse_at(
+                meter,
                 CheckedPackageRefusalCode::InvalidPackage,
-                JsonPointer::root().key("source_map"),
                 Some(CheckedPackageRefusalCause::InvalidValue),
-                node.node_id.clone(),
+                Path::root().key("source_map"),
+                &node.node_id,
             ));
         }
     }
@@ -2670,14 +2788,15 @@ pub(super) fn validate_refinements(
             .get(position)
             .and_then(Option::as_ref)
             .ok_or_else(|| {
-                ValidationFailure::refused(
+                refuse_unlocated(
+                    meter,
                     CheckedPackageRefusalCode::InvalidSemanticGraph,
                     node_at(position).key("body"),
                 )
             })?;
-        meter.charge(1, || node_at(position))?;
+        charge_at(meter, node_at(position))?;
         canonical_order(body, position, &graph, meter)?;
-        check_headers(node, body, position, &graph, lock)?;
+        check_headers(meter, node, body, position, &graph, lock)?;
         validate_catalog(
             body,
             position,
@@ -2723,7 +2842,7 @@ pub(super) fn validate_catalog_graph(
             None,
             None,
             CatalogSignatures::Local(owners),
-            &root,
+            root,
             meter,
         )?;
         if let Some(super::CheckedNodeOwner::ModelRoot { identity, .. }) = graph
@@ -2740,7 +2859,7 @@ pub(super) fn validate_catalog_graph(
             &catalog.concrete,
             &concrete,
             &graph,
-            root.clone().key("concrete"),
+            root.key("concrete"),
             &graph.nodes[position].node_id,
             meter,
         )?;
@@ -2748,13 +2867,13 @@ pub(super) fn validate_catalog_graph(
             &local,
             &graph.nodes[position].semantic_type,
             None,
-            &root,
+            root,
             meter,
         )?;
         compare_concrete_memory(
             &catalog.concrete,
             concrete_memory,
-            root.clone().key("concrete"),
+            root.key("concrete"),
             &graph.nodes[position].node_id,
             meter,
         )?;
@@ -2767,10 +2886,10 @@ pub(super) fn validate_catalog_graph(
                         Some(clause),
                         None,
                         CatalogSignatures::Local(owners),
-                        &root,
+                        root,
                         meter,
                     )?,
-                    protocol_memory_models(&local, model, Some(clause), &root, meter)?,
+                    protocol_memory_models(&local, model, Some(clause), root, meter)?,
                 ),
                 RefinementKey::External(_) => (Vec::new(), MemoryModels::default()),
             },
@@ -2780,11 +2899,12 @@ pub(super) fn validate_catalog_graph(
                         .dependencies
                         .selected_package(&clause.package)
                         .ok_or_else(|| {
-                            ValidationFailure::refused_at(
+                            refuse_at(
+                                meter,
                                 CheckedPackageRefusalCode::InvalidModelBinding,
-                                node_at(position).key("body").key("protocol"),
                                 Some(CheckedPackageRefusalCause::MalformedDeclaration),
-                                graph.nodes[position].node_id.clone(),
+                                node_at(position).key("body").key("protocol"),
+                                &graph.nodes[position].node_id,
                             )
                         })?;
                     let dependency = dependency_protocol_nodes(selected, meter)?;
@@ -2795,14 +2915,14 @@ pub(super) fn validate_catalog_graph(
                             Some(&clause.node),
                             Some(&clause.package),
                             CatalogSignatures::External(&selected.models),
-                            &root,
+                            root,
                             meter,
                         )?,
                         protocol_memory_models(
                             &dependency,
                             &model.node,
                             Some(&clause.node),
-                            &root,
+                            root,
                             meter,
                         )?,
                     )
@@ -2860,7 +2980,7 @@ pub(super) fn validate_catalog_graph(
             &catalog.r#abstract,
             &abstract_classes,
             &graph,
-            root.clone().key("abstract"),
+            root.key("abstract"),
             &graph.nodes[position].node_id,
             meter,
         )?;
@@ -3107,7 +3227,7 @@ fn protocol_classes(
     selected_clause: Option<&CheckedNodeId>,
     package: Option<&str>,
     signatures: CatalogSignatures<'_, '_>,
-    at: &JsonPointer,
+    at: Path<'_>,
     meter: &mut super::WorkMeter,
 ) -> Result<Vec<DeclaredGraphClass>, ValidationFailure> {
     let mut classes = Vec::new();
@@ -3118,7 +3238,7 @@ fn protocol_classes(
             None
         }
     });
-    meter.charge(super::model_members::units(nodes.len()), || at.clone())?;
+    charge_amount_at(meter, at, super::model_members::units(nodes.len()))?;
     let clause_count = nodes
         .iter()
         .filter(|node| {
@@ -3142,9 +3262,7 @@ fn protocol_classes(
     for member in nodes {
         let closest = if matches!(member.kind, super::CheckedNodeKind::Protocol(_)) {
             if let Some(name) = member.name {
-                meter.charge(super::model_members::units(clause_paths.len()), || {
-                    at.clone()
-                })?;
+                charge_amount_at(meter, at, super::model_members::units(clause_paths.len()))?;
                 clause_paths
                     .iter()
                     .filter(|(_, path)| protocol_clause_prefix(&name.qualified_name, path))
@@ -3185,7 +3303,7 @@ fn protocol_classes(
                     .and_then(super::protocol_body::text_value)
                     == Some("each")
                 {
-                    meter.charge(super::model_members::units(nodes.len()), || at.clone())?;
+                    charge_amount_at(meter, at, super::model_members::units(nodes.len()))?;
                     let trigger_type = super::protocol_body::group_value(activation, "trigger")
                         .and_then(|trigger| match trigger {
                             CheckedTerm::Reference { target } => Some(target),
@@ -3216,7 +3334,7 @@ fn protocol_classes(
             }
         }
         for (member, closest_clause) in nodes.iter().zip(&closest_clauses) {
-            meter.charge(1, || at.clone())?;
+            charge_at(meter, at)?;
             let Some(name) = member.name else {
                 continue;
             };
@@ -3285,12 +3403,12 @@ fn protocol_memory_models(
     nodes: &[ProtocolCatalogNode<'_>],
     model: &CheckedNodeId,
     selected_clause: Option<&CheckedNodeId>,
-    at: &JsonPointer,
+    at: Path<'_>,
     meter: &mut super::WorkMeter,
 ) -> Result<MemoryModels, ValidationFailure> {
     let mut entries = meter.vec(nodes.len())?;
     for node in nodes {
-        meter.charge(1, || at.clone())?;
+        charge_at(meter, at)?;
         entries.push((node.id, node));
     }
     // Of two nodes with one id the later is kept, as a map would hold.
@@ -3324,7 +3442,7 @@ fn protocol_memory_models(
             continue;
         };
         for member in nodes {
-            meter.charge(1, || at.clone())?;
+            charge_at(meter, at)?;
             let Some(name) = member.name else {
                 continue;
             };
@@ -3348,23 +3466,22 @@ fn protocol_memory_models(
             let Some(CheckedTerm::Aggregate { members }) =
                 super::protocol_body::binding_value(arguments, "memory")
             else {
-                return Err(ValidationFailure::refused(
+                return Err(refuse_unlocated(
+                    meter,
                     CheckedPackageRefusalCode::InvalidSemanticGraph,
-                    at.clone(),
+                    at,
                 ));
             };
             let selected = match members.as_slice() {
                 [] => "sc",
                 [value] => super::protocol_body::text_value(value).ok_or_else(|| {
-                    ValidationFailure::refused(
-                        CheckedPackageRefusalCode::InvalidSemanticGraph,
-                        at.clone(),
-                    )
+                    refuse_unlocated(meter, CheckedPackageRefusalCode::InvalidSemanticGraph, at)
                 })?,
                 _ => {
-                    return Err(ValidationFailure::refused(
+                    return Err(refuse_unlocated(
+                        meter,
                         CheckedPackageRefusalCode::InvalidSemanticGraph,
-                        at.clone(),
+                        at,
                     ));
                 }
             };
@@ -3373,9 +3490,10 @@ fn protocol_memory_models(
                 "tso" => RefinementMemoryModel::Tso,
                 "ra" => RefinementMemoryModel::Ra,
                 _ => {
-                    return Err(ValidationFailure::refused(
+                    return Err(refuse_unlocated(
+                        meter,
                         CheckedPackageRefusalCode::InvalidSemanticGraph,
-                        at.clone(),
+                        at,
                     ));
                 }
             };
@@ -3418,34 +3536,36 @@ impl MemoryModels {
 fn compare_memory<'a>(
     actual: impl Iterator<Item = (usize, &'a RefinementMemoryClass)>,
     models: MemoryModels,
-    at: JsonPointer,
+    at: Path<'_>,
     locus: &CheckedNodeId,
     meter: &mut super::WorkMeter,
 ) -> Result<(), ValidationFailure> {
     // Each selected model has a drain; the total-store-order model a flush.
     let (mut drains, mut flush) = (models, models.contains(RefinementMemoryModel::Tso));
     for (index, memory) in actual {
-        let entry_at = at.clone().index(index);
-        meter.charge(1, || entry_at.clone())?;
+        let entry_at = at.index(index);
+        charge_at(meter, entry_at)?;
         let expected = match memory {
             RefinementMemoryClass::Drain { memory_model, .. } => drains.remove(*memory_model),
             RefinementMemoryClass::Flush { .. } => std::mem::take(&mut flush),
         };
         if !expected {
-            return Err(ValidationFailure::refused_at(
+            return Err(refuse_at(
+                meter,
                 CheckedPackageRefusalCode::InvalidSemanticGraph,
-                entry_at,
                 None,
-                locus.clone(),
+                entry_at,
+                locus,
             ));
         }
     }
     if drains.0 != 0 || flush {
-        return Err(ValidationFailure::refused_at(
+        return Err(refuse_at(
+            meter,
             CheckedPackageRefusalCode::InvalidSemanticGraph,
-            at,
             None,
-            locus.clone(),
+            at,
+            locus,
         ));
     }
     Ok(())
@@ -3454,7 +3574,7 @@ fn compare_memory<'a>(
 fn compare_concrete_memory(
     actual: &[RefinementConcreteClass],
     models: MemoryModels,
-    at: JsonPointer,
+    at: Path<'_>,
     locus: &CheckedNodeId,
     meter: &mut super::WorkMeter,
 ) -> Result<(), ValidationFailure> {
@@ -3476,7 +3596,7 @@ fn compare_concrete_memory(
 fn compare_abstract_memory(
     actual: &[RefinementAbstractClass],
     models: MemoryModels,
-    at: JsonPointer,
+    at: Path<'_>,
     locus: &CheckedNodeId,
     meter: &mut super::WorkMeter,
 ) -> Result<(), ValidationFailure> {
@@ -3721,7 +3841,7 @@ fn compare_declared_classes(
     actual: &[RefinementConcreteClass],
     expected: &[DeclaredGraphClass],
     graph: &RefinementGraph<'_, '_>,
-    at: JsonPointer,
+    at: Path<'_>,
     locus: &CheckedNodeId,
     meter: &mut super::WorkMeter,
 ) -> Result<(), ValidationFailure> {
@@ -3730,33 +3850,36 @@ fn compare_declared_classes(
         if matches!(entry, RefinementConcreteClass::Memory(_)) {
             continue;
         }
-        let entry_at = at.clone().index(index);
-        meter.charge(1, || entry_at.clone())?;
+        let entry_at = at.index(index);
+        charge_at(meter, entry_at)?;
         if expected
             .peek()
             .is_some_and(|item| item.class.as_str() < entry.class())
         {
-            return Err(ValidationFailure::refused_at(
+            return Err(refuse_at(
+                meter,
                 CheckedPackageRefusalCode::InvalidSemanticGraph,
-                at,
                 None,
-                locus.clone(),
+                at,
+                locus,
             ));
         }
         let Some(found) = expected.next() else {
-            return Err(ValidationFailure::refused_at(
+            return Err(refuse_at(
+                meter,
                 CheckedPackageRefusalCode::InvalidSemanticGraph,
-                entry_at,
                 None,
-                locus.clone(),
+                entry_at,
+                locus,
             ));
         };
         if found.class != entry.class() {
-            return Err(ValidationFailure::refused_at(
+            return Err(refuse_at(
+                meter,
                 CheckedPackageRefusalCode::InvalidSemanticGraph,
-                entry_at,
                 None,
-                locus.clone(),
+                entry_at,
+                locus,
             ));
         }
         match entry {
@@ -3764,11 +3887,12 @@ fn compare_declared_classes(
                 node, binder_types, ..
             } => {
                 if matches!(found.binder_types, BinderSignature::Ambiguous) {
-                    return Err(ValidationFailure::refused_at(
+                    return Err(refuse_at(
+                        meter,
                         CheckedPackageRefusalCode::AmbiguousDeclaration,
-                        entry_at.key("binder_types"),
                         Some(CheckedPackageRefusalCause::AmbiguousName),
-                        locus.clone(),
+                        entry_at.key("binder_types"),
+                        locus,
                     ));
                 }
                 let mut same = found.node.local() == Some(node);
@@ -3786,18 +3910,19 @@ fn compare_declared_classes(
                     }
                 }
                 if !same {
-                    return Err(wrong_binding(entry_at, locus));
+                    return Err(wrong_binding(meter, entry_at, locus));
                 }
             }
             RefinementConcreteClass::Memory(_) => unreachable!("memory entry skipped above"),
         }
     }
     if expected.next().is_some() {
-        return Err(ValidationFailure::refused_at(
+        return Err(refuse_at(
+            meter,
             CheckedPackageRefusalCode::InvalidSemanticGraph,
-            at,
             None,
-            locus.clone(),
+            at,
+            locus,
         ));
     }
     Ok(())
@@ -3807,7 +3932,7 @@ fn compare_abstract_classes(
     actual: &[RefinementAbstractClass],
     expected: &[DeclaredGraphClass],
     graph: &RefinementGraph<'_, '_>,
-    at: JsonPointer,
+    at: Path<'_>,
     locus: &CheckedNodeId,
     meter: &mut super::WorkMeter,
 ) -> Result<(), ValidationFailure> {
@@ -3816,33 +3941,36 @@ fn compare_abstract_classes(
         if matches!(entry, RefinementAbstractClass::Memory(_)) {
             continue;
         }
-        let entry_at = at.clone().index(index);
-        meter.charge(1, || entry_at.clone())?;
+        let entry_at = at.index(index);
+        charge_at(meter, entry_at)?;
         if expected
             .peek()
             .is_some_and(|item| item.class.as_str() < entry.class())
         {
-            return Err(ValidationFailure::refused_at(
+            return Err(refuse_at(
+                meter,
                 CheckedPackageRefusalCode::InvalidSemanticGraph,
-                at,
                 None,
-                locus.clone(),
+                at,
+                locus,
             ));
         }
         let Some(found) = expected.next() else {
-            return Err(ValidationFailure::refused_at(
+            return Err(refuse_at(
+                meter,
                 CheckedPackageRefusalCode::InvalidSemanticGraph,
-                entry_at,
                 None,
-                locus.clone(),
+                entry_at,
+                locus,
             ));
         };
         if found.class != entry.class() {
-            return Err(ValidationFailure::refused_at(
+            return Err(refuse_at(
+                meter,
                 CheckedPackageRefusalCode::InvalidSemanticGraph,
-                entry_at,
                 None,
-                locus.clone(),
+                entry_at,
+                locus,
             ));
         }
         match entry {
@@ -3850,11 +3978,12 @@ fn compare_abstract_classes(
                 node, binder_types, ..
             } => {
                 if matches!(found.binder_types, BinderSignature::Ambiguous) {
-                    return Err(ValidationFailure::refused_at(
+                    return Err(refuse_at(
+                        meter,
                         CheckedPackageRefusalCode::AmbiguousDeclaration,
-                        entry_at.key("binder_types"),
                         Some(CheckedPackageRefusalCause::AmbiguousName),
-                        locus.clone(),
+                        entry_at.key("binder_types"),
+                        locus,
                     ));
                 }
                 let mut same = node == &found.node;
@@ -3868,18 +3997,19 @@ fn compare_abstract_classes(
                     }
                 }
                 if !same {
-                    return Err(wrong_binding(entry_at, locus));
+                    return Err(wrong_binding(meter, entry_at, locus));
                 }
             }
             RefinementAbstractClass::Memory(_) => unreachable!("memory entry skipped above"),
         }
     }
     if expected.next().is_some() {
-        return Err(ValidationFailure::refused_at(
+        return Err(refuse_at(
+            meter,
             CheckedPackageRefusalCode::InvalidSemanticGraph,
-            at,
             None,
-            locus.clone(),
+            at,
+            locus,
         ));
     }
     Ok(())
@@ -4056,9 +4186,10 @@ pub(super) fn validate_dependencies(
             None => None,
         }
         .ok_or_else(|| {
-            ValidationFailure::refused(
+            refuse_unlocated(
+                meter,
                 CheckedPackageRefusalCode::InvalidSemanticGraph,
-                crate::checked_package::common::node_pointer(position).key("body"),
+                node_at(position).key("body"),
             )
         })?;
         let mut keys = meter.vec(expected.len())?;
@@ -4075,9 +4206,10 @@ pub(super) fn validate_dependencies(
             .map(|id| index.resolved(id, structural_keys))
             .eq(keys)
         {
-            return Err(ValidationFailure::refused(
+            return Err(refuse_unlocated(
+                meter,
                 CheckedPackageRefusalCode::InvalidSemanticGraph,
-                crate::checked_package::common::node_pointer(position).key("dependencies"),
+                node_at(position).key("dependencies"),
             ));
         }
     }
@@ -4379,7 +4511,7 @@ mod tests {
             },
         ];
         let retained = super::super::model_fields::RetainedModels::default();
-        let at = JsonPointer::root();
+        let at = Path::root();
         for package in [None, Some("dependency/package")] {
             let run = |limit| {
                 let mut budget =
@@ -4392,7 +4524,7 @@ mod tests {
                         None,
                         package,
                         CatalogSignatures::External(&retained),
-                        &at,
+                        at,
                         &mut super::super::WorkMeter::over(&mut budget),
                     ));
                 });

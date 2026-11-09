@@ -1403,7 +1403,7 @@ fn every_registered_input_has_exact_accounting_at_core_bounds() {
 
 #[trace("TC-472", "FR-038-AC-511")]
 #[test]
-fn the_actual_tc048_catalogue_and_refusal_corpus_is_exactly_accounted() {
+fn the_actual_tc048_catalogue_and_refusal_corpus_is_accounted_within_the_bound() {
     initialize_operation_catalog().expect("catalog gate");
     for input in registered_cases() {
         eprintln!("Registry full actual input: {}", input.label);

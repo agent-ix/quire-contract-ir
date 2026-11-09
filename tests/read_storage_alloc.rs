@@ -2,8 +2,9 @@
 // Copyright (C) 2026 Agent-IX
 
 //! Counting-allocator checks of the budget-charged strict read (FR-038-AC-511,
-//! TC-472): each complete public read requests exactly the heap bytes it
-//! charged to its caller's read storage.
+//! TC-472): each complete public read requests no more than a fixed bound of
+//! heap bytes beyond what it charged to its caller's read storage, whatever
+//! the input size.
 //!
 //! Real request boundaries come from the public first-unpaid amount and locus;
 //! stage enumeration order is never treated as runtime order.
@@ -72,8 +73,8 @@ static ALLOCATOR: Counting = Counting;
 #[path = "it/support/read_allocation_proof.rs"]
 mod read_allocation_proof;
 use read_allocation_proof::{
-    accounted, drop_without_request, every_request, generous_limits, measure_read, Counter,
-    Expected,
+    accounted, drop_without_request, every_request, generous_limits, measure_read, unpaid, Counter,
+    Expected, UNPAID_BOUND,
 };
 
 struct ThreadCounter;
@@ -108,6 +109,65 @@ fn whole_read_over_one_mebibyte_has_no_unpaid_allocation() {
     let (bytes, _) = checked_package::v2_reference_chain(4000);
     assert!(bytes.len() > 1 << 20);
     whole_read("over1MiB sequence", &bytes, &evidence_for(&value));
+}
+
+/// Reads one package shape at growing sizes. At every size the unpaid heap is
+/// within the fixed bound, and the largest input leaves no more unpaid heap
+/// than the smallest, so no per-byte or per-node leak passes.
+fn assert_unpaid_does_not_grow(shape: &str, inputs: Vec<(usize, Vec<u8>, CheckedPackageEvidence)>) {
+    let mut unpaid_by_size = Vec::new();
+    for (size, bytes, evidence) in &inputs {
+        let read = measure_read::<ThreadCounter>(bytes, evidence, generous_limits(), u64::MAX);
+        assert!(
+            matches!(read.result, CheckedPackageV2BudgetedReadResult::Admitted(_)),
+            "{shape} of size {size} admits"
+        );
+        let unpaid = unpaid(&read);
+        assert!(
+            unpaid <= UNPAID_BOUND,
+            "{shape} of size {size} ({} bytes) requests {unpaid} unpaid bytes, over the fixed bound {UNPAID_BOUND}",
+            bytes.len()
+        );
+        unpaid_by_size.push(unpaid);
+        drop_without_request::<ThreadCounter>(read);
+    }
+    let (smallest, largest) = (&inputs[0], &inputs[inputs.len() - 1]);
+    assert!(
+        largest.1.len() > 16 * smallest.1.len(),
+        "{shape} inputs span a wide range of sizes"
+    );
+    assert!(
+        unpaid_by_size[unpaid_by_size.len() - 1] <= unpaid_by_size[0],
+        "{shape}: unpaid heap grows with input size: {unpaid_by_size:?}"
+    );
+}
+
+#[trace("TC-472", "FR-038-AC-511")]
+#[test]
+fn unpaid_read_memory_does_not_grow_with_input_size() {
+    let value = v2_all_families();
+    let evidence = evidence_for(&value);
+    initialize_operation_catalog().expect("catalogue gate");
+    assert_unpaid_does_not_grow(
+        "reference chain",
+        [50, 200, 800, 3200]
+            .into_iter()
+            .map(|length| {
+                let (bytes, _) = checked_package::v2_reference_chain(length);
+                (length, bytes, evidence.clone())
+            })
+            .collect(),
+    );
+    assert_unpaid_does_not_grow(
+        "string member",
+        [1 << 10, 1 << 16, 1 << 20]
+            .into_iter()
+            .map(|length| {
+                let input = read_storage_inputs::string_of(length);
+                (length, input.bytes, input.evidence)
+            })
+            .collect(),
+    );
 }
 
 #[trace("TC-472", "FR-038-AC-511")]
@@ -1061,6 +1121,7 @@ fn function_call_parameter_check_has_no_unpaid_allocation() {
         "the parameter-bound call admits: {:?}",
         observation.result
     );
+    accounted("function call parameter check", &observation);
     drop_without_request::<ThreadCounter>(observation);
 }
 

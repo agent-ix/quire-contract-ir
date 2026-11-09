@@ -140,7 +140,6 @@ pub(crate) fn fixture() -> Value {
 
 #[trace("TC-048", "FR-038-AC-247", "FR-038-AC-250")]
 #[test]
-#[ignore = "IR-1404: deferred AC-511 whole-read allocation proof"]
 fn tc_048_numeric_narrow_result_equals_type_argument() {
     let mut wire = fixture();
     let at = wire["semantic_graph"]["nodes"]

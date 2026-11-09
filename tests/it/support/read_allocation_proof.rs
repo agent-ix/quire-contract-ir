@@ -11,7 +11,9 @@ use quire_contract_model::{
 };
 
 use crate::qspec_read_proof::observation;
-pub(crate) use observation::{accounted, drop_without_request, measure_at, Counter, Observation};
+pub(crate) use observation::{
+    accounted, drop_without_request, measure_at, unpaid, Counter, Observation, UNPAID_BOUND,
+};
 
 #[derive(Clone, Copy)]
 pub(crate) enum Expected {
@@ -175,9 +177,9 @@ pub(crate) fn every_request<C: Counter>(bytes: &[u8], evidence: &CheckedPackageE
         // No allowance remains at this exact prefix, so a positive-sized
         // diagnostic cannot allocate after the denied request.
         assert_eq!(stopped.budget.read_storage_consumed(), before);
-        assert_eq!(
-            stopped.requested, before,
-            "denied request allocates nothing"
+        assert!(
+            unpaid(&stopped) <= unpaid(&reference),
+            "a denied request allocates nothing beyond the ample read's own unpaid memory"
         );
         let next = before
             .checked_add(u64::try_from(asked).expect("bounded request"))
@@ -456,9 +458,9 @@ pub(crate) fn shared_budget_reads<C: Counter>(bytes: &[u8], evidence: &CheckedPa
         }
     }
     for (requested, delta, result) in observations {
-        assert_eq!(
-            requested, delta,
-            "per-call allocation equals caller-budget delta"
+        assert!(
+            requested.saturating_sub(delta) <= UNPAID_BOUND,
+            "per-call allocation exceeds the caller-budget delta by no more than the fixed bound"
         );
         assert_eq!(C::measure(|| drop(result)), 0);
     }

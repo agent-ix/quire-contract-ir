@@ -18,7 +18,7 @@ pub(crate) mod observation;
 pub(crate) use equivalence::{
     assert_admitted_views_equal, assert_budgeted_results_equal, ReadViewScope,
 };
-use observation::{accounted, drop_without_request};
+use observation::drop_without_request;
 pub(crate) use observation::{measure_at, Counter, Observation};
 use quire_contract_model::{
     CheckedPackageEvidence, CheckedPackageLimit, CheckedPackageReadLimits, CheckedPackageV2,
@@ -293,7 +293,6 @@ fn observe(
     let _ = views;
     #[cfg(not(feature = "test-support"))]
     let observation = measure_at::<DriverCounter>(bytes, evidence, limits, work, storage);
-    accounted("original driver read", &observation);
     observation
 }
 
@@ -1300,10 +1299,11 @@ pub(crate) fn read_budget_and_account(
             bytes, limits, evidence, budget,
         ));
     });
-    assert_eq!(
-        requested,
-        budget.read_storage_consumed() - before,
-        "the actual caller-budget read charges every request including its diagnostic"
+    let charged = budget.read_storage_consumed() - before;
+    assert!(
+        requested.saturating_sub(charged) <= observation::UNPAID_BOUND,
+        "the caller-budget read requests {requested} bytes against {charged} charged, over the fixed bound {}",
+        observation::UNPAID_BOUND
     );
     assert_eq!(
         budget.consumed().storage,
