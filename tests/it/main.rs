@@ -91,6 +91,7 @@ mod fr014_recheck;
 mod fr019_api;
 mod identity;
 mod integration;
+mod ir_wirev1_nominal_body;
 mod kani_outcome_construction;
 mod kani_outcome_tc223;
 mod kani_shared;
