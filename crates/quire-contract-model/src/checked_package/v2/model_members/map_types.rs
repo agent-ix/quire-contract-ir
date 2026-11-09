@@ -103,6 +103,7 @@ fn key_refusal(
 }
 
 /// A map's bound: `lower` and an optional `upper`, no other member.
+#[ix_trace_rs::string_edge]
 fn bound_of(declared: View<'_>) -> Result<MapBound, ModelRefusal> {
     let bound = declared
         .get("bound")
