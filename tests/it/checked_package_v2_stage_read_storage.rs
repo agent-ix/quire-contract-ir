@@ -6,19 +6,26 @@
 //! the caller's budget before it is made (TC-472).
 
 use crate::support::checked_package::{
-    canonical, domain_package_document, evidence_for, index_fixture_node_ids, node_id,
-    nominal_fixture_members, nominal_package, rebuild_source_map, refresh_identity, select_model,
-    v2_all_families,
+    canonical, evidence_for, node_id, nominal_fixture_members, nominal_package, v2_all_families,
+};
+#[cfg(feature = "test-support")]
+use crate::support::checked_package::{
+    domain_package_document, index_fixture_node_ids, rebuild_source_map, refresh_identity,
+    select_model,
 };
 use ix_trace_rs::trace;
+#[cfg(feature = "test-support")]
 use quire_contract_model::{
-    with_native_budget_observer, CheckedPackageEvidence, CheckedPackagePendingOutcome,
-    CheckedPackageReadLimits, CheckedPackageRefusalCode, CheckedPackageV2,
-    CheckedPackageV2BudgetedReadResult, CheckedPackageV2ReadResult, NativeBudgetEvent,
-    NativeBudgetResource, NativeJoinBudget, NativeJoinLocusSource, PackageReadResource,
-    PackageReadStage,
+    with_native_budget_observer, CheckedPackageEvidence, CheckedPackageV2ReadResult,
+    NativeBudgetEvent, NativeBudgetResource,
+};
+use quire_contract_model::{
+    CheckedPackagePendingOutcome, CheckedPackageReadLimits, CheckedPackageRefusalCode,
+    CheckedPackageV2, CheckedPackageV2BudgetedReadResult, NativeJoinBudget, NativeJoinLocusSource,
+    PackageReadResource, PackageReadStage,
 };
 use serde_json::{json, Value};
+#[cfg(feature = "test-support")]
 use std::cell::RefCell;
 
 /// One heap request of the read, in the order it was made.
@@ -148,11 +155,13 @@ fn check_stage(wire: &Value, stage: PackageReadStage, form: &str) {
     assert_exact_and_one_short(&read, &requests);
 }
 
+#[cfg(feature = "test-support")]
 struct ReadInput {
     bytes: Vec<u8>,
     evidence: CheckedPackageEvidence,
 }
 
+#[cfg(feature = "test-support")]
 fn named_package(name: &str) -> Value {
     let mut package = v2_all_families();
     package["name"] = json!(name);
@@ -160,6 +169,7 @@ fn named_package(name: &str) -> Value {
     package
 }
 
+#[cfg(feature = "test-support")]
 fn direct_dependencies_input() -> ReadInput {
     let mut package = named_package("allocation-root");
     let mut evidence = evidence_for(&package);
@@ -187,6 +197,7 @@ fn direct_dependencies_input() -> ReadInput {
     }
 }
 
+#[cfg(feature = "test-support")]
 fn two_selected_models_input() -> ReadInput {
     let mut package = v2_all_families();
     package["name"] = json!("allocation-model-root");
@@ -242,16 +253,19 @@ fn two_selected_models_input() -> ReadInput {
     }
 }
 
+#[cfg(feature = "test-support")]
 thread_local! {
     static OBSERVED_READ_STORAGE: RefCell<Vec<NativeBudgetEvent>> = const { RefCell::new(Vec::new()) };
 }
 
+#[cfg(feature = "test-support")]
 fn capture_read_storage(event: NativeBudgetEvent) {
     if event.admitted {
         OBSERVED_READ_STORAGE.with(|events| events.borrow_mut().push(event));
     }
 }
 
+#[cfg(feature = "test-support")]
 fn read_storage_requests(
     bytes: &[u8],
     evidence: &quire_contract_model::CheckedPackageEvidence,
@@ -263,6 +277,7 @@ fn read_storage_requests(
 }
 
 /// Every admitted charge of the read, of every resource, in the order made.
+#[cfg(feature = "test-support")]
 fn observed_events(
     bytes: &[u8],
     evidence: &quire_contract_model::CheckedPackageEvidence,
@@ -276,6 +291,7 @@ fn observed_events(
     events
 }
 
+#[cfg(feature = "test-support")]
 fn observed_read(
     bytes: &[u8],
     evidence: &quire_contract_model::CheckedPackageEvidence,
@@ -296,6 +312,7 @@ fn observed_read(
     )
 }
 
+#[cfg(feature = "test-support")]
 fn requests_of(events: Vec<NativeBudgetEvent>, resource: NativeBudgetResource) -> Vec<Request> {
     events
         .into_iter()
@@ -316,6 +333,7 @@ fn requests_of(events: Vec<NativeBudgetEvent>, resource: NativeBudgetResource) -
         .collect()
 }
 
+#[cfg(feature = "test-support")]
 fn assert_one_byte_short_at_input(
     bytes: &[u8],
     evidence: &quire_contract_model::CheckedPackageEvidence,
@@ -349,6 +367,7 @@ fn assert_one_byte_short_at_input(
 /// A read whose allowance ends exactly where `request` ends admits the
 /// request: it consumed the whole allowance and was refused at a later one
 /// (or admitted, when `request` is the read's last).
+#[cfg(feature = "test-support")]
 fn assert_exact_allowance_admits(
     bytes: &[u8],
     evidence: &quire_contract_model::CheckedPackageEvidence,
@@ -373,12 +392,14 @@ fn assert_exact_allowance_admits(
 /// The second selected model's requests, split at the scan of its document:
 /// the reader's reservations, the retained document `Arc`, and the declaration
 /// tables decoded from the document.
+#[cfg(feature = "test-support")]
 struct SecondModel {
     reader: Vec<Request>,
     retained_document: Request,
     tables: Vec<Request>,
 }
 
+#[cfg(feature = "test-support")]
 fn second_model(requests: &[Request]) -> SecondModel {
     let second: Vec<&Request> = requests
         .iter()
@@ -406,6 +427,7 @@ fn second_model(requests: &[Request]) -> SecondModel {
     }
 }
 
+#[cfg(feature = "test-support")]
 #[trace("TC-472", "FR-038-AC-503")]
 #[test]
 fn second_selected_model_denials_precede_admission_at_its_document_reservations() {
@@ -468,6 +490,7 @@ fn second_selected_model_denials_precede_admission_at_its_document_reservations(
     }
 }
 
+#[cfg(feature = "test-support")]
 #[trace("TC-472", "FR-038-AC-503")]
 #[test]
 fn second_selected_model_work_is_charged_before_its_document_is_read() {
@@ -509,6 +532,7 @@ fn second_selected_model_work_is_charged_before_its_document_is_read() {
     );
 }
 
+#[cfg(feature = "test-support")]
 #[trace("TC-472", "FR-038-AC-507")]
 #[test]
 fn retained_dependency_and_package_allocations_are_denied_before_admission() {
@@ -589,6 +613,7 @@ fn retained_dependency_and_package_allocations_are_denied_before_admission() {
     );
 }
 
+#[cfg(feature = "test-support")]
 fn reader_of(
     input: &ReadInput,
 ) -> impl Fn(&mut NativeJoinBudget) -> CheckedPackageV2BudgetedReadResult + '_ {
