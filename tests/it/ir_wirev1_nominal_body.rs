@@ -103,6 +103,10 @@ fn v1_reader_admits_nominal_enum_dimension_and_unit_bodies() {
 #[test]
 fn v1_reader_still_refuses_bogus_or_misplaced_terms() {
     let wire = lowered_nominal_wire();
+    assert!(
+        matches!(read(&wire), ContractPackageReadResult::Admitted(_)),
+        "the unmodified package must read clean"
+    );
     let nodes = wire["semantic_graph"]["nodes"].as_array().expect("nodes");
     let position = nodes
         .iter()
@@ -119,6 +123,48 @@ fn v1_reader_still_refuses_bogus_or_misplaced_terms() {
             refusal.loci[0].path.as_ref().map(|path| path.as_str()),
             Some(format!("/semantic_graph/nodes/{position}/body").as_str()),
             "{term}"
+        );
+    }
+}
+
+/// A malformed body on a real nominal node is refused by the nominal body
+/// constructor, not admitted by the new path.
+#[trace("TC-047", "FR-035-AC-22")]
+#[test]
+fn v1_reader_refuses_malformed_nominal_bodies() {
+    let wire = lowered_nominal_wire();
+    let nodes = wire["semantic_graph"]["nodes"].as_array().expect("nodes");
+    let position = nodes
+        .iter()
+        .position(|node| node["semantic_form"] == "enum")
+        .expect("enum node");
+    let mut duplicate = wire.clone();
+    duplicate["semantic_graph"]["nodes"][position]["body"]["members"] =
+        serde_json::json!(["ACTIVE", "ACTIVE"]);
+    let mut mismatch = wire.clone();
+    mismatch["semantic_graph"]["nodes"][position]["body"]["term"] = Value::from("unit");
+    for (name, changed, code, path) in [
+        (
+            "duplicate",
+            duplicate,
+            Code::MalformedWire,
+            format!("/semantic_graph/nodes/{position}/body/members/1"),
+        ),
+        (
+            "mismatch",
+            mismatch,
+            Code::InvalidSemanticGraph,
+            format!("/semantic_graph/nodes/{position}/body"),
+        ),
+    ] {
+        let ContractPackageReadResult::Refused(refusal) = read(&changed) else {
+            panic!("{name} nominal body must refuse");
+        };
+        assert_eq!(refusal.code, code, "{name}");
+        assert_eq!(
+            refusal.loci[0].path.as_ref().map(|path| path.as_str()),
+            Some(path.as_str()),
+            "{name}"
         );
     }
 }

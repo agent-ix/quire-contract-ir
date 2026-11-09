@@ -2653,6 +2653,9 @@ fn wire_nominal_body(
     if !source_nominal_body(kind, node.get("term").and_then(TermNode::as_str)) {
         return Ok(None);
     }
+    // Unmetered on purpose: the V1 readers hold no read-storage account, and
+    // the body is bounded by the already-parsed document, as in the other V1
+    // body walks.
     identity::NominalBody::from_document(
         node,
         &[],
