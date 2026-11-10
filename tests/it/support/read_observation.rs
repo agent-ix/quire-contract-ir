@@ -44,17 +44,14 @@ pub(crate) fn measure_at<C: Counter>(
     }
 }
 
-/// Heap a read may request beyond the read storage its budget admitted, in
-/// bytes. The allowance does not depend on the size of the package.
-///
-/// Most reads leave no unpaid heap. A refusal built in a body validator that
-/// does not pay its diagnostic first requests an amount that depends on the
-/// length of the names and pointer it carries, the worst measured being about
-/// 1593 bytes. The bound holds for the shapes and names the tests exercise;
-/// two population refusals were measured at two package sizes with equal
-/// results, and no other family was. An unusually long name on an unpaid path
-/// is not covered.
+/// General bound for non-refusal-diagnostic bytes requested beyond the
+/// read-storage amount admitted by the budget.
 pub(crate) const UNPAID_BOUND: u64 = 4_096;
+
+/// The independent bound for unpaid refusal-diagnostic allocations exercised
+/// by semantic refusal reads. It leaves headroom above the largest measured
+/// diagnostic while remaining below the general non-diagnostic bound.
+pub(crate) const REFUSAL_DIAGNOSTIC_UNPAID_BOUND: u64 = 2_048;
 
 /// Bytes requested during the read that the budget did not admit.
 pub(crate) fn unpaid(observation: &Observation) -> u64 {
@@ -64,15 +61,29 @@ pub(crate) fn unpaid(observation: &Observation) -> u64 {
 }
 
 pub(crate) fn accounted(label: &str, observation: &Observation) {
+    accounted_with_bound(label, observation, UNPAID_BOUND, "unpaid read memory");
+}
+
+/// Account a read whose entire unpaid remainder is the refusal diagnostic.
+pub(crate) fn accounted_refusal_diagnostic(label: &str, observation: &Observation) {
+    accounted_with_bound(
+        label,
+        observation,
+        REFUSAL_DIAGNOSTIC_UNPAID_BOUND,
+        "unpaid refusal-diagnostic memory",
+    );
+}
+
+fn accounted_with_bound(label: &str, observation: &Observation, bound: u64, description: &str) {
     assert_eq!(
         observation.budget.consumed().storage,
         0,
         "{label}: a fresh measured read consumes no native logical storage"
     );
     assert!(
-        unpaid(observation) <= UNPAID_BOUND,
-        "{label}: unpaid read memory {} exceeds the fixed bound {UNPAID_BOUND}",
-        unpaid(observation)
+        unpaid(observation) <= bound,
+        "{label}: {description} {} exceeds its independent bound {bound}",
+        unpaid(observation),
     );
 }
 
