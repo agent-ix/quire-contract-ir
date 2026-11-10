@@ -684,17 +684,13 @@ fn nesting_cap_refusal(
 ) -> Option<ValidationFailure> {
     let mut frames: [Option<ShapeChildren<'_>>; JSON_NESTING_LIMIT] = std::array::from_fn(|_| None);
     let mut path = [Step::Index(0); JSON_NESTING_LIMIT];
-    let Some(root) = ShapeChildren::for_node(document.root()) else {
-        return None;
-    };
+    let root = ShapeChildren::for_node(document.root())?;
     frames[0] = Some(root);
     let mut frame_len = 1;
 
     while frame_len > 0 {
         let parent_index = frame_len - 1;
-        let Some(children) = frames.get_mut(parent_index).and_then(Option::as_mut) else {
-            return None;
-        };
+        let children = frames.get_mut(parent_index).and_then(Option::as_mut)?;
         let Some((child, edge)) = children.next() else {
             frames[parent_index] = None;
             frame_len -= 1;
@@ -703,9 +699,7 @@ fn nesting_cap_refusal(
         let Some(child) = ShapeChildren::for_node(child) else {
             continue;
         };
-        let Some(slot) = path.get_mut(parent_index) else {
-            return None;
-        };
+        let slot = path.get_mut(parent_index)?;
         *slot = edge;
         if frame_len + 1 == JSON_NESTING_LIMIT {
             let steps = path.get(..frame_len)?;
@@ -721,9 +715,7 @@ fn nesting_cap_refusal(
             );
             return Some(super::stage_storage::refuse(&mut meter, &site, refusal));
         }
-        let Some(frame) = frames.get_mut(frame_len) else {
-            return None;
-        };
+        let frame = frames.get_mut(frame_len)?;
         *frame = Some(child);
         frame_len += 1;
     }
