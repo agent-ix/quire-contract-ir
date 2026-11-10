@@ -5,8 +5,8 @@
 //!   pipeline both use.
 //! - `terms` is the shared iterative walk over the terms of a body, on the
 //!   `quire-walk` crate's heap stack: every walk of the reader over a term enters
-//!   it in document pre-order and never recurses on the call stack, so the reader
-//!   has no depth limit and no stack that follows the input.
+//!   it in document pre-order and never recurses on the call stack; the V2
+//!   reader separately refuses JSON nesting at its fixed 128-container cap.
 //! - [`v2`] is the sole admitted `quire.checked-package/v2` reader, nominal
 //!   identity re-derivation, and per-item lowering.
 //! - [`dispatch`] parses untrusted bytes once, reads `contract_version`, and
