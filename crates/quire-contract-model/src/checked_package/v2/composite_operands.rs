@@ -3758,7 +3758,7 @@ pub(in crate::checked_package::v2) mod tests {
         }
     }
 
-    #[trace("TC-048")]
+    #[trace("TC-048", "FR-038-AC-235")]
     #[test]
     fn narrow_exact_budget_and_one_less_preserve_first_failure() {
         let p = narrow_record("0", "9", "3");
@@ -3910,7 +3910,7 @@ pub(in crate::checked_package::v2) mod tests {
         );
     }
 
-    #[trace("TC-048")]
+    #[trace("TC-048", "FR-038-AC-235")]
     #[test]
     fn narrow_full_decimal_bytes_and_graph_order_have_independent_exact_work() {
         let lower = format!("-{}", "9".repeat(300));
@@ -3941,7 +3941,7 @@ pub(in crate::checked_package::v2) mod tests {
         assert_eq!(read(&permuted), Ok(result));
     }
 
-    #[trace("TC-048")]
+    #[trace("TC-048", "FR-038-AC-235")]
     #[test]
     fn narrow_work_exhaustion_precedes_wrapper_membership_and_later_operand_errors() {
         let occurrence = CheckedOccurrence {
