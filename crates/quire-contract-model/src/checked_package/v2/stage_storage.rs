@@ -727,28 +727,6 @@ pub(super) fn refuse_held_pointer(
     ValidationFailure::refused(code, JsonPointer::from_escaped(pointer))
 }
 
-/// Refuses at a scanner-built pointer, charging its bytes and the owned
-/// refusal diagnostic to the caller's budget.
-pub(super) fn refuse_pointer(
-    meter: &mut WorkMeter<'_>,
-    site: &Site<'_>,
-    code: CheckedPackageRefusalCode,
-    pointer: JsonPointer,
-) -> ValidationFailure {
-    let bytes = size_of::<CheckedPackageRefusal>()
-        .saturating_add(size_of::<CheckedPackageRefusalLocation>())
-        .saturating_add(pointer.as_str().len());
-    if let Err(stop) = diagnostic(
-        meter,
-        site,
-        bytes,
-        CheckedPackagePendingOutcome::Refused(code),
-    ) {
-        return stop;
-    }
-    ValidationFailure::refused(code, pointer)
-}
-
 /// A structural `incomplete` at `path`, its pointer charged before it is built.
 pub(super) fn incomplete(
     meter: &mut WorkMeter<'_>,

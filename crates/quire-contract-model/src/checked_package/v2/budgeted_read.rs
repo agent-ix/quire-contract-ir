@@ -9,7 +9,9 @@ use super::{
     CatalogReadError, CheckedPackageEvidence, CheckedPackageV2, CheckedPackageV2ReadResult,
     PackageReadStage, ValidationFailure,
 };
-use crate::checked_package::common::{exceeds, refuse_bytes_exceeded, strict_shape_depth};
+use crate::checked_package::common::{
+    exceeds, refuse_bytes_exceeded, Step, Trail, JSON_NESTING_LIMIT,
+};
 use crate::checked_package::shared::{
     CheckedPackageIncomplete, CheckedPackageLimit, CheckedPackageReadLimits, CheckedPackageRefusal,
     CheckedPackageRefusalCode, JsonPointer,
@@ -606,21 +608,10 @@ pub(in crate::checked_package) fn read_envelope(
             ));
         }
     };
-    // The strict shape scan preserves syntax and duplicate-member precedence,
-    // then locates the first container at the fixed 128-level cap.
-    if let Some(pointer) = strict_shape_depth(bytes)? {
-        let mut meter = super::WorkMeter::over(budget);
-        return Err(super::stage_storage::refuse_pointer(
-            &mut meter,
-            &super::stage_storage::Site::new(
-                PackageReadStage::Envelope,
-                0,
-                "package_bytes",
-                super::stage_storage::Path::root(),
-            ),
-            CheckedPackageRefusalCode::MalformedWire,
-            pointer,
-        ));
+    // The reservation-backed reader has already checked syntax and duplicate
+    // members. Walk its arena with fixed stack storage to locate the cap value.
+    if let Some(failure) = nesting_cap_refusal(&document, budget) {
+        return Err(failure);
     }
     at_stage(budget, PackageReadStage::Canonical, "canonical_bytes");
     let mut sink = ComparingSink {
@@ -648,6 +639,95 @@ pub(in crate::checked_package) fn read_envelope(
             CheckedPackageRefusalCode::NoncanonicalWire,
         )),
     }
+}
+
+/// One fixed-stack frame over the charged document's existing child iterators.
+enum ShapeChildren<'d> {
+    Array {
+        items: quire_canonical::Items<'d>,
+        next_index: usize,
+    },
+    Object(quire_canonical::Members<'d>),
+}
+
+impl<'d> ShapeChildren<'d> {
+    fn for_node(node: quire_canonical::NodeRef<'d>) -> Option<Self> {
+        match node.node() {
+            quire_canonical::Node::Array(items) => Some(Self::Array {
+                items,
+                next_index: 0,
+            }),
+            quire_canonical::Node::Object(members) => Some(Self::Object(members)),
+            _ => None,
+        }
+    }
+
+    fn next(&mut self) -> Option<(quire_canonical::NodeRef<'d>, Step<'d>)> {
+        match self {
+            Self::Array { items, next_index } => {
+                let child = items.next()?;
+                let index = *next_index;
+                *next_index = next_index.saturating_add(1);
+                Some((child, Step::Index(index)))
+            }
+            Self::Object(members) => members.next().map(|(name, child)| (child, Step::Key(name))),
+        }
+    }
+}
+
+/// Finds and refuses the first container reaching the fixed nesting cap.
+/// Traversal and path scratch use fixed stack arrays; the only heap request is
+/// the located refusal, charged from borrowed path steps before it is built.
+fn nesting_cap_refusal(
+    document: &Document,
+    budget: &mut NativeJoinBudget,
+) -> Option<ValidationFailure> {
+    let mut frames: [Option<ShapeChildren<'_>>; JSON_NESTING_LIMIT] = std::array::from_fn(|_| None);
+    let mut path = [Step::Index(0); JSON_NESTING_LIMIT];
+    let Some(root) = ShapeChildren::for_node(document.root()) else {
+        return None;
+    };
+    frames[0] = Some(root);
+    let mut frame_len = 1;
+
+    while frame_len > 0 {
+        let parent_index = frame_len - 1;
+        let Some(children) = frames.get_mut(parent_index).and_then(Option::as_mut) else {
+            return None;
+        };
+        let Some((child, edge)) = children.next() else {
+            frames[parent_index] = None;
+            frame_len -= 1;
+            continue;
+        };
+        let Some(child) = ShapeChildren::for_node(child) else {
+            continue;
+        };
+        let Some(slot) = path.get_mut(parent_index) else {
+            return None;
+        };
+        *slot = edge;
+        if frame_len + 1 == JSON_NESTING_LIMIT {
+            let steps = path.get(..frame_len)?;
+            let at = Trail::Base(steps);
+            let refusal =
+                super::stage_storage::Refusal::new(CheckedPackageRefusalCode::MalformedWire, at);
+            let mut meter = super::WorkMeter::over(budget);
+            let site = super::stage_storage::Site::new(
+                PackageReadStage::Envelope,
+                0,
+                "package_bytes",
+                super::stage_storage::Path::root(),
+            );
+            return Some(super::stage_storage::refuse(&mut meter, &site, refusal));
+        }
+        let Some(frame) = frames.get_mut(frame_len) else {
+            return None;
+        };
+        *frame = Some(child);
+        frame_len += 1;
+    }
+    None
 }
 
 fn prepaid_bytes_refusal(
