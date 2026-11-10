@@ -25,9 +25,11 @@ use crate::support::checked_package::{
 };
 use ix_trace_rs::trace;
 use proof::{Counter, Expected};
+#[cfg(feature = "test-support")]
+use quire_contract_model::CheckedPackageV2BudgetedReadResult as Budgeted;
 use quire_contract_model::{
     initialize_operation_catalog, CheckedPackageEvidence, CheckedPackageRefusalCode as Code,
-    CheckedPackageV2, CheckedPackageV2BudgetedReadResult as Budgeted, CheckedPackageV2ReadResult,
+    CheckedPackageV2, CheckedPackageV2ReadResult,
 };
 use serde_json::{json, Value};
 use std::collections::BTreeSet;
