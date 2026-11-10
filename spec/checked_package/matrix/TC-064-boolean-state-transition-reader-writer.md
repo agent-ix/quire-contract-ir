@@ -49,8 +49,6 @@ Boolean subject, pre-state inputs, post-state result, ordered bindings,
 selected profile, dependency set, source occurrences, node keys and package
 identity through read/write/read. Equal-content checked claims share one
 transition node and retain two distinct occurrence ordinals and regions
-through read/write/read. The identity comparisons and independent rekey
-mutations change exactly the identities FR-067-AC-5 names, while a source-only
-edit changes none. Each adverse vector refuses with QSpec's first code,
+through read/write/read. Each adverse vector refuses with QSpec's first code,
 cause and locus. A QSL-authored claim produces the same admitted public
 carrier when its producer is available.
