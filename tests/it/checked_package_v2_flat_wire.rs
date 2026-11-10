@@ -850,6 +850,61 @@ fn tc_048_a_document_past_the_nesting_cap_refuses_at_the_cap() {
         Some(cap_pointer.as_str()),
         "budgeted refusal retains and charges the cap pointer"
     );
+    let exact_storage = budget.read_storage_consumed();
+
+    let mut exact_budget = quire_contract_model::NativeJoinBudget::new(u64::MAX, 0)
+        .with_read_storage_limit(exact_storage);
+    let exact = quire_contract_model::CheckedPackageV2::read_with_budget(
+        &deep,
+        CheckedPackageReadLimits {
+            bytes: 1 << 30,
+            ..CheckedPackageReadLimits::bounded()
+        },
+        &evidence,
+        &mut exact_budget,
+    );
+    let quire_contract_model::CheckedPackageV2BudgetedReadResult::Refused(refusal) = exact else {
+        panic!("the exact storage allowance pays for the cap refusal, read {exact:?}");
+    };
+    assert_eq!(
+        refusal.loci[0].path.as_ref().map(|path| path.as_str()),
+        Some(cap_pointer.as_str())
+    );
+
+    let short_limit = exact_storage
+        .checked_sub(1)
+        .expect("the read reserves storage");
+    let mut short_budget = quire_contract_model::NativeJoinBudget::new(u64::MAX, 0)
+        .with_read_storage_limit(short_limit);
+    let short = quire_contract_model::CheckedPackageV2::read_with_budget(
+        &deep,
+        CheckedPackageReadLimits {
+            bytes: 1 << 30,
+            ..CheckedPackageReadLimits::bounded()
+        },
+        &evidence,
+        &mut short_budget,
+    );
+    let quire_contract_model::CheckedPackageV2BudgetedReadResult::Exhausted(exhausted) = short
+    else {
+        panic!("one byte short cannot pay for the cap refusal, read {short:?}");
+    };
+    assert_eq!(
+        exhausted.pending,
+        Some(quire_contract_model::CheckedPackagePendingOutcome::Refused(
+            Code::MalformedWire
+        ))
+    );
+    assert_eq!(
+        exhausted.denied.resource,
+        quire_contract_model::PackageReadResource::ReadStorage
+    );
+    assert_eq!(
+        u128::from(exact_storage) - u128::from(short_budget.read_storage_consumed()),
+        exhausted.denied.amount,
+        "the denied final diagnostic includes the cap pointer charge"
+    );
+    assert!(exhausted.denied.amount > cap_pointer.len() as u128);
 
     // The cap check comes ahead of canonical-byte comparison: the same document,
     // no longer canonical, is refused as the same malformed wire.
