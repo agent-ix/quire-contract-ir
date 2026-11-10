@@ -170,8 +170,8 @@ FR-038-AC-228 through FR-038-AC-231 are planned public-reader controls for
 the catalog's three leaf-source selectors, earlier first-operand family
 refusals, nested IEEE ineligibility and result-inner sequence exception. They
 do not claim a runtime result until IR-491 implements and runs tagged tests.
-FR-038-AC-217 and FR-038-AC-218 (merged QSpec FR-272) are against the
-absence of content-mismatch and digest-derived expected/actual identity fields, while independent dependency selection and conflicting-definition refusals retain typed loci. FR-038-AC-215 and FR-038-AC-216 are withdrawn.
+FR-038-AC-217 and FR-038-AC-218 (merged QSpec FR-272) cover the
+absence of content-mismatch and digest-derived expected/actual identity fields, while independent dependency selection and conflicting-definition refusals retain typed loci.
 
 ## Test Procedure
 
@@ -2269,9 +2269,9 @@ No public reader/dispatch/driver metadata observation is allocated.
    in `model_members.rs` and `v2/mod.rs`. Final-head runtime/Clippy checks are
    UNRUN; full gates remain pending.
 
-## Refusal fields and structural node loci (FR-038-AC-183 through FR-038-AC-185)
+## Refusal fields and structural node loci (FR-038-AC-185)
 
-AC-183 and AC-184 are withdrawn under QSpec #517. For AC-185, read malformed-wire, duplicate-id, unresolved-reference and invalid-body packages through the production reader. Compare code, cause, pointer and authentic structural node locus with independently authored expectations. Pre-graph refusals invent no node locus. The public refusal has no `expected_node_id()` accessor or expected/actual digest pair; clone, Display and serialized forms preserve only the published fields.
+Read malformed-wire, duplicate-id, unresolved-reference and invalid-body packages through the production reader. Compare code, cause, pointer and authentic structural node locus with independently authored expectations. Pre-graph refusals invent no node locus. The public refusal has no `expected_node_id()` accessor or expected/actual digest pair; clone, Display and serialized forms preserve only the published fields.
 
 ## Aggregate-bodied union values (FR-038-AC-225 through FR-038-AC-227)
 

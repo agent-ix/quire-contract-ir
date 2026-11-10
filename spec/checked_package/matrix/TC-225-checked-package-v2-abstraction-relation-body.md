@@ -12,7 +12,7 @@ relationships:
 
 ## Description
 
-Verify FR-346-AC-1 through FR-346-AC-10: the V2 reader admits QSpec FR-451's
+Verify FR-346-AC-1 through FR-346-AC-9: the V2 reader admits QSpec FR-451's
 `correspondence`/`abstraction_relation` body and refuses every other shape
 with the code, cause and locus FR-346 names, which are FR-451's where FR-451
 states them and FR-346's marked IR readings where it does not.

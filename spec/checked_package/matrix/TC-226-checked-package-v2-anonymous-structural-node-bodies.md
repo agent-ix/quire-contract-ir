@@ -10,7 +10,7 @@ relationships:
 
 ## Description
 
-Verify FR-038's independent closed body, owner, graph, dependency and recursion-group rules under QSpec #517 structural identity. FR-038-AC-123, AC-126, AC-131, AC-148, AC-183 and AC-184 are withdrawn in place; no stale-key or expected-key test survives. Current QSpec fixtures are read directly from `QUIRE_SPECIFICATION_DIR`, never copied.
+Verify FR-038's independent closed body, owner, graph, dependency and recursion-group rules under QSpec #517 structural identity. The test covers structural identity without content-derived stale-key or expected-key assertions. Current QSpec fixtures are read directly from `QUIRE_SPECIFICATION_DIR`, never copied.
 
 ## Test Procedure
 

@@ -39,4 +39,4 @@ The model crate SHALL export the structural `CheckedNodeId` by name. Its package
 
 ## Dependencies
 
-FR-038 and QSpec FR-322 own structural ids, graph validation and the reader. FR-019 owns the public inventory; FR-051 owns typed envelope construction. The QSpec #517 structural-id ruling treats derived paths as identity labels and requires no reader recomputation; the historical AC-2 and AC-6 are retained as tombstones.
+FR-038 and QSpec FR-322 own structural ids, graph validation and the reader. FR-019 owns the public inventory; FR-051 owns typed envelope construction. The QSpec #517 structural-id ruling treats derived paths as identity labels and requires no reader recomputation.

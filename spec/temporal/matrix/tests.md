@@ -9,7 +9,7 @@ type: TestMatrix
 
 | Functional Req | Acceptance Criteria | Test Cases | Status |
 |---|---|---|---|
-| FR-350 | FR-350-AC-1, FR-350-AC-2, FR-350-AC-3, FR-350-AC-4, FR-350-AC-5, FR-350-AC-6, FR-350-AC-8, FR-350-AC-9, FR-350-AC-10, FR-350-AC-11 | TC-461 | 🚧 Planned in `agent-ix/quire-integration`. Each criterion is unbacked until a bridge test there carries its criterion trace tag. FR-350-AC-7 is withdrawn and has no coverage obligation. FR-028-AC-3/TC-041 keep both Contract IR packages free of QSL dependencies. |
+| FR-350 | FR-350-AC-1, FR-350-AC-2, FR-350-AC-3, FR-350-AC-4, FR-350-AC-5, FR-350-AC-6, FR-350-AC-8, FR-350-AC-9, FR-350-AC-10, FR-350-AC-11 | TC-461 | 🚧 Planned in `agent-ix/quire-integration`. Each criterion is unbacked until a bridge test there carries its criterion trace tag. FR-028-AC-3/TC-041 keep both Contract IR packages free of QSL dependencies. |
 
 ## Test Case Summary
 
