@@ -142,11 +142,11 @@ and that every sufficient budget returns the unlimited budget's outcome.
 ## Expected Results
 
 - Every read's observed requested bytes exceed its admitted read-storage delta
-  by at most 1024 bytes, whatever the input size (the test reads a reference
+  by at most 4096 bytes, whatever the input size (the test reads a reference
   chain and a string member at growing sizes and asserts the excess stays within
   that bound and does not grow from the smallest to the largest input),
-  the 1024-byte bound being headroom for one constant-size diagnostic carrier
-  rather than a measured constant: across the reads that run under plain
+  the 4096-byte bound being headroom for the constant-size diagnostics of a
+  refusal (worst measured about 1593 bytes) rather than a derived constant: across the reads that run under plain
   `make test` the unpaid amount is zero (including
   `read_storage_alloc::duplicate_member_precedes_a_later_out_of_range_number`,
   which refuses a repeated name alone as `duplicate_member` and a repeated name

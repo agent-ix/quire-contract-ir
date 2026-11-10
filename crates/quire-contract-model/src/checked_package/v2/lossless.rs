@@ -14,8 +14,13 @@ use serde::ser::{
 use serde::Serialize;
 use std::{cell::RefCell, cmp::Ordering, fmt, sync::Arc};
 
-const MAX_PATH_DEPTH: usize = 128;
-const MAX_FULL_DEPTH: usize = MAX_PATH_DEPTH + 12 + 1;
+/// Stack slots that remember the leading steps of a position. A position
+/// deeper than this keeps being compared and counted, but only its first
+/// steps are remembered for a diagnostic pointer, so depth never changes
+/// whether the comparison succeeds.
+const PATH_SLOTS: usize = 128;
+/// Slots for a full pointer: the base trail, a path and one extra key.
+const FULL_SLOTS: usize = PATH_SLOTS + 12 + 1;
 
 #[derive(Clone)]
 enum Key<'a> {
@@ -52,13 +57,13 @@ impl PathSegment<'_> {
     }
 }
 struct Snapshot<'a> {
-    segments: [Option<PathSegment<'a>>; MAX_PATH_DEPTH],
+    segments: [Option<PathSegment<'a>>; PATH_SLOTS],
     depth: usize,
     root: bool,
 }
 struct Path<'a, 'm, 'b> {
     base: BasePath<'static>,
-    segments: [Option<PathSegment<'a>>; MAX_PATH_DEPTH],
+    segments: [Option<PathSegment<'a>>; PATH_SLOTS],
     depth: usize,
     best: RefCell<Option<Snapshot<'a>>>,
     denied: RefCell<Option<ValidationFailure>>,
@@ -66,23 +71,30 @@ struct Path<'a, 'm, 'b> {
 }
 impl<'a> Path<'a, '_, '_> {
     fn push(&mut self, segment: PathSegment<'a>) -> bool {
-        let Some(slot) = self.segments.get_mut(self.depth) else {
-            return false;
-        };
-        *slot = Some(segment);
+        if let Some(slot) = self.segments.get_mut(self.depth) {
+            *slot = Some(segment);
+        }
         self.depth += 1;
         true
     }
     fn pop(&mut self) -> Option<PathSegment<'a>> {
         self.depth = self.depth.checked_sub(1)?;
-        self.segments[self.depth].take()
+        self.segments.get_mut(self.depth)?.take()
+    }
+    /// The number of remembered leading steps.
+    fn stored(&self) -> usize {
+        self.depth.min(PATH_SLOTS)
     }
     fn record(&self, root: bool) -> CompareError {
         let replace = self.best.borrow().as_ref().is_none_or(|prior| {
-            self.segments[..self.depth]
+            self.segments[..self.stored()]
                 .iter()
                 .flatten()
-                .zip(prior.segments[..prior.depth].iter().flatten())
+                .zip(
+                    prior.segments[..prior.depth.min(PATH_SLOTS)]
+                        .iter()
+                        .flatten(),
+                )
                 .map(|(a, b)| a.compare(b))
                 .find(|order| *order != Ordering::Equal)
                 .unwrap_or_else(|| self.depth.cmp(&prior.depth))
@@ -108,13 +120,13 @@ impl<'a> Path<'a, '_, '_> {
         }
     }
     fn request(&self, bytes: usize, extra: Option<&str>) -> Result<(), CompareError> {
-        let mut steps = [Step::Index(0); MAX_FULL_DEPTH];
+        let mut steps = [Step::Index(0); FULL_SLOTS];
         let mut length = 0;
         for step in self.base.steps() {
             steps[length] = *step;
             length += 1;
         }
-        for segment in self.segments[..self.depth].iter().flatten() {
+        for segment in self.segments[..self.stored()].iter().flatten() {
             steps[length] = segment.step();
             length += 1;
         }
@@ -160,14 +172,17 @@ impl<'a> Path<'a, '_, '_> {
             .best
             .into_inner()
             .expect("a mismatch records its borrowed path");
-        let mut steps = [Step::Index(0); MAX_FULL_DEPTH];
+        let mut steps = [Step::Index(0); FULL_SLOTS];
         let mut length = 0;
         if !selected.root {
             for step in self.base.steps() {
                 steps[length] = *step;
                 length += 1;
             }
-            for segment in selected.segments[..selected.depth].iter().flatten() {
+            for segment in selected.segments[..selected.depth.min(PATH_SLOTS)]
+                .iter()
+                .flatten()
+            {
                 steps[length] = segment.step();
                 length += 1;
             }
@@ -803,7 +818,7 @@ impl<'a, 'p, 'm, 'b> Children<'a, 'p, 'm, 'b> {
         }
         let seen = &mut self.seen;
         let child = raw.get(key.as_str());
-        if !self.path.push(PathSegment::Key(key)) {
+        if !self.path.push(PathSegment::Key(key.clone())) {
             return Err(self.path.mismatch());
         }
         let result = match child {
@@ -825,10 +840,7 @@ impl<'a, 'p, 'm, 'b> Children<'a, 'p, 'm, 'b> {
             }
             None => Err(self.path.mismatch()),
         };
-        let key = match self.path.pop() {
-            Some(PathSegment::Key(key)) => key,
-            _ => unreachable!(),
-        };
+        self.path.pop();
         if let Err(error) = result {
             if error == CompareError::Budget {
                 return Err(error);
@@ -1238,6 +1250,29 @@ mod tests {
     struct Pair {
         a: u64,
         b: u64,
+    }
+
+    #[test]
+    fn a_position_past_the_remembered_steps_still_pushes_and_pops() {
+        let mut budget = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(u64::MAX);
+        let mut meter = WorkMeter::over(&mut budget);
+        let mut path = super::Path {
+            base: BasePath::root(),
+            segments: std::array::from_fn(|_| None),
+            depth: 0,
+            best: std::cell::RefCell::new(None),
+            denied: std::cell::RefCell::new(None),
+            meter: std::cell::RefCell::new(&mut meter),
+        };
+        for index in 0..super::PATH_SLOTS + 50 {
+            assert!(path.push(super::PathSegment::Index(index)));
+        }
+        assert_eq!(path.depth, super::PATH_SLOTS + 50);
+        assert_eq!(path.stored(), super::PATH_SLOTS);
+        for _ in 0..super::PATH_SLOTS + 50 {
+            path.pop();
+        }
+        assert_eq!(path.depth, 0);
     }
 
     #[test]

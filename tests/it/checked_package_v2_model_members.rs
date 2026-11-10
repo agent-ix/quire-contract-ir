@@ -4319,3 +4319,84 @@ fn tc_048_relationship_end_is_not_a_field_and_exports_no_selected_population_ite
     let ir_root = include_str!("../../src/lib.rs");
     assert!(!ir_root.contains("selected_population"));
 }
+
+/// A read-storage denial of the relationship end's destination type ends the
+/// read with a typed outcome: the denial borrows the budget that the failed
+/// read held. The limits are the read-storage window of the flat-wire stage's
+/// destination read for this fixture.
+#[trace("TC-472", "FR-038-AC-511")]
+#[test]
+fn a_denied_relationship_destination_read_is_refused_not_a_double_borrow() {
+    let (mut wire, evidence) = model_member_control("quire.op.model.navigate");
+    index_fixture_node_ids(&mut wire);
+    let bytes = canonical(&wire);
+    let read = |limit: u64| {
+        let mut budget =
+            quire_contract_model::NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
+        let result = CheckedPackageV2::read_with_budget(
+            &bytes,
+            CheckedPackageReadLimits {
+                bytes: 1 << 30,
+                nodes: 1 << 24,
+                edges: 1 << 26,
+                occurrences: 1 << 26,
+                diagnostics: 1 << 24,
+                work: 1 << 50,
+            },
+            &evidence,
+            &mut budget,
+        );
+        (result, budget)
+    };
+    assert!(matches!(
+        read(u64::MAX).0,
+        quire_contract_model::CheckedPackageV2BudgetedReadResult::Admitted(_)
+    ));
+    for limit in 730_400..731_100 {
+        let (result, budget) = read(limit);
+        assert!(
+            !matches!(
+                &result,
+                quire_contract_model::CheckedPackageV2BudgetedReadResult::Admitted(_)
+            ),
+            "limit {limit} admitted"
+        );
+        let (denied, outcome_locus) = match result {
+            quire_contract_model::CheckedPackageV2BudgetedReadResult::BudgetIncomplete(outcome) => {
+                assert_eq!(
+                    outcome.denied.resource,
+                    quire_contract_model::PackageReadResource::ReadStorage,
+                    "limit {limit} must stop on read storage"
+                );
+                (outcome.denied, None)
+            }
+            quire_contract_model::CheckedPackageV2BudgetedReadResult::Exhausted(outcome) => {
+                assert_eq!(
+                    outcome.denied.resource,
+                    quire_contract_model::PackageReadResource::ReadStorage,
+                    "limit {limit} must stop on read storage"
+                );
+                (outcome.denied, Some(outcome.locus))
+            }
+            other => panic!("limit {limit} did not produce a typed budget denial: {other:?}"),
+        };
+        assert_eq!(
+            budget.first_unpaid_read_storage(),
+            Some(denied.amount),
+            "limit {limit} preserves the original denied read-storage request"
+        );
+        let first_unpaid_locus = budget
+            .first_unpaid_locus()
+            .expect("a typed read-storage denial retains its first unpaid locus");
+        assert!(matches!(
+            first_unpaid_locus.source,
+            quire_contract_model::NativeJoinLocusSource::PackageRead(
+                quire_contract_model::PackageReadStage::WireChecks,
+                _
+            )
+        ));
+        if let Some(outcome_locus) = outcome_locus {
+            assert_eq!(outcome_locus, first_unpaid_locus);
+        }
+    }
+}

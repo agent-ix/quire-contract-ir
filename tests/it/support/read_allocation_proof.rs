@@ -19,6 +19,7 @@ pub(crate) use observation::{
 pub(crate) enum Expected {
     Admitted,
     Refused(CheckedPackageRefusalCode),
+    #[allow(dead_code)] // The whole-read binary constructs it; the allocation binary does not.
     OriginalOracle(fn(&CheckedPackageV2ReadResult) -> bool),
 }
 
@@ -179,7 +180,11 @@ pub(crate) fn every_request<C: Counter>(bytes: &[u8], evidence: &CheckedPackageE
         assert_eq!(stopped.budget.read_storage_consumed(), before);
         assert!(
             unpaid(&stopped) <= unpaid(&reference),
-            "a denied request allocates nothing beyond the ample read's own unpaid memory"
+            "a denied request allocates nothing beyond the ample read's own unpaid memory: asked={asked}, locus={locus:?}, requested={}, charged={}, denied_result={:?}, ample_unpaid={}",
+            stopped.requested,
+            stopped.budget.read_storage_consumed(),
+            stopped.result,
+            unpaid(&reference),
         );
         let next = before
             .checked_add(u64::try_from(asked).expect("bounded request"))

@@ -15,6 +15,8 @@ use serde_json::{json, Value};
 use syn::{parse::Parser, punctuated::Punctuated, Token};
 
 const MODEL_ROOT: &str = include_str!("../../crates/quire-contract-model/src/lib.rs");
+const CHECKED_PACKAGE_V2: &str =
+    include_str!("../../crates/quire-contract-model/src/checked_package/v2/mod.rs");
 const BRIDGE_ROOT: &str = include_str!("../../src/lib.rs");
 const KANI_ROOT: &str = include_str!("../../src/kani/mod.rs");
 const FR_039: &str =
@@ -944,6 +946,10 @@ fn exported_items() -> BTreeMap<String, BTreeSet<String>> {
                         && [
                             "CheckedApplicationOperationFixture",
                             "CheckedApplicationOperationFixtureError",
+                            "NativeBudgetEvent",
+                            "NativeBudgetResource",
+                            "with_native_allocation_class",
+                            "with_native_budget_observer",
                         ]
                         .contains(&name.as_str()))
                 {
@@ -1592,6 +1598,12 @@ fn tc_058_fault_injection_adds_only_its_named_export() {
 fn tc_058_test_support_exports_are_independent_of_fault_injection() {
     let fixture_export = "#[cfg(feature = \"test-support\")]\npub use checked_package::{\n    CheckedApplicationOperationFixture, CheckedApplicationOperationFixtureError,\n};";
     assert!(MODEL_ROOT.contains(fixture_export));
+    // The budget observer exists only under `test-support`, at both the root
+    // re-export and the module that defines it.
+    let observer_root = "#[cfg(feature = \"test-support\")]\npub use checked_package::{\n    with_native_allocation_class, with_native_budget_observer, NativeBudgetEvent,\n    NativeBudgetResource,\n};";
+    assert!(MODEL_ROOT.contains(observer_root));
+    let observer_module = "#[cfg(feature = \"test-support\")]\nmod native_budget_observer;\n#[cfg(feature = \"test-support\")]\npub use native_budget_observer::{";
+    assert!(CHECKED_PACKAGE_V2.contains(observer_module));
     assert_eq!(exported_items(), expected_items());
 }
 

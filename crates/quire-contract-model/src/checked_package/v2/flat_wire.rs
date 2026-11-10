@@ -345,17 +345,25 @@ pub(super) fn check(
                             return Err(flat_refusal(&meter, position, CheckedPackageRefusalCode::MalformedWire, at.key("operation").key("member").key("operator")));
                         }
                         let member = member_of(operation, "member");
-                        if member_of(member, "kind").and_then(TermNode::as_str)
-                            == Some("relationship_end")
-                            && match member_of(member, "destination_type") {
-                                Some(destination) => destination
-                                    .node_id(&mut **meter.budget(), flat_site(position))
-                                    .map_err(|_| denial(&meter.budget()))?
-                                    .valid()
-                                    .is_none(),
-                                None => true,
-                            }
-                        {
+                        let relationship_end = member_of(member, "kind")
+                            .and_then(TermNode::as_str)
+                            == Some("relationship_end");
+                        // The read's borrow of the budget ends with this
+                        // statement, so a denial can borrow it again.
+                        let destination_read = relationship_end
+                            .then(|| member_of(member, "destination_type"))
+                            .flatten()
+                            .map(|destination| {
+                                destination.node_id(&mut **meter.budget(), flat_site(position))
+                            });
+                        let destination_missing = match destination_read {
+                            Some(read) => read
+                                .map_err(|_| denial(&meter.budget()))?
+                                .valid()
+                                .is_none(),
+                            None => true,
+                        };
+                        if relationship_end && destination_missing {
                             return Err(flat_refusal(&meter, position, CheckedPackageRefusalCode::MalformedWire, at.key("operation")
                                     .key("member")
                                     .key("destination_type")

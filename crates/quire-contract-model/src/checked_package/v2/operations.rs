@@ -1362,10 +1362,14 @@ fn operation_defect(
     else {
         return Ok(None);
     };
-    if operation_value.record().malformed.is_some() {
+    if let Some(raw) = &operation_value.record().malformed {
+        let at = application.body(&["operation"]);
+        let at =
+            CheckedApplicationOperationRecord::wire_fault(super::TermNode::of(raw), at.clone())
+                .unwrap_or(at);
         return Ok(Some(ValidationFailure::refused(
             CheckedPackageRefusalCode::InvalidSemanticGraph,
-            application.body(&["operation"]),
+            at,
         )));
     }
     let Some(operation) = OperationWire::from_record(operation_value.record(), meter)? else {

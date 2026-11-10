@@ -1523,24 +1523,24 @@ impl CheckedPackageV2 {
                 return Err(failure);
             }
             None => {
+                // A present member of the wrong kind is refused at the member;
+                // an absent member, or a document that is no object, at the
+                // document.
+                let path = if package.get("contract_version").is_some() {
+                    version_path
+                } else {
+                    stage_storage::Path::root()
+                };
                 let mut meter = WorkMeter::over(budget);
                 return Err(stage_storage::refuse(
                     &mut meter,
-                    &stage_storage::Site::new(
-                        PackageReadStage::WireDecode,
-                        0,
-                        "wire",
-                        version_path,
-                    ),
-                    stage_storage::Refusal::new(
-                        CheckedPackageRefusalCode::MalformedWire,
-                        version_path,
-                    ),
+                    &stage_storage::Site::new(PackageReadStage::WireDecode, 0, "wire", path),
+                    stage_storage::Refusal::new(CheckedPackageRefusalCode::MalformedWire, path),
                 ));
             }
         }
         if package.get("name").is_none() {
-            let path = stage_storage::Path::root().key("name");
+            let path = stage_storage::Path::root();
             let mut meter = WorkMeter::over(budget);
             return Err(stage_storage::refuse(
                 &mut meter,
@@ -2223,12 +2223,24 @@ fn validate_domain_packages(
                     // this projection; none is attached to the public refusal.
                     drop((declaration_identity, declaration_origin, declaration_path));
                     if let Some(document_pointer) = document_pointer {
-                        let path = member.map_or_else(|| row(root), |member| at(root, member));
-                        ValidationFailure::refused_because_in_document(
-                            refusal.code,
+                        let path = stage_storage::Path::root()
+                            .key("semantic_graph")
+                            .key("nodes")
+                            .index(root)
+                            .key("owner");
+                        let path = member.map_or(path, |member| path.key(member));
+                        let site = stage_storage::Site::new(
+                            PackageReadStage::ModelDocument,
+                            position,
+                            "model_documents",
                             path,
-                            refusal.cause,
-                            document_pointer,
+                        );
+                        stage_storage::refuse(
+                            meter,
+                            &site,
+                            stage_storage::Refusal::new(refusal.code, path)
+                                .because(refusal.cause)
+                                .in_document(stage_storage::Position::Recorded(&document_pointer)),
                         )
                     } else {
                         let path = stage_storage::Path::root()

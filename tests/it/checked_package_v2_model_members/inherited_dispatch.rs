@@ -385,6 +385,53 @@ fn static_context_and_each_candidate_stay_bound_to_the_selected_family() {
     );
 }
 
+/// Any owner chain the strict parse admits refuses `unsupported_construct` at
+/// the candidate's selection key; an owner that is no selection key refuses
+/// `malformed_wire` at the value.
+#[trace("TC-472", "FR-354-AC-13", "FR-038-AC-117")]
+#[test]
+fn an_owner_chain_refuses_at_its_selection_key_and_a_scalar_owner_at_the_value() {
+    let document = family_document();
+    let package = family_package(&document, PRIORITY_ORDER);
+    let key = "/checked_term_data/dispatch_tables/0/candidates/0/selection_key";
+    let refused = |owner: Value| {
+        let mut owned = package.clone();
+        owned["checked_term_data"]["dispatch_tables"][0]["candidates"][0]["selection_key"]
+            ["owner_effective_type"] = owner;
+        let evidence = evidence_with_document(&owned, IDENTITY, &document);
+        let CheckedPackageV2ReadResult::Refused(refusal) = read(&owned, &evidence) else {
+            panic!("an invalid owner admitted");
+        };
+        (
+            refusal.code,
+            refusal.loci[0].path.as_ref().unwrap().as_str().to_owned(),
+        )
+    };
+    for depth in [1_usize, 3, 100] {
+        let mut owner = json!({"owner_effective_type": null,
+            "original": {"package": IDENTITY, "node": ORDER}});
+        for _ in 1..depth {
+            owner = json!({"owner_effective_type": owner,
+                "original": {"package": IDENTITY, "node": ORDER}});
+        }
+        assert_eq!(
+            refused(owner),
+            (
+                CheckedPackageRefusalCode::UnsupportedConstruct,
+                key.to_owned()
+            ),
+            "depth {depth}"
+        );
+    }
+    assert_eq!(
+        refused(json!(5)),
+        (
+            CheckedPackageRefusalCode::MalformedWire,
+            format!("{key}/owner_effective_type")
+        )
+    );
+}
+
 /// The D10 fixture is the QSL #950 emission converted to the FR-322 operand
 /// slot form (see the fixture README). Resolving its slots must give back the
 /// index-form graph the admitted package holds, node for node.

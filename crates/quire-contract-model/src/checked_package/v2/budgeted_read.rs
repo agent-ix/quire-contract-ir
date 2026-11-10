@@ -704,25 +704,25 @@ mod early_refusal_allocation_tests {
             (
                 b"null".as_slice(),
                 CheckedPackageRefusalCode::MalformedWire,
-                "/contract_version",
+                "",
                 None,
             ),
             (
                 br#""text""#.as_slice(),
                 CheckedPackageRefusalCode::MalformedWire,
-                "/contract_version",
+                "",
                 None,
             ),
             (
                 b"[]".as_slice(),
                 CheckedPackageRefusalCode::MalformedWire,
-                "/contract_version",
+                "",
                 None,
             ),
             (
                 b"[null]".as_slice(),
                 CheckedPackageRefusalCode::MalformedWire,
-                "/contract_version",
+                "",
                 None,
             ),
             (
@@ -734,7 +734,7 @@ mod early_refusal_allocation_tests {
             (
                 br#"{"contract_version":"quire.checked-package/v2"}"#.as_slice(),
                 CheckedPackageRefusalCode::MalformedWire,
-                "/name",
+                "",
                 None,
             ),
             (

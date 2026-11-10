@@ -336,6 +336,139 @@ impl CheckedApplicationOperationRecord {
                 })
     }
 
+    /// The first position, below `at`, where an operation record departs
+    /// from the closed shape [`Self::wire_shape`] accepts. A member the shape
+    /// does not allow is named by itself, a value of the wrong kind by that
+    /// value, and a member the object lacks by the object.
+    #[ix_trace_rs::string_edge]
+    pub(super) fn wire_fault(
+        node: super::TermNode<'_>,
+        at: crate::checked_package::shared::JsonPointer,
+    ) -> Option<crate::checked_package::shared::JsonPointer> {
+        type Pointer = crate::checked_package::shared::JsonPointer;
+        fn text(node: Option<super::TermNode<'_>>, at: &Pointer) -> Option<Pointer> {
+            node.and_then(super::TermNode::as_str)
+                .is_none()
+                .then(|| at.clone())
+        }
+        fn extra(node: super::TermNode<'_>, allowed: &[&str], at: &Pointer) -> Option<Pointer> {
+            let mut fields = node.members()?;
+            fields
+                .find(|(name, _)| !allowed.contains(name))
+                .map(|(name, _)| at.clone().key(name))
+        }
+        fn object(node: super::TermNode<'_>, members: &[&str], at: &Pointer) -> Option<Pointer> {
+            if node.members().is_none() {
+                return Some(at.clone());
+            }
+            extra(node, members, at).or_else(|| {
+                members
+                    .iter()
+                    .any(|name| node.get(name).is_none())
+                    .then(|| at.clone())
+            })
+        }
+        fn mode(node: super::TermNode<'_>, at: &Pointer) -> Option<Pointer> {
+            if node.is_null() {
+                return None;
+            }
+            object(node, &["kind", "value"], at)
+                .or_else(|| text(node.get("kind"), &at.clone().key("kind")))
+                .or_else(|| text(node.get("value"), &at.clone().key("value")))
+        }
+        fn laws(node: super::TermNode<'_>, at: &Pointer) -> Option<Pointer> {
+            let Some(items) = node.items() else {
+                return Some(at.clone());
+            };
+            for (index, law) in items.enumerate() {
+                let at = at.clone().index(index);
+                if let Some(fault) = object(law, &["role", "definition"], &at)
+                    .or_else(|| text(law.get("role"), &at.clone().key("role")))
+                    .or_else(|| {
+                        let definition = at.clone().key("definition");
+                        let value = law.get("definition")?;
+                        object(value, &["authority", "identity"], &definition)
+                            .or_else(|| {
+                                text(value.get("authority"), &definition.clone().key("authority"))
+                            })
+                            .or_else(|| {
+                                text(value.get("identity"), &definition.clone().key("identity"))
+                            })
+                    })
+                {
+                    return Some(fault);
+                }
+            }
+            None
+        }
+        if node.members().is_none() {
+            return Some(at);
+        }
+        if let Some(fault) = extra(node, &["identity", "laws", "mode", "member", "leaves"], &at) {
+            return Some(fault);
+        }
+        if let Some(identity) = node.get("identity") {
+            if identity.as_str().is_none() {
+                return Some(at.key("identity"));
+            }
+        }
+        for name in ["laws", "mode", "member", "leaves"] {
+            if node.get(name).is_none() {
+                return Some(at);
+            }
+        }
+        if let Some(fault) = node
+            .get("laws")
+            .and_then(|value| laws(value, &at.clone().key("laws")))
+        {
+            return Some(fault);
+        }
+        if let Some(fault) = node
+            .get("mode")
+            .and_then(|value| mode(value, &at.clone().key("mode")))
+        {
+            return Some(fault);
+        }
+        let leaves_at = at.clone().key("leaves");
+        let Some(leaves) = node.get("leaves").and_then(super::TermNode::items) else {
+            return Some(leaves_at);
+        };
+        for (index, leaf) in leaves.enumerate() {
+            let at = leaves_at.clone().index(index);
+            if leaf.members().is_none() {
+                return Some(at);
+            }
+            if let Some(fault) = extra(leaf, &["path", "laws", "mode"], &at) {
+                return Some(fault);
+            }
+            let path_at = at.clone().key("path");
+            let Some(path_value) = leaf.get("path") else {
+                return Some(at);
+            };
+            let Some(path) = path_value.items() else {
+                return Some(path_at);
+            };
+            for (part_index, part) in path.enumerate() {
+                if part.as_str().is_none() {
+                    return Some(path_at.clone().index(part_index));
+                }
+            }
+            let Some(leaf_laws) = leaf.get("laws") else {
+                return Some(at);
+            };
+            if let Some(fault) = laws(leaf_laws, &at.clone().key("laws")) {
+                return Some(fault);
+            }
+            if let Some(fault) = leaf
+                .get("mode")
+                .and_then(|value| mode(value, &at.clone().key("mode")))
+            {
+                return Some(fault);
+            }
+        }
+        None
+    }
+
     pub(super) fn decode_member_ids(
         &mut self,
         context: &super::document_de::DecodeContext<'_>,
@@ -3631,8 +3764,10 @@ pub struct CheckedAbstractionObject {
     pub type_id: CheckedNodeId,
     /// Rust type path.
     #[serde(rename = "rust_type")]
+    #[serde(deserialize_with = "super::document_de::exact_vec")]
     pub type_path: Vec<Box<str>>,
     /// Field mappings.
+    #[serde(deserialize_with = "super::document_de::exact_vec")]
     pub fields: Vec<CheckedAbstractionField>,
 }
 
@@ -3654,6 +3789,7 @@ pub struct CheckedAbstractionPopulation {
     /// Population node.
     pub population: CheckedNodeId,
     /// Rust collection path.
+    #[serde(deserialize_with = "super::document_de::exact_vec")]
     pub collection: Vec<Box<str>>,
 }
 
@@ -3666,10 +3802,12 @@ pub struct CheckedAbstractionFrame {
     /// Operation name.
     pub operation: Box<str>,
     /// Rust function path.
+    #[serde(deserialize_with = "super::document_de::exact_vec")]
     pub function: Vec<Box<str>>,
     /// Rust receiver name.
     pub receiver: Box<str>,
     /// Parameter mappings.
+    #[serde(deserialize_with = "super::document_de::exact_vec")]
     pub parameters: Vec<CheckedAbstractionParameter>,
 }
 

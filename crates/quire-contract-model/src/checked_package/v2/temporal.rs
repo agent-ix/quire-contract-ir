@@ -345,7 +345,6 @@ pub(super) fn interval_bound_outside_pattern_node(operation: TermNode<'_>) -> Op
         return None;
     }
     let timed = interval.exact_members(&["lower", "upper", "lower_end", "upper_end"]);
-    let integer = interval.exact_members(&["lower", "upper"]);
     ["lower", "upper"].into_iter().find(|bound| {
         let Some(value) = interval.get(bound) else {
             return false;
@@ -373,7 +372,9 @@ pub(super) fn interval_bound_outside_pattern_node(operation: TermNode<'_>) -> Op
                 return true;
             };
             negative_n || negative_d || digits_d == "0"
-        } else if integer {
+        } else {
+            // An interval of any other member set has no form, so its bounds
+            // are judged against the integer pattern.
             if *bound == "upper" && value.is_null() {
                 return false;
             }
@@ -381,8 +382,6 @@ pub(super) fn interval_bound_outside_pattern_node(operation: TermNode<'_>) -> Op
                 .as_str()
                 .and_then(IntegerString::parts)
                 .is_none_or(|(negative, _)| negative)
-        } else {
-            false
         }
     })
 }
@@ -2431,9 +2430,7 @@ fn check_hyper_fairness(
         return Ok(());
     };
     let binding_value = |at: usize, wanted: &str| match members.get(at) {
-        Some(CheckedTerm::Binding { name, value })
-            if name.kind() == super::typed_terms::CheckedBindingNameKind::Other(wanted) =>
-        {
+        Some(CheckedTerm::Binding { name, value }) if AsRef::<str>::as_ref(name) == wanted => {
             Some(value.as_ref())
         }
         _ => None,
