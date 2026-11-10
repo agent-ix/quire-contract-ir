@@ -27,7 +27,7 @@ use ix_trace_rs::trace;
 use proof::{Counter, Expected};
 use quire_contract_model::{
     initialize_operation_catalog, CheckedPackageEvidence, CheckedPackageRefusalCode as Code,
-    CheckedPackageV2, CheckedPackageV2ReadResult,
+    CheckedPackageV2, CheckedPackageV2BudgetedReadResult as Budgeted, CheckedPackageV2ReadResult,
 };
 use serde_json::{json, Value};
 use std::collections::BTreeSet;
@@ -1392,6 +1392,56 @@ fn every_registered_input_is_accounted_within_the_bound_at_core_bounds() {
             &input.evidence,
             input.expected,
         );
+    }
+}
+
+/// Keep the refusal-diagnostic accounting claim tied to the named QSpec
+/// cases that motivated it. These diagnostics are bounded independently of
+/// unrelated package bytes; they do not justify a charge at the failing site.
+#[trace("TC-472", "FR-038-AC-511")]
+#[test]
+fn named_qspec_refusal_diagnostics_stay_within_the_separate_bound() {
+    initialize_operation_catalog().expect("catalog gate");
+    let named = [
+        "OP-21",
+        "OP-40",
+        "TW-25",
+        "population-as-a-relationship-declaration",
+        "population-as-a-field-declaration",
+        "population-as-an-operation-declaration",
+        "population-as-a-reaches-population-link",
+        "population-as-a-collection-operand",
+    ];
+    let cases = qspec_cases().0;
+    for case_id in named {
+        let input = cases
+            .iter()
+            .find(|input| input.label.contains(case_id))
+            .unwrap_or_else(|| panic!("registered QSpec input missing: {case_id}"));
+        let label = &input.label;
+        let Expected::Refused(expected_code) = input.expected else {
+            panic!("{label}: targeted case must be a refusal");
+        };
+        let observation = proof::measure_read::<IntegrationCounter>(
+            &input.bytes,
+            &input.evidence,
+            proof::generous_limits(),
+            u64::MAX,
+        );
+        let Budgeted::Refused(refusal) = &observation.result else {
+            panic!(
+                "{label}: selected QSpec input must refuse: {:?}",
+                observation.result
+            )
+        };
+        assert_eq!(refusal.code, expected_code, "{label}: refusal code");
+        proof::accounted(label, &observation);
+        eprintln!(
+            "Named QSpec refusal diagnostic: {label}; input_bytes={}; unpaid_bytes={}",
+            input.bytes.len(),
+            proof::unpaid(&observation),
+        );
+        proof::drop_without_request::<IntegrationCounter>(observation);
     }
 }
 
