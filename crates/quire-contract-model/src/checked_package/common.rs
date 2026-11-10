@@ -298,14 +298,14 @@ pub(super) fn node_pointer(position: usize) -> JsonPointer {
 /// uses [`read_typed_prefix`] and borrowed closed-schema decoding.
 ///
 /// Order, as FR-322 states it: byte limit, strict syntax and member
-/// validation, canonical bytes. There is no depth limit (FR-038-AC-117).
+/// validation, fixed nesting-depth refusal, canonical bytes (FR-038-AC-117).
 /// [`strict_shape`] checks syntax and duplicate members without building a
 /// value, so a syntax or duplicate-member defect anywhere in the document is
 /// refused first, however deep the document is. The document is then parsed
-/// under `serde_json`'s own recursion limit of 128, which refuses a deeper
-/// document as `malformed_wire` with no pointer before it recurses deeper, so
-/// the parse never needs more stack than 128 levels. The closed body grammar
-/// ("The flat wire") fixes the depth of every in-grammar package at far less.
+/// under `serde_json`'s own recursion limit of 128. The scan refuses a
+/// document at the first container reaching that depth, with its pointer,
+/// before parsing. The closed body grammar ("The flat wire") fixes the depth
+/// of every in-grammar package at far less.
 #[cfg(test)]
 pub(super) fn read_value<T>(
     bytes: &[u8],
@@ -320,7 +320,12 @@ pub(super) fn read_value<T>(
             None,
         ));
     }
-    strict_shape(bytes)?;
+    if let Some(pointer) = strict_shape_depth(bytes)? {
+        return Err(ValidationFailure::refused(
+            CheckedPackageRefusalCode::MalformedWire,
+            pointer,
+        ));
+    }
     let value = strict_parse(bytes)?;
     require_canonical_bytes(bytes, &value, limits.bytes)?;
     admit(value)
@@ -370,11 +375,12 @@ pub(super) fn read_typed_prefix(
             None,
         ));
     }
-    // Keep serde_json's 128-level refusal before canonicality. The strict
-    // scan completes first, so a later syntax or duplicate defect still wins.
-    if strict_shape_depth(bytes)? >= 128 {
-        return Err(ValidationFailure::refused_bytes(
+    // The strict scan completes before refusing depth, so a later syntax or
+    // duplicate defect still wins.
+    if let Some(pointer) = strict_shape_depth(bytes)? {
+        return Err(ValidationFailure::refused(
             CheckedPackageRefusalCode::MalformedWire,
+            pointer,
         ));
     }
     require_canonical_tokens(bytes)
@@ -1369,12 +1375,10 @@ pub(super) fn strict_json_value(input: &[u8]) -> Result<Value, ValidationFailure
     finish(parsed, duplicate)
 }
 
-/// Parses `input` into a value under serde_json's own recursion limit of 128,
-/// which stops the parse with an error before it recurses deeper: a document
-/// nested past it refuses `malformed_wire` with no pointer, as malformed JSON
-/// does (FR-038-AC-117). [`strict_shape_depth`] has already refused every syntax and
-/// duplicate-member defect, so the recursion limit is the one error this parse
-/// can return.
+/// Parses `input` into a value after [`strict_shape_depth`] has checked syntax,
+/// duplicate members and the fixed 128-container nesting limit. A nested
+/// document is refused at its first container reaching the limit, with its
+/// pointer (FR-038-AC-117).
 pub(super) fn strict_parse(input: &[u8]) -> Result<Value, ValidationFailure> {
     let duplicate = RefCell::new(None);
     let mut deserializer = serde_json::Deserializer::from_slice(input);
@@ -1460,21 +1464,27 @@ fn strict_shape(input: &[u8]) -> Result<(), ValidationFailure> {
     strict_shape_depth(input).map(|_| ())
 }
 
-/// The strict shape and deepest container, counted without native recursion.
+pub(super) const JSON_NESTING_LIMIT: usize = 128;
+
+/// The strict shape and first container reaching the nesting cap, counted
+/// without native recursion.
 #[ix_trace_rs::string_edge]
-fn strict_shape_depth(input: &[u8]) -> Result<usize, ValidationFailure> {
+pub(super) fn strict_shape_depth(input: &[u8]) -> Result<Option<JsonPointer>, ValidationFailure> {
     let malformed = || ValidationFailure::refused_bytes(CheckedPackageRefusalCode::MalformedWire);
     let mut scan = Scan {
         input,
         at: 0,
         open: Vec::new(),
     };
-    let mut deepest = 0;
+    let mut limit_pointer = None;
     loop {
         count_scan_step(1);
         let opens = match scan.peek().ok_or_else(malformed)? {
             b'[' => {
-                deepest = deepest.max(scan.open.len().saturating_add(1));
+                let depth = scan.open.len().saturating_add(1);
+                if depth == JSON_NESTING_LIMIT && limit_pointer.is_none() {
+                    limit_pointer = Some(scan.pointer());
+                }
                 scan.at += 1;
                 if scan.peek() == Some(b']') {
                     scan.at += 1;
@@ -1485,7 +1495,10 @@ fn strict_shape_depth(input: &[u8]) -> Result<usize, ValidationFailure> {
                 }
             }
             b'{' => {
-                deepest = deepest.max(scan.open.len().saturating_add(1));
+                let depth = scan.open.len().saturating_add(1);
+                if depth == JSON_NESTING_LIMIT && limit_pointer.is_none() {
+                    limit_pointer = Some(scan.pointer());
+                }
                 scan.at += 1;
                 if scan.peek() == Some(b'}') {
                     scan.at += 1;
@@ -1518,7 +1531,7 @@ fn strict_shape_depth(input: &[u8]) -> Result<usize, ValidationFailure> {
         loop {
             count_scan_step(1);
             let Some(top) = scan.open.last() else {
-                return Ok(deepest);
+                return Ok(limit_pointer);
             };
             let in_array = matches!(top, Open::Array { .. });
             if matches!(top, Open::Object { repeated: true, .. }) {
@@ -1825,11 +1838,11 @@ mod tests {
         }
     }
 
-    /// A document within serde_json's recursion limit is read whatever its
-    /// shape, and no limit of the read names a depth (FR-038-AC-117).
+    /// A document below the fixed nesting cap is read whatever its shape
+    /// (FR-038-AC-117).
     #[trace("TC-048")]
     #[test]
-    fn tc_048_a_document_within_the_parse_recursion_limit_is_read() {
+    fn tc_048_a_document_below_the_nesting_cap_is_read() {
         let value = json!({"a": [1, {"b": 2}], "c": {"d": {"e": 3}}});
         let bytes = serde_json::to_vec(&value).expect("bytes");
         assert_eq!(
@@ -2066,37 +2079,41 @@ mod depth_tests {
             .expect("the read overflowed its stack or panicked")
     }
 
-    /// serde_json's recursion limit of 128 is the one bound on nesting: a
-    /// document nested past it refuses `malformed_wire` with no pointer, never
-    /// `incomplete`, and a document at or within it is read, with every outcome
-    /// reached on a 256 KiB stack.
+    /// The fixed 128-container cap refuses at the first container reaching
+    /// it, with that value's pointer, never `incomplete` (FR-038-AC-117).
     #[trace("TC-048", "FR-038-AC-117")]
     #[test]
-    fn tc_048_the_parse_recursion_limit_refuses_malformed_wire_with_no_pointer() {
+    fn tc_048_the_nesting_cap_refuses_with_the_first_container_pointer() {
         on_small_stack(|| {
-            // One level fewer than serde_json's 128 is read; 128 is the first
-            // refused.
+            // The cap is reached at container 128; its pointer names the
+            // value at that depth, with the preceding 127 array indexes.
             assert!(read_value(nested(127).as_bytes(), limits(), Ok).is_ok());
+            let pointer = JsonPointer::parse(&"/0".repeat(127)).expect("valid pointer");
             assert_eq!(
                 read_value(nested(128).as_bytes(), limits(), Ok),
-                Err(malformed())
+                Err(ValidationFailure::refused(
+                    CheckedPackageRefusalCode::MalformedWire,
+                    pointer.clone(),
+                ))
             );
             for depth in [129, 300, 100_000, 2_000_000] {
                 assert_eq!(
                     read_value(nested(depth).as_bytes(), limits(), Ok),
-                    Err(malformed()),
+                    Err(ValidationFailure::refused(
+                        CheckedPackageRefusalCode::MalformedWire,
+                        pointer.clone(),
+                    )),
                     "{depth}"
                 );
             }
         });
     }
 
-    /// A syntax error or a duplicate member anywhere in a document is refused
-    /// first, even in one nested past the recursion limit, so the recursion
-    /// limit never hides it.
+    /// A syntax error or duplicate member anywhere in a document is refused
+    /// before the fixed nesting cap can hide it.
     #[trace("TC-048", "FR-038-AC-2", "FR-038-AC-117")]
     #[test]
-    fn tc_048_a_syntax_or_duplicate_defect_is_found_before_the_recursion_limit() {
+    fn tc_048_a_syntax_or_duplicate_defect_is_found_before_the_nesting_cap() {
         on_small_stack(|| {
             let depth = 2_000_000;
             let deep = nested(depth);

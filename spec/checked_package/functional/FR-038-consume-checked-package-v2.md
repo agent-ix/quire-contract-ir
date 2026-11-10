@@ -189,7 +189,8 @@ Untrusted wire bytes; caller-selected read limits, for which the crate ships one
 named finite default appropriate to a single local request — 1048576 bytes,
 10000 nodes, 100000 edges, 100000 occurrences, 10000 diagnostics and 1000000
 term-validation visits — as stable API, every member finite and no member a
-nesting depth, the reader having no depth limit (see "Reading"). The V2 read
+nesting depth; the reader separately has a fixed 128-container refusal (see
+"Reading"). The V2 read
 takes the bytes, nodes, edges, occurrences and diagnostics members as
 structural validation caps. The budgeted entries
 `CheckedPackageV2::read_with_budget` and `read_checked_package_with_budget`
@@ -424,22 +425,20 @@ Reserved arithmetic work exception (AC-508): parsing n validated decimal digits 
 
 The reader shall measure raw bytes against the byte limit, read the document
 as strict JSON (duplicate members refuse), require canonical bytes, and read
-`contract_version` exactly once. The reader has no depth limit, as merged QSpec
-FR-322 states ("Identity and validation" and "Body grammar", FR-322-AC-41): the
-closed body grammar (see "The flat wire" below) fixes the JSON depth of every
-package whatever its node count, so depth is never a limit kind. No outcome of the
-V2 reader names a depth, `CheckedPackageReadLimits` has no depth member (so
+`contract_version` exactly once. The reader refuses `malformed_wire` at the
+first JSON container that reaches 128 nested containers, with that value's
+pointer. Syntax and duplicate-member refusals anywhere in the document precede
+this fixed cap. The cap is not a structural limit kind: `CheckedPackageReadLimits`
+has no depth member (so
 `CheckedPackageLimit` has no `Depth` variant, a breaking change for a consumer that
-builds it), and no constant of the V2 reader
-(`crates/quire-contract-model/src/checked_package/`) caps a value a caller supplies
-by a nesting depth. The v1 limits of FR-019 and FR-023 are a
-different surface and are unchanged. A body nested beyond the grammar, within what the
-strict parse reads, refuses `malformed_wire` at the first value outside it, at the body
-grammar of the order of checks, and is never an `incomplete` outcome. A body nested
-at any depth past the grammar refuses there, with that value's pointer, on a
-256 KiB stack and without a stack overflow (FR-038-AC-117): the strict parse has
-no recursion limit of its own. A syntax or duplicate-member defect anywhere in
-the document refuses before canonical bytes are compared. No walk of the V2
+builds it). The v1 limits of FR-019 and FR-023 are a different surface and are
+unchanged. A body nested beyond the grammar but below the cap refuses
+`malformed_wire` at the first value outside it, at the body grammar's stage of
+the check order, and is never an `incomplete` outcome. A body reaching the cap
+refuses at the first capped container with its pointer on a 256 KiB stack and
+without a stack overflow (FR-038-AC-117). A syntax or duplicate-member defect
+anywhere in the document refuses before the depth cap and canonical bytes are
+compared. No walk of the V2
 reader (the strict parse, typed decoding, the body grammar, term walks,
 structural-id checks, closure and dependency walks and the lowering walk)
 recurses on the call stack at any depth: each runs on an explicit heap stack, a
@@ -959,8 +958,8 @@ do not relax the existing distinctness and ascending-order checks.
   depends on a chain of nodes' length, and structural-id and group-reference checks use explicit heap stacks.
   An in-group `reference` resolves by its exact structural target node ID.
   FR-038-AC-117.
-- The V2 reader has no depth limit and nothing in it caps a caller's value by
-  depth; the v1 limits of FR-019 and FR-023 are unchanged. FR-038-AC-117.
+- The V2 reader has one fixed 128-container nesting refusal, while the v1
+  limits of FR-019 and FR-023 are unchanged. FR-038-AC-117.
 - The refusal of a nested `case` is decided in the same document pre-order walk
   as the `malformed_wire` refusals, ahead of structural graph checks, so that FR-322's
   first-in-pre-order rule holds across both. Merged FR-440 "Reader joins" lists the
@@ -6151,7 +6150,7 @@ the minimum the read uses.
 | FR-038-AC-114 | A node body in which an application of any operator class other than `case` stands as an element of another application's `arguments`, as a member of an `aggregate` or as the value of a `binding` refuses `malformed_wire` at that nested application, for `quire.op.function.call`, `quire.op.state.clause` and an application of each of the `temporal`, `temporal_formula` and `temporal_fairness` classes, in each of the three positions, at a pointer such as `/semantic_graph/nodes/{n}/body/arguments/0`; an `aggregate` inside a Group's members, a `binding` whose value is an `aggregate` inside an `aggregate`'s members where the stratum admits only a Leaf value, a `binding` whose value is a `binding`, a `binding` or a Tuple inside a Tuple's members (a Tuple's members are each a Leaf or a Group) and a `binding` as a body root refuse `malformed_wire` at that value; and the same meaning with each composite subterm as its own node reached by `reference` is not refused `malformed_wire`. | Test (TC-048) |
 | FR-038-AC-115 | A `case` application nested inside another term refuses `ill_typed`/`operator-ineligible` at the nested application's `operator`; a non-`case` application at the body root of a node its class does not place it in refuses `ill_typed`/`operator-ineligible` at that node and not `malformed_wire`; and where one body or `details` term holds several offending constructs the refusal is at the first in document pre-order, outermost first: a `details` term that is a `temporal_formula` application with a nested `case` argument refuses at `/diagnostics/entries/{e}/details/{d}/operator`, a `details` aggregate of a `temporal_formula` application and then a `case` application refuses at `/diagnostics/entries/{e}/details/{d}/members/0/operator`, a node body whose `arguments/0` is a nested `case` application and whose `arguments/1` is a nested `quire.op.function.call` application refuses `ill_typed`/`operator-ineligible` at `.../body/arguments/0/operator` and, with the two swapped, `malformed_wire` at `.../body/arguments/0` (an IR reading: merged FR-322 gives the pre-order rule, merged FR-440 decides a nested `case` at the operation step, and the two are unreconciled), and an application of a class other than `temporal_formula`, `temporal_fairness` and `case` in a `details` term refuses `malformed_wire` at that application. | Test (TC-048) |
 | FR-038-AC-116 | A package with a malformed nested non-`case` application refuses `malformed_wire` at that term before graph joins; a nested `case` application refuses `ill_typed`/`operator-ineligible` at its operator. Flattening the body removes that defect and proceeds to the next independent graph or owner check, with no stale-key or package-id stage. | Test (TC-048) |
-| FR-038-AC-117 | `CheckedPackageReadLimits` has no depth member and `CheckedPackageLimit` has no `Depth` variant, and no source file under `crates/quire-contract-model/src/checked_package/` holds `MAXIMUM_DEPTH`, another `MAX_*DEPTH` constant, `stacker`, `serde_stacker` or `on_stack_for` (the crate's v1 modules, their limits and its manifest are out of this scan: FR-019 and FR-023 keep them); a package holding a chain of 100000 nodes, each referencing the previous (a 100000-deep expression, as merged QSpec FR-322-AC-41 and TC-427 BG-03 build it), read under byte, node, edge, occurrence and diagnostic limits and a caller budget all sized so that none decides the outcome, on a thread whose stack is 256 KiB, is admitted and lowered from its last node with no outcome naming a depth and no stack overflow, and has the same JSON nesting depth as a package of one level; and an otherwise canonical document whose node body nests a term 20 levels deep, 126 JSON levels deep (a body of 61 aggregates) or 300 levels deep each refuse `malformed_wire` at the first value outside the body grammar (FR-038-AC-114), on a 256 KiB thread in a debug build with no stack overflow. | Test (TC-048) |
+| FR-038-AC-117 | `CheckedPackageReadLimits` has no depth member and `CheckedPackageLimit` has no `Depth` variant; the V2 reader's fixed 128-container cap refuses `malformed_wire` at the first container reaching depth 128, with that value's pointer, after complete syntax and duplicate-member scanning and before canonical-byte comparison, on both read paths. No other dynamic depth ceiling or stack-growth helper exists (the crate's v1 modules, their limits and its manifest are outside this scan: FR-019 and FR-023 keep them). A package holding a chain of 100000 nodes, each referencing the previous (a 100000-deep expression, as merged QSpec FR-322-AC-41 and TC-427 BG-03 build it), read under byte, node, edge, occurrence and diagnostic limits and a caller budget all sized so that none decides the outcome, on a thread whose stack is 256 KiB, is admitted and lowered from its last node with no stack overflow and has the same JSON nesting depth as a package of one level. An otherwise canonical document whose node body nests a term 20 levels deep refuses `malformed_wire` at the first value outside the body grammar (FR-038-AC-114); one nested 300 levels deep refuses at the first container reaching the cap with its pointer. Both refuse on a 256 KiB thread in a debug build with no stack overflow. | Test (TC-048) |
 | FR-038-AC-118 | Each of the five `body_grammar_mutations` of QSpec's `adverse.json` (`application-in-application-arguments`, `application-in-aggregate-members`, `application-in-binding-value`, `aggregate-in-group-members` and `binding-as-body-root`) refuses `malformed_wire` as its recorded `outcome` names, through the harness of FR-038-AC-112, whose expected-failure list holds none of them. | Test (TC-048) |
 | FR-038-AC-119 | On each of the eight interval operators under a clause whose `temporal_profile` law names `quire.temporal.timed/v1`, the timed form `{lower, upper, lower_end, upper_end}` admits with bounds `{numerator: "0", denominator: "1"}` and `{numerator: "3", denominator: "1"}` for each of the four end pairs `closed`/`closed`, `closed`/`open`, `open`/`closed` and `open`/`open`; it admits with `lower` `{numerator: "1", denominator: "2"}`, with `lower` and `upper` both `{numerator: "3", denominator: "1"}` and both ends `closed` (a punctual `[3, 3]`), and with `lower` `{numerator: "0", denominator: "1"}`; and a `null` interval on the same operators admits (merged FR-370-AC-3 and FR-370-AC-8). | Test (TC-048) |
 | FR-038-AC-120 | Each invalid timed-form interval refuses invalid_package/invalid-value at its exact lower or upper bound during strict wire validation before graph and timed-body checks, including when another independent graph defect is present. | Test (TC-048) |

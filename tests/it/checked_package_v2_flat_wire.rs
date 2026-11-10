@@ -4,8 +4,8 @@
 //! FR-038-AC-114 through FR-038-AC-117, at the package: the flat wire (an
 //! application stands only at a body root, and a body is drawn from the
 //! five-stratum grammar of merged QSpec FR-322 "Body grammar"), the order of
-//! its refusals ahead of every identity check, and the absence of a depth
-//! limit and of any recursion that follows the package's size.
+//! its refusals ahead of every identity check, the fixed 128-container depth
+//! cap, and the absence of recursion that follows the package's size.
 //! FR-038-AC-118 is `tests/conformance_qspec`, which runs QSpec's own
 //! mutations through `make conformance-qspec`.
 //!
@@ -680,9 +680,9 @@ fn typed(label: &str) -> CheckedNodeId {
     serde_json::from_value(node_id(label)).expect("node id")
 }
 
-/// FR-038-AC-117: no read limit, and no outcome of a read, names a depth. A
-/// constructor of the limits and a match on the limit kinds that list every
-/// member and every kind fail to compile if one is added back.
+/// FR-038-AC-117: the structural read limits and limit kinds have no depth
+/// member. The fixed parser nesting cap remains a separate malformed-wire
+/// refusal, not a structural limit kind.
 #[trace("TC-048", "FR-038-AC-117")]
 #[test]
 fn tc_048_no_read_limit_and_no_limit_kind_names_a_depth() {
@@ -716,14 +716,13 @@ fn tc_048_no_read_limit_and_no_limit_kind_names_a_depth() {
     }
 }
 
-/// FR-038-AC-117: no source file of the V2 reader holds a depth ceiling, or a
-/// stack that grows with the input: the words `MAXIMUM_DEPTH`, any other
-/// `MAX_*DEPTH` constant, `stacker`, `serde_stacker` and `on_stack_for` are
-/// absent from `crates/quire-contract-model/src/checked_package/`. The crate's
-/// v1 modules and its manifest are outside the scan (FR-019, FR-023).
+/// FR-038-AC-117: the V2 reader has one fixed 128-container cap and no stack
+/// that grows with the input. Dynamic depth ceilings and stack-growth helpers
+/// remain absent from `crates/quire-contract-model/src/checked_package/`.
+/// The crate's v1 modules and its manifest are outside the scan (FR-019, FR-023).
 #[trace("TC-048", "FR-038-AC-117")]
 #[test]
-fn tc_048_the_v2_reader_sources_hold_no_depth_ceiling_or_growing_stack() {
+fn tc_048_the_v2_reader_has_only_its_fixed_nesting_cap() {
     fn sources(directory: &std::path::Path, found: &mut Vec<std::path::PathBuf>) {
         for entry in std::fs::read_dir(directory).expect("directory") {
             let path = entry.expect("entry").path();
@@ -747,8 +746,15 @@ fn tc_048_the_v2_reader_sources_hold_no_depth_ceiling_or_growing_stack() {
         let ceiling = text
             .split(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
             .find(|token| token.starts_with("MAX") && token.ends_with("DEPTH"));
-        assert_eq!(ceiling, None, "{} holds a depth ceiling", file.display());
+        assert_eq!(
+            ceiling,
+            None,
+            "{} holds a dynamic depth ceiling",
+            file.display()
+        );
     }
+    let common = std::fs::read_to_string(root.join("common.rs")).expect("common source");
+    assert!(common.contains("JSON_NESTING_LIMIT: usize = 128"));
 }
 
 /// The node body of a fixture with `deep` as its text in place of a marker, the
@@ -796,14 +802,14 @@ fn read_on_small_stack(
 }
 
 /// FR-038-AC-117: an otherwise canonical document whose node body nests a term
-/// 300 levels deep, past the strict parse's recursion limit of 128, refuses
-/// `malformed_wire` with no pointer at the strict parse, ahead of the
-/// canonical-bytes check and the body grammar, never `incomplete`, on a
-/// 256 KiB stack; the same document nested 20 levels deep refuses
-/// `malformed_wire` at the first value outside the body grammar.
+/// 300 levels deep refuses `malformed_wire` at the first JSON container that
+/// reaches the fixed 128-container cap, ahead of canonical bytes and the body
+/// grammar, never `incomplete`, on a 256 KiB stack. The same cap pointer is
+/// returned on the budgeted path; a document nested 20 levels deep instead
+/// refuses at the first value outside the body grammar.
 #[trace("TC-048", "FR-038-AC-117")]
 #[test]
-fn tc_048_a_document_nested_past_the_parse_limit_refuses_at_the_parse() {
+fn tc_048_a_document_past_the_nesting_cap_refuses_at_the_cap() {
     let evidence = evidence_for(&v2_all_families());
     let host = host_position(&v2_all_families());
 
@@ -813,13 +819,39 @@ fn tc_048_a_document_nested_past_the_parse_limit_refuses_at_the_parse() {
         panic!("300 levels refuse, read {result:?}");
     };
     assert_eq!(refusal.code, Code::MalformedWire);
+    let cap_pointer = format!(
+        "/semantic_graph/nodes/{host}/body{}{}",
+        "/members/0".repeat(61),
+        "/members"
+    );
     assert_eq!(
-        refusal.loci[0].path.clone(),
-        None,
-        "the parse names no pointer"
+        refusal.loci[0].path.as_ref().map(|path| path.as_str()),
+        Some(cap_pointer.as_str())
     );
 
-    // The parse comes ahead of the canonical-bytes check: the same document,
+    let mut budget =
+        quire_contract_model::NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(u64::MAX);
+    let budgeted = quire_contract_model::CheckedPackageV2::read_with_budget(
+        &deep,
+        CheckedPackageReadLimits {
+            bytes: 1 << 30,
+            ..CheckedPackageReadLimits::bounded()
+        },
+        &evidence,
+        &mut budget,
+    );
+    let quire_contract_model::CheckedPackageV2BudgetedReadResult::Refused(refusal) = budgeted
+    else {
+        panic!("the budgeted 300-level input refuses, read {budgeted:?}");
+    };
+    assert_eq!(refusal.code, Code::MalformedWire);
+    assert_eq!(
+        refusal.loci[0].path.as_ref().map(|path| path.as_str()),
+        Some(cap_pointer.as_str()),
+        "budgeted refusal retains and charges the cap pointer"
+    );
+
+    // The cap check comes ahead of canonical-byte comparison: the same document,
     // no longer canonical, is refused as the same malformed wire.
     let mut spaced = b" ".to_vec();
     spaced.extend_from_slice(&deep);
@@ -829,7 +861,7 @@ fn tc_048_a_document_nested_past_the_parse_limit_refuses_at_the_parse() {
     };
     assert_eq!(
         (refusal.code, refusal.loci[0].path.clone()),
-        (Code::MalformedWire, None)
+        (Code::MalformedWire, Some(pointer(&cap_pointer)))
     );
 
     // Twenty levels read, and the first value outside the grammar refuses:
@@ -847,8 +879,8 @@ fn tc_048_a_document_nested_past_the_parse_limit_refuses_at_the_parse() {
         ))
     );
 
-    // The window between the grammar and the parse limit: a body of 43 to 61
-    // aggregates is 91 to 126 JSON levels deep, within the parse's limit of 128
+    // The window between the grammar and the cap: a body of 43 to 61
+    // aggregates is 91 to 126 JSON levels deep, below the limit of 128
     // levels and far past the grammar. It refuses at the same value as the
     // 20-level one, and never aborts the read on a 256 KiB stack, in a debug
     // build too: the closed decode takes the bodies out before it reads the
@@ -867,7 +899,7 @@ fn tc_048_a_document_nested_past_the_parse_limit_refuses_at_the_parse() {
             "{levels} levels"
         );
     }
-    // The first depth past the parse's limit refuses at the parse.
+    // The first depth at the fixed cap names the first capped value.
     let past = package_with_body_text(&nested_aggregates(62));
     let result = read_on_small_stack(past, evidence);
     let CheckedPackageV2ReadResult::Refused(refusal) = result else {
@@ -875,16 +907,16 @@ fn tc_048_a_document_nested_past_the_parse_limit_refuses_at_the_parse() {
     };
     assert_eq!(
         (refusal.code, refusal.loci[0].path.clone()),
-        (Code::MalformedWire, None)
+        (Code::MalformedWire, Some(pointer(&cap_pointer)))
     );
 }
 
 /// FR-038-AC-117: a `details` term in the window between the grammar and the
-/// parse limit refuses at the first value outside the grammar too, on a 256 KiB
+/// cap refuses at the first value outside the grammar too, on a 256 KiB
 /// stack.
 #[trace("TC-048", "FR-038-AC-117")]
 #[test]
-fn tc_048_a_deep_details_term_within_the_parse_limit_refuses_at_the_grammar() {
+fn tc_048_a_deep_details_term_below_the_cap_refuses_at_the_grammar() {
     let evidence = evidence_for(&v2_all_families());
     let marker = "\u{1}deep";
     let quoted = serde_json::to_string(marker).expect("string");

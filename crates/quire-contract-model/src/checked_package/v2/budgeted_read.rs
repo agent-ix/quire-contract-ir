@@ -9,7 +9,7 @@ use super::{
     CatalogReadError, CheckedPackageEvidence, CheckedPackageV2, CheckedPackageV2ReadResult,
     PackageReadStage, ValidationFailure,
 };
-use crate::checked_package::common::{exceeds, refuse_bytes_exceeded};
+use crate::checked_package::common::{exceeds, refuse_bytes_exceeded, strict_shape_depth};
 use crate::checked_package::shared::{
     CheckedPackageIncomplete, CheckedPackageLimit, CheckedPackageReadLimits, CheckedPackageRefusal,
     CheckedPackageRefusalCode, JsonPointer,
@@ -539,36 +539,6 @@ impl quire_canonical::Encode for PackageDocument<'_> {
     }
 }
 
-const SERDE_JSON_RECURSION_LIMIT: usize = 128;
-
-/// The deepest container nesting of bytes the shared reader accepted, counted
-/// in one pass that holds no memory.
-fn nesting_depth(bytes: &[u8]) -> usize {
-    let (mut depth, mut deepest) = (0_usize, 0_usize);
-    let (mut in_string, mut escaped) = (false, false);
-    for byte in bytes {
-        if in_string {
-            match (escaped, byte) {
-                (true, _) => escaped = false,
-                (false, b'\\') => escaped = true,
-                (false, b'"') => in_string = false,
-                _ => {}
-            }
-            continue;
-        }
-        match byte {
-            b'"' => in_string = true,
-            b'[' | b'{' => {
-                depth = depth.saturating_add(1);
-                deepest = deepest.max(depth);
-            }
-            b']' | b'}' => depth = depth.saturating_sub(1),
-            _ => {}
-        }
-    }
-    deepest
-}
-
 /// Reads the package bytes with the shared reader and requires them to be
 /// their own canonical encoding, charging every reservation of both to the
 /// budget's read storage. The byte limit is checked before any request.
@@ -636,13 +606,20 @@ pub(in crate::checked_package) fn read_envelope(
             ));
         }
     };
-    // The typed decode below reads term bodies with serde_json, which this
-    // read keeps to its 128-level recursion bound.
-    if nesting_depth(bytes) >= SERDE_JSON_RECURSION_LIMIT {
-        return Err(prepaid_bytes_refusal(
-            budget,
-            PackageReadStage::Envelope,
+    // The strict shape scan preserves syntax and duplicate-member precedence,
+    // then locates the first container at the fixed 128-level cap.
+    if let Some(pointer) = strict_shape_depth(bytes)? {
+        let mut meter = super::WorkMeter::over(budget);
+        return Err(super::stage_storage::refuse_pointer(
+            &mut meter,
+            &super::stage_storage::Site::new(
+                PackageReadStage::Envelope,
+                0,
+                "package_bytes",
+                super::stage_storage::Path::root(),
+            ),
             CheckedPackageRefusalCode::MalformedWire,
+            pointer,
         ));
     }
     at_stage(budget, PackageReadStage::Canonical, "canonical_bytes");
