@@ -1012,9 +1012,10 @@ fn tc_048_a_syntax_or_duplicate_defect_is_refused_before_the_parse_limit() {
             CheckedPackageV2ReadResult::Refused(refusal) => refusal,
             other => panic!("expected a refusal, read {other:?}"),
         };
+        let cap_pointer = format!("/{}", vec!["0"; 127].join("/"));
         assert_eq!(
             (refusal(&deep).code, refusal(&deep).loci[0].path.clone()),
-            (Code::MalformedWire, None)
+            (Code::MalformedWire, Some(pointer(&cap_pointer)))
         );
         let broken = format!("{}x{}", "[".repeat(200), "]".repeat(200));
         assert_eq!(
