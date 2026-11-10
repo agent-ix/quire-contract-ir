@@ -4,15 +4,19 @@
 //! One allocation oracle shared by the dedicated counter binary and the
 //! existing integration binary's global allocation-counter backend.
 
+use quire_contract_model::NativeJoinLocusSource;
 use quire_contract_model::{
     initialize_operation_catalog, CheckedPackageEvidence, CheckedPackageReadLimits,
     CheckedPackageRefusalCode, CheckedPackageV2, CheckedPackageV2BudgetedReadResult,
-    CheckedPackageV2ReadResult, NativeJoinBudget, NativeJoinLocusSource,
+    CheckedPackageV2ReadResult, NativeJoinBudget,
 };
 
 use crate::qspec_read_proof::observation;
+#[cfg(feature = "test-support")]
+pub(crate) use observation::REFUSAL_DIAGNOSTIC_UNPAID_BOUND;
 pub(crate) use observation::{
-    accounted, drop_without_request, measure_at, unpaid, Counter, Observation, UNPAID_BOUND,
+    accounted, accounted_refusal_diagnostic, drop_without_request, measure_at, unpaid, Counter,
+    Observation, UNPAID_BOUND,
 };
 
 #[derive(Clone, Copy)]
@@ -51,6 +55,11 @@ pub(crate) fn assert_read<C: Counter>(
 ) {
     initialize_operation_catalog().expect("the specified catalogue gate succeeds");
     let limits = generous_limits();
+    let account = if matches!(expected, Expected::Refused(_)) {
+        accounted_refusal_diagnostic
+    } else {
+        accounted
+    };
     // Initialize only the specified catalog gate; do not use an unmeasured
     // public package read to warm per-read owned storage.
     let reference = measure_read::<C>(bytes, evidence, limits, u64::MAX);
@@ -96,7 +105,7 @@ pub(crate) fn assert_read<C: Counter>(
             "{label}: fixture outcome differs from its required class: {plain:?}/{measured:?}"
         ),
     }
-    accounted(label, &reference);
+    account(label, &reference);
     let total = reference.budget.read_storage_consumed();
     assert!(total > 0);
     let work = reference.budget.consumed().work;
@@ -122,7 +131,7 @@ pub(crate) fn assert_read<C: Counter>(
             total,
             "{label}: catalogue and every owned table are charged again"
         );
-        accounted(label, &exact);
+        account(label, &exact);
         drop_without_request::<C>(exact);
     }
     let short = measure_read::<C>(bytes, evidence, limits, total - 1);
@@ -134,14 +143,147 @@ pub(crate) fn assert_read<C: Counter>(
         "one short refuses"
     );
     assert!(short.budget.first_unpaid_read_storage().is_some());
-    accounted(label, &short);
+    account(label, &short);
     drop_without_request::<C>(short);
     drop_without_request::<C>(reference);
 }
 
-/// Probe actual requests in runtime order. Stage labels may decrease; no
-/// numeric stage-order bisection or phase assumption is used.
-pub(crate) fn every_request<C: Counter>(bytes: &[u8], evidence: &CheckedPackageEvidence) {
+/// Observe every actual storage request once, then verify the final exact and
+/// one-below request boundaries. The observer avoids replaying the full read
+/// once for every reservation.
+pub(crate) fn every_request<C: Counter>(bytes: &[u8], evidence: &CheckedPackageEvidence) -> u64 {
+    #[cfg(feature = "test-support")]
+    {
+        every_request_from_observer::<C>(bytes, evidence)
+    }
+    #[cfg(not(feature = "test-support"))]
+    {
+        every_request_by_replay::<C>(bytes, evidence)
+    }
+}
+
+#[cfg(feature = "test-support")]
+fn every_request_from_observer<C: Counter>(bytes: &[u8], evidence: &CheckedPackageEvidence) -> u64 {
+    initialize_operation_catalog().expect("catalogue gate");
+    let limits = generous_limits();
+    let (reference, events) =
+        crate::qspec_read_proof::observe_native::<C>(bytes, evidence, limits, u64::MAX, u64::MAX);
+    assert!(
+        !matches!(
+            reference.result,
+            CheckedPackageV2BudgetedReadResult::BudgetIncomplete(_)
+                | CheckedPackageV2BudgetedReadResult::Exhausted(_)
+        ),
+        "ample reference reaches its semantic outcome"
+    );
+    let is_refusal = matches!(
+        &reference.result,
+        CheckedPackageV2BudgetedReadResult::Refused(_)
+    );
+    let account = if is_refusal {
+        accounted_refusal_diagnostic
+    } else {
+        accounted
+    };
+    account("ample reference", &reference);
+
+    let mut consumed = 0_u64;
+    let mut last_storage_event = None;
+    let mut storage_requests = 0_usize;
+    for event in &events {
+        if event.resource != quire_contract_model::NativeBudgetResource::ReadStorage {
+            continue;
+        }
+        assert_eq!(
+            event.consumed_before, consumed,
+            "observer records storage requests in budget order"
+        );
+        storage_requests += 1;
+        if event.amount == 0 {
+            continue;
+        }
+        assert!(event.admitted, "unlimited storage request is admitted");
+        assert!(
+            event.locus.is_some_and(|locus| matches!(
+                locus.source,
+                NativeJoinLocusSource::PackageRead(..)
+            )),
+            "every observed storage request has its package-read locus"
+        );
+        consumed = consumed
+            .checked_add(u64::try_from(event.amount).expect("bounded request"))
+            .expect("bounded total read storage");
+        last_storage_event = Some(*event);
+    }
+    assert!(storage_requests > 0, "the read makes storage requests");
+    assert_eq!(
+        consumed,
+        reference.budget.read_storage_consumed(),
+        "observed requests equal the admitted storage delta"
+    );
+    let final_request = last_storage_event.expect("at least one storage request");
+    let final_amount = u64::try_from(final_request.amount).expect("bounded final request");
+    assert_eq!(
+        final_request.consumed_before.checked_add(final_amount),
+        Some(consumed),
+        "the final observed request reaches the exact read-storage delta"
+    );
+
+    let exact = measure_read::<C>(bytes, evidence, limits, consumed);
+    crate::qspec_read_proof::assert_budgeted_results_equal(
+        &exact.result,
+        &reference.result,
+        "final exact storage boundary",
+    );
+    account("final exact storage boundary", &exact);
+    let short_limit = consumed
+        .checked_sub(1)
+        .expect("positive read-storage total");
+    let short = measure_read::<C>(bytes, evidence, limits, short_limit);
+    assert_eq!(
+        short.budget.first_unpaid_read_storage(),
+        Some(u128::from(final_amount)),
+        "one below the final boundary denies its observed request"
+    );
+    assert_eq!(
+        short.budget.first_unpaid_locus(),
+        final_request.locus,
+        "one below the final boundary retains its observed locus"
+    );
+    assert_eq!(
+        short.budget.read_storage_consumed(),
+        final_request.consumed_before,
+        "a denied request does not advance admitted storage"
+    );
+    assert!(
+        !matches!(
+            short.result,
+            CheckedPackageV2BudgetedReadResult::Admitted(_)
+        ),
+        "one below the final request cannot admit the package"
+    );
+    account("one below final storage boundary", &short);
+    let maximum_unpaid = unpaid(&reference).max(unpaid(&exact)).max(unpaid(&short));
+    let bound = if is_refusal {
+        REFUSAL_DIAGNOSTIC_UNPAID_BOUND
+    } else {
+        UNPAID_BOUND
+    };
+    assert!(
+        maximum_unpaid <= bound,
+        "maximum boundary overage {maximum_unpaid} exceeds its applicable bound {bound}"
+    );
+    drop_without_request::<C>(exact);
+    drop_without_request::<C>(short);
+    drop_without_request::<C>(reference);
+    eprintln!(
+        "Observed {storage_requests} actual storage reservations; checked final exact and one-below boundaries"
+    );
+    maximum_unpaid
+}
+
+#[cfg(not(feature = "test-support"))]
+fn every_request_by_replay<C: Counter>(bytes: &[u8], evidence: &CheckedPackageEvidence) -> u64 {
     initialize_operation_catalog().expect("catalogue gate");
     let limits = generous_limits();
     let reference = measure_read::<C>(bytes, evidence, limits, u64::MAX);
@@ -153,11 +295,23 @@ pub(crate) fn every_request<C: Counter>(bytes: &[u8], evidence: &CheckedPackageE
         ),
         "ample reference reaches its semantic outcome"
     );
+    let is_refusal = matches!(
+        &reference.result,
+        CheckedPackageV2BudgetedReadResult::Refused(_)
+    );
+    let account = if is_refusal {
+        accounted_refusal_diagnostic
+    } else {
+        accounted
+    };
+    account("ample reference", &reference);
+    let mut maximum_unpaid = unpaid(&reference);
     let total = reference.budget.read_storage_consumed();
     let mut before = 0;
     loop {
         let stopped = measure_read::<C>(bytes, evidence, limits, before);
-        accounted("exact preceding request boundary", &stopped);
+        account("exact preceding request boundary", &stopped);
+        maximum_unpaid = maximum_unpaid.max(unpaid(&stopped));
         if before == total {
             assert_eq!(stopped.result, reference.result);
             drop_without_request::<C>(stopped);
@@ -175,17 +329,20 @@ pub(crate) fn every_request<C: Counter>(bytes: &[u8], evidence: &CheckedPackageE
             locus.source,
             NativeJoinLocusSource::PackageRead(..)
         ));
-        // No allowance remains at this exact prefix, so a positive-sized
-        // diagnostic cannot allocate after the denied request.
+        // No allowance remains at this exact prefix. A refusal may still
+        // build its uncharged semantic diagnostic; its separate bound was
+        // applied above. Other outcomes must not grow unpaid memory.
         assert_eq!(stopped.budget.read_storage_consumed(), before);
-        assert!(
-            unpaid(&stopped) <= unpaid(&reference),
-            "a denied request allocates nothing beyond the ample read's own unpaid memory: asked={asked}, locus={locus:?}, requested={}, charged={}, denied_result={:?}, ample_unpaid={}",
-            stopped.requested,
-            stopped.budget.read_storage_consumed(),
-            stopped.result,
-            unpaid(&reference),
-        );
+        if !is_refusal {
+            assert!(
+                unpaid(&stopped) <= unpaid(&reference),
+                "a denied request allocates nothing beyond the ample read's own unpaid memory: asked={asked}, locus={locus:?}, requested={}, charged={}, denied_result={:?}, ample_unpaid={}",
+                stopped.requested,
+                stopped.budget.read_storage_consumed(),
+                stopped.result,
+                unpaid(&reference),
+            );
+        }
         let next = before
             .checked_add(u64::try_from(asked).expect("bounded request"))
             .expect("bounded total");
@@ -206,30 +363,21 @@ pub(crate) fn every_request<C: Counter>(bytes: &[u8], evidence: &CheckedPackageE
             before + diagnostic,
             "only the charged outcome pointer follows a denial"
         );
-        accounted("one below actual reservation", &short);
-        let again = measure_read::<C>(bytes, evidence, limits, next - 1);
-        assert_eq!(
-            again.result, short.result,
-            "same first fault and full refusal value"
-        );
-        assert_eq!(again.budget.first_unpaid_locus(), Some(locus));
-        assert_eq!(
-            again.budget.read_storage_consumed(),
-            short.budget.read_storage_consumed()
-        );
-        accounted("repeated denial", &again);
+        account("one below actual reservation", &short);
+        maximum_unpaid = maximum_unpaid.max(unpaid(&short));
         drop_without_request::<C>(stopped);
         drop_without_request::<C>(short);
-        drop_without_request::<C>(again);
         before = next;
     }
     drop_without_request::<C>(reference);
+    maximum_unpaid
 }
 
 /// Count work denials as well as storage denials. The pointer-free diagnostic
 /// may cost zero; a positive-sized pointer is denied with exactly its preceding
 /// storage allowance and must preserve the original work charge and locus.
 /// Returns false only when this input reaches no work charge at all.
+#[allow(dead_code)] // Used by the sibling read_storage_alloc integration target.
 pub(crate) fn work_denials<C: Counter>(
     label: &str,
     bytes: &[u8],

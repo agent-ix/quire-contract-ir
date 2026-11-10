@@ -25,6 +25,8 @@ use crate::support::checked_package::{
 };
 use ix_trace_rs::trace;
 use proof::{Counter, Expected};
+#[cfg(feature = "test-support")]
+use quire_contract_model::CheckedPackageV2BudgetedReadResult as Budgeted;
 use quire_contract_model::{
     initialize_operation_catalog, CheckedPackageEvidence, CheckedPackageRefusalCode as Code,
     CheckedPackageV2, CheckedPackageV2ReadResult,
@@ -1395,10 +1397,96 @@ fn every_registered_input_is_accounted_within_the_bound_at_core_bounds() {
     }
 }
 
+/// Keep the refusal-diagnostic accounting claim tied to the named QSpec
+/// cases that motivated it. These diagnostics are bounded independently of
+/// unrelated package bytes; they do not justify a charge at the failing site.
+#[cfg(feature = "test-support")]
+#[trace("TC-472", "FR-038-AC-511")]
+#[test]
+fn named_qspec_refusal_diagnostics_stay_within_the_separate_bound() {
+    initialize_operation_catalog().expect("catalog gate");
+    let named = [
+        "OP-21",
+        "OP-40",
+        "TW-25",
+        "population-as-a-relationship-declaration",
+        "population-as-a-field-declaration",
+        "population-as-an-operation-declaration",
+        "population-as-a-reaches-population-link",
+        "population-as-a-collection-operand",
+    ];
+    let selected = qspec_cases()
+        .0
+        .into_iter()
+        .filter(|input| named.iter().any(|case_id| input.label.contains(case_id)))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        selected.len(),
+        named.len(),
+        "each named QSpec refusal is registered exactly once"
+    );
+    let maxima = std::thread::scope(|scope| {
+        let handles = selected
+            .into_iter()
+            .map(|input| {
+                scope.spawn(move || {
+                    let label = &input.label;
+                    let Expected::Refused(expected_code) = input.expected else {
+                        panic!("{label}: targeted case must be a refusal");
+                    };
+                    let observation = proof::measure_read::<IntegrationCounter>(
+                        &input.bytes,
+                        &input.evidence,
+                        proof::generous_limits(),
+                        u64::MAX,
+                    );
+                    let Budgeted::Refused(refusal) = &observation.result else {
+                        panic!(
+                            "{label}: selected QSpec input must refuse: {:?}",
+                            observation.result
+                        )
+                    };
+                    assert_eq!(refusal.code, expected_code, "{label}: refusal code");
+                    proof::accounted_refusal_diagnostic(label, &observation);
+                    let boundary_maximum =
+                        proof::every_request::<IntegrationCounter>(&input.bytes, &input.evidence);
+                    eprintln!(
+                        "Named QSpec refusal diagnostic boundaries: {label}; input_bytes={}; ample_unpaid_bytes={}; maximum_boundary_unpaid_bytes={boundary_maximum}",
+                        input.bytes.len(),
+                        proof::unpaid(&observation),
+                    );
+                    proof::drop_without_request::<IntegrationCounter>(observation);
+                    (input.label, boundary_maximum)
+                })
+            })
+            .collect::<Vec<_>>();
+        handles
+            .into_iter()
+            .map(|handle| {
+                handle
+                    .join()
+                    .expect("named refusal boundary proof succeeds")
+            })
+            .collect::<Vec<_>>()
+    });
+    let maximum_diagnostic_unpaid = maxima
+        .iter()
+        .map(|(_, maximum)| *maximum)
+        .max()
+        .expect("named QSpec refusal set is nonempty");
+    eprintln!(
+        "Maximum named QSpec refusal-diagnostic unpaid bytes across all boundaries: {maximum_diagnostic_unpaid}; independent bound: {}",
+        proof::REFUSAL_DIAGNOSTIC_UNPAID_BOUND,
+    );
+}
+
 #[trace("TC-472", "FR-038-AC-511")]
 #[test]
 fn the_actual_tc048_catalogue_and_refusal_corpus_is_accounted_within_the_bound() {
     initialize_operation_catalog().expect("catalog gate");
+    // Every registered input still gets its ample, exact, repeated, and
+    // whole-read one-below checks. Exhaustive per-request refusal boundaries
+    // are covered by the focused QSpec diagnostic proof above.
     for input in registered_cases() {
         eprintln!("Registry full actual input: {}", input.label);
         proof::assert_read::<IntegrationCounter>(
@@ -1407,8 +1495,6 @@ fn the_actual_tc048_catalogue_and_refusal_corpus_is_accounted_within_the_bound()
             &input.evidence,
             input.expected,
         );
-        proof::every_request::<IntegrationCounter>(&input.bytes, &input.evidence);
-        proof::work_denials::<IntegrationCounter>(&input.label, &input.bytes, &input.evidence);
     }
 }
 

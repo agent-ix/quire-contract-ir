@@ -8,7 +8,8 @@
 //!
 //! Real request boundaries come from the public first-unpaid amount and locus;
 //! stage enumeration order is never treated as runtime order.
-//! The counter is per thread and armed only around the read.
+//! `allocation_counter` measures on the reading thread and is armed only
+//! around the read.
 
 #[path = "it/support/checked_package.rs"]
 mod checked_package;
@@ -22,53 +23,20 @@ use quire_contract_model::{
     initialize_operation_catalog, CheckedPackageEvidence, CheckedPackageV2,
     CheckedPackageV2BudgetedReadResult, CheckedPackageV2ReadResult,
 };
-use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
 
 thread_local! {
-    /// Bytes requested on this thread while armed.
-    static REQUESTED: Cell<Option<u64>> = const { Cell::new(None) };
+    /// Whether a ThreadCounter measurement is active on this thread.
+    static REQUESTED: Cell<bool> = const { Cell::new(false) };
 }
 
-fn note(bytes: usize) {
-    let _ = REQUESTED.try_with(|requested| {
-        if let Some(total) = requested.get() {
-            requested.set(Some(total.saturating_add(bytes as u64)));
-        }
-    });
-}
+struct RestoreRequested(bool);
 
-struct Counting;
-
-// SAFETY: every method forwards to `System` with the layout and pointer it was
-// given; the counter only reads sizes and touches no allocation.
-unsafe impl GlobalAlloc for Counting {
-    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        note(layout.size());
-        // SAFETY: the caller's contract is `System`'s.
-        unsafe { System.alloc(layout) }
-    }
-
-    unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
-        note(layout.size());
-        // SAFETY: the caller's contract is `System`'s.
-        unsafe { System.alloc_zeroed(layout) }
-    }
-
-    unsafe fn realloc(&self, pointer: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
-        note(new_size);
-        // SAFETY: the caller's contract is `System`'s.
-        unsafe { System.realloc(pointer, layout, new_size) }
-    }
-
-    unsafe fn dealloc(&self, pointer: *mut u8, layout: Layout) {
-        // SAFETY: the caller's contract is `System`'s.
-        unsafe { System.dealloc(pointer, layout) }
+impl Drop for RestoreRequested {
+    fn drop(&mut self) {
+        REQUESTED.with(|requested| requested.set(self.0));
     }
 }
-
-#[global_allocator]
-static ALLOCATOR: Counting = Counting;
 
 #[path = "it/support/read_allocation_proof.rs"]
 mod read_allocation_proof;
@@ -80,14 +48,12 @@ use read_allocation_proof::{
 struct ThreadCounter;
 impl Counter for ThreadCounter {
     fn measure(read: impl FnOnce()) -> u64 {
-        REQUESTED.with(|counter| {
-            assert!(counter.get().is_none());
-            counter.set(Some(0));
-        });
-        read();
-        REQUESTED
-            .with(Cell::take)
-            .expect("counter armed around only the requested operation")
+        let previous = REQUESTED.with(|requested| requested.replace(true));
+        assert!(!previous, "ThreadCounter measurements cannot be nested");
+        let restore = RestoreRequested(previous);
+        let measured = allocation_counter::measure(read).bytes_total;
+        drop(restore);
+        measured
     }
 }
 
@@ -570,25 +536,27 @@ use qspec_read_proof::read_and_account;
 use qspec_read_proof::read_and_account as fixture_read;
 
 fn measure_qspec_read_requests(read: impl FnOnce()) -> u64 {
-    if let Some(before) = REQUESTED.with(Cell::get) {
-        read();
-        REQUESTED
-            .with(Cell::get)
-            .expect("outer counter remains armed")
-            .checked_sub(before)
-            .expect("requested-byte counter is monotone")
+    if REQUESTED.with(Cell::get) {
+        allocation_counter::measure(read).bytes_total
     } else {
         <ThreadCounter as Counter>::measure(read)
     }
 }
 
 fn without_qspec_instrumentation<T>(operation: impl FnOnce() -> T) -> T {
-    let previous = REQUESTED.with(|counter| counter.replace(None));
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(operation));
-    REQUESTED.with(|counter| counter.set(previous));
+    let previous = REQUESTED.with(|requested| requested.replace(false));
+    let restore = RestoreRequested(previous);
+    let mut result = None;
+    allocation_counter::opt_out(|| {
+        result = Some(std::panic::catch_unwind(std::panic::AssertUnwindSafe(
+            operation,
+        )));
+    });
+    drop(restore);
     match result {
-        Ok(value) => value,
-        Err(panic) => std::panic::resume_unwind(panic),
+        Some(Ok(value)) => value,
+        Some(Err(panic)) => std::panic::resume_unwind(panic),
+        None => unreachable!("opt-out closure always records its result"),
     }
 }
 
