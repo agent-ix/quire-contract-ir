@@ -30,11 +30,11 @@ and changes the time declaration to
 `time M tick M::ConfigVersion::attemptUpdate period 2 ms unit ms;`.
 The surrounding functions are QSL's genuine generated monitor entries.
 
-`monitor-model.json` is the selected `example/config-version` evidence from
-QSL's Agent-IX-authored `examples/config-version/model.semantic-ir.json`, with
-exactly the `Domain::config_version` fixture transformation: its one operation
-frame's `modifies` entry becomes `modifies_receiver`, and `modifies`, `creates`
-and `deletes` are empty. Its upstream AGPL-3.0-only license sidecar is retained.
-The checked-package output is Agent-IX-authored test data under AGPL-3.0-only.
-Only this evidence document and `quire.value.complete/v1` support are supplied;
-the test does not rewrite the original checked-package bytes.
+`config-version-domain.json` is a domain model document authored natively in
+this repository (it is not a copy of any other repository's file). It declares
+the `example/config-version` package: a `ConfigVersion` object type with
+`versionNumber` and `parent` fields and an `attemptUpdate` operation, so the
+monitor-base tick source resolves its model and operation names. Only this
+evidence document and `quire.value.complete/v1` support are supplied; the tests
+do not rewrite the original checked-package bytes. It is maintained with the
+repository's AGPL-3.0-or-later tests.
