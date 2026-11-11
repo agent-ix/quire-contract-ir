@@ -590,7 +590,7 @@ mod tests {
         evidence
             .insert_domain_package_document(
                 "example/config-version",
-                include_bytes!("../../../../../../tests/fixtures/fold-binders/monitor-model.json")
+                include_bytes!("../../../../../../tests/fixtures/fold-binders/config-version-domain.json")
                     .to_vec(),
             )
             .unwrap();

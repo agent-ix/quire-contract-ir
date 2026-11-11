@@ -1610,7 +1610,7 @@ fn genuine_monitor_base_fold_is_admitted_without_removing_semantics() {
     evidence
         .insert_domain_package_document(
             "example/config-version",
-            include_bytes!("../fixtures/fold-binders/monitor-model.json").to_vec(),
+            include_bytes!("../fixtures/fold-binders/config-version-domain.json").to_vec(),
         )
         .expect("selected ConfigVersion model evidence");
     // Match the producing monitor fixture's finite caller ceilings.
