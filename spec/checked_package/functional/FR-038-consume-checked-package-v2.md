@@ -305,6 +305,9 @@ it admits in its own reader — `crates/quire-contract-model/src/checked_package
 - A typed optional `operation_effects` input to the existing complete V2
   encoder, through `CheckedPackageSidecarsRef`. A constructible input row is
   untrusted until the strict reader admits the resulting package.
+- A borrowed typed read of the optional `operation_bodies` carrier and a typed
+  optional `operation_bodies` input to the same encoder; see "Operation-body
+  carrier" (FR-038-AC-541).
 - A typed accessor on the admitted package for a scalar application's ordered
   operands. Each entry carries its argument ordinal, a typed child identity,
   and its own inclusive integer range; see "Typed scalar application operands"
@@ -5369,6 +5372,31 @@ QSpec checkout by reference, checking OEC-01..07, OES-01..14 and OER-01..26
 against their published admission or exact refusal oracle; IR SHALL store no
 copy of that vector or schema.
 
+### Operation-body carrier
+
+The strict reader SHALL admit QSpec FR-322's optional top-level
+`operation_bodies` member (FR-322-AC-397, TC-987) as a closed array of
+`{document, declaring, operation, body}` rows, where `body` is
+`{"kind": "function", "node"}` or `{"kind": "no_body"}`. If absent, bodies are
+unavailable and no other member of the package changes. If present, it holds
+exactly one row for each operation member that carries an `operation_effects`
+row, keyed and sorted by `(document, declaring, operation)`, and is empty
+exactly when no selected document declares such a member; unlike
+`operation_effects`, an empty array is admitted. The reader SHALL apply the
+`operation_effects` joins for `document`, `declaring` and `operation` with the
+same codes, causes and loci; then SHALL require `body` to be a `function`
+exactly when the package holds a `function` node whose `ModelOwner` is the
+row's `document` and operation member and whose `clause` binding is `body`,
+and that node to be the one `body` names (`missing-name`, `operator-ineligible`
+or `invalid-value` at `body/node`); then SHALL require the row's `body` to
+equal the `operation_body` of every `checked_term_data` dispatch candidate
+carrying the row's operation; then repeated key before descending key; then
+coverage at `/operation_bodies`. The existing V2 encoder SHALL accept an
+optional borrowed slice of constructible `OperationBodyRow` values through
+`CheckedPackageSidecarsRef::operation_bodies` and write the same member;
+`None` omits it. TC-987's vectors are read from the selected QSpec checkout by
+reference; IR SHALL store no copy of them.
+
 ### Authenticated schedulability claim carrier
 
 The strict reader SHALL admit the optional top-level `schedulability_claims`
@@ -5899,6 +5927,7 @@ a charge for an owned refusal or `incomplete` diagnostic uses them with `form`
 | `Capabilities` | capability-report entry index | `"capability_report"` | Capability checks. |
 | `Diagnostics` | diagnostic entry index | `"diagnostics.entries"` | Diagnostic tables and worklists. |
 | `OperationEffects` | operation-effect row index | `"operation_effects"` | Operation-effect tables and worklists. |
+| `OperationBodies` | operation-body row index | `"operation_bodies"` | Operation-body tables and worklists. |
 | `CheckedTermData` | checked-term-data row index | `"checked_term_data"` | Checked-term-data tables and worklists. |
 | `Retained` | 0 | `"direct_dependencies"`, `"closure_index"`, `"semantic_graph"`, `"node_index"`, `"source_index"`, `"timed_model_roots"`, `"package"`, `"admission_binding"` or `"result"` | The direct dependency vector, closure index, typed semantic graph assembled with its terms, node and source indexes, timed-model roots, each shared `Arc` of the admitted package, the admission binding and the `Box` of the admitted result. |
 
@@ -6525,6 +6554,7 @@ the minimum the read uses.
 
 | FR-038-AC-492 | An admitted `CheckedPackageV2` shall issue a cloneable, opaque `AdmissionBinding` capability and report whether it retains that capability. Clones from one read are members; an independent read of equal canonical bytes is not. | Test (TC-048) |
 | FR-038-AC-493 | The public capability shall use the reader's original admission binding and expose no construction path, buffer contents, copied carrier, or compatibility representation. | Review (IR-1370) |
+| FR-038-AC-541 | A default-feature producer passes a borrowed `OperationBodyRow` slice as `CheckedPackageSidecarsRef::operation_bodies` and the strict reader returns the same rows from `operation_body_rows`, and each body by key from `operation_body`; absence of the member leaves both `None` and every other member unchanged. The reader reads QSpec TC-987's positive cases OBC-01 to OBC-06 and refuses its 13 schema cases OBS-01 to OBS-13 as `malformed_wire` and its 21 reader cases OBR-01 to OBR-21 with the published code, cause and locus, reading the vectors from the QSpec checkout by reference. OBR-21 is the exception: the package's owner join refuses the foreign-owner function node first. | Test (TC-987) |
 
 
 FR-038-AC-66 is retired and its ID is not reused (ADR-0056). It required that every

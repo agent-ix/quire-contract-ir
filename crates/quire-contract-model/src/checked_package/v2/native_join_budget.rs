@@ -95,6 +95,8 @@ pub enum PackageReadStage {
     Diagnostics,
     /// The operation-effect checks.
     OperationEffects,
+    /// The operation-body checks.
+    OperationBodies,
     /// The checked-term-data checks.
     CheckedTermData,
     /// The retained structures of the admitted package.

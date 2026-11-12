@@ -172,6 +172,7 @@ fn tc_048_envelope_writes_index_and_refuses_inline_node_path() {
             quire_contract_model::CheckedPackageSidecarsRef {
                 temporal_clause_names: None,
                 operation_effects: None,
+                operation_bodies: None,
                 checked_term_data: None,
                 temporal_bindings: None,
                 schedulability_claims: None,
@@ -227,6 +228,7 @@ fn tc_048_envelope_refuses_indexed_dependency_reference_node() {
         quire_contract_model::CheckedPackageSidecarsRef {
             temporal_clause_names: None,
             operation_effects: None,
+            operation_bodies: None,
             checked_term_data: None,
             temporal_bindings: None,
             schedulability_claims: None,
@@ -266,6 +268,7 @@ fn tc_048_closed_envelope_bytes_equal_independent_canonical_json() {
             quire_contract_model::CheckedPackageSidecarsRef {
                 temporal_clause_names: temporal_clause_names.as_deref(),
                 operation_effects: None,
+                operation_bodies: None,
                 checked_term_data: None,
                 temporal_bindings: temporal_bindings.as_deref(),
                 schedulability_claims: None,
@@ -673,6 +676,7 @@ fn tc_451_typed_envelope_encodes_deep_details_on_a_small_stack() {
             quire_contract_model::CheckedPackageSidecarsRef {
                 temporal_clause_names: None,
                 operation_effects: None,
+                operation_bodies: None,
                 checked_term_data: None,
                 temporal_bindings: None,
                 schedulability_claims: None,
@@ -714,6 +718,7 @@ fn tc_451_deep_closed_graph_encodes_once_with_exact_byte_limits() {
                 quire_contract_model::CheckedPackageSidecarsRef {
                     temporal_clause_names: None,
                     operation_effects: None,
+                    operation_bodies: None,
                     checked_term_data: None,
                     temporal_bindings: None,
                     schedulability_claims: None,

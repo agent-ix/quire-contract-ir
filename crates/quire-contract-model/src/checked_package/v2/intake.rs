@@ -99,6 +99,8 @@ struct BorrowedWire {
     schedulability_claims: Option<Vec<super::CheckedSchedulabilityClaimRow>>,
     #[serde(default, deserialize_with = "super::operation_effects::present_rows")]
     operation_effects: Option<Vec<super::CheckedOperationEffectRow>>,
+    #[serde(default, deserialize_with = "super::operation_effects::present_rows")]
+    operation_bodies: Option<Vec<super::OperationBodyRow>>,
     #[serde(deserialize_with = "super::document_de::exact_vec")]
     capability_report: Vec<CheckedCapability>,
     diagnostics: BorrowedDiagnostics,
@@ -319,6 +321,7 @@ pub(super) fn decode_borrowed_wire(
         temporal_clause_names: wire.temporal_clause_names,
         schedulability_claims: wire.schedulability_claims,
         operation_effects: wire.operation_effects,
+        operation_bodies: wire.operation_bodies,
         capability_report: wire.capability_report,
         diagnostics: CheckedDiagnosticsV2 {
             catalog: diagnostics.catalog,
@@ -401,7 +404,7 @@ fn classify_wire_fault(
                 }
                 code = MalformedWire;
             }
-            [Step::Key("operation_effects"), ..] => code = MalformedWire,
+            [Step::Key("operation_effects" | "operation_bodies"), ..] => code = MalformedWire,
             _ => {}
         }
     }
@@ -438,6 +441,12 @@ fn classify_wire_fault(
 
 fn operation_effect_schema_parent_length(at: &[Step<'_>]) -> Option<usize> {
     match at {
+        [Step::Key("operation_bodies"), Step::Index(_), Step::Key(member)]
+            if !matches!(*member, "document" | "declaring" | "operation" | "body") =>
+        {
+            Some(2)
+        }
+        [Step::Key("operation_bodies"), Step::Index(_), Step::Key("body"), ..] => Some(3),
         [Step::Key("operation_effects"), Step::Index(_), Step::Key(member)]
             if !matches!(
                 *member,

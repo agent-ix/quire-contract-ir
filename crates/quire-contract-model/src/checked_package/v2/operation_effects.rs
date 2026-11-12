@@ -6,7 +6,7 @@
 use super::identity::is_identifier;
 use super::model_fields::RetainedModels;
 use super::model_members::{
-    member_name, DeclarationForm, DomainModel, FieldBearingTypeDecl, OperationDecl,
+    member_name, DeclarationForm, DomainModel, FieldBearingTypeDecl, OperationDecl, Owner,
 };
 use super::native_join_budget::PackageReadStage;
 use super::stage_storage::{self, Path, Refusal, Site};
@@ -310,6 +310,92 @@ fn own_operation<'a>(declared: &'a FieldBearingTypeDecl, name: &str) -> Option<&
         .operations
         .iter()
         .find(|operation| member_name(&operation.identity) == name)
+}
+
+/// Refuses a row at `locus`: the one shape of refusal [`join_member`] raises.
+pub(super) type Refuse<'f> =
+    dyn FnMut(&mut WorkMeter, Code, Cause, Path<'static>) -> ValidationFailure + 'f;
+
+/// The FR-322 joins every per-operation carrier row makes for its
+/// `(document, declaring, operation)` key: the selected document, the admitted
+/// declaring node of that document, and an operation member that node itself
+/// declares. `at` is the row's position, and each refusal is built by `refuse`
+/// so the caller's carrier names its own locus.
+pub(super) fn join_member<'m>(
+    models: &'m RetainedModels,
+    document: &str,
+    declaring: &CheckedNodeId,
+    operation: &str,
+    at: Path<'static>,
+    meter: &mut WorkMeter,
+    refuse: &mut Refuse<'_>,
+) -> Result<(Owner<'m>, &'m OperationDecl), ValidationFailure> {
+    let selected = |identity: &str| {
+        models
+            .selected_models()
+            .iter()
+            .any(|model| model.identity.as_ref() == identity)
+    };
+    if !selected(document) {
+        return Err(refuse(
+            meter,
+            Code::MissingDeclaration,
+            Cause::MissingSelection,
+            at.key("document"),
+        ));
+    }
+    if !selected(&declaring.package) {
+        return Err(refuse(
+            meter,
+            Code::InvalidPackage,
+            Cause::InvalidValue,
+            at.key("declaring"),
+        ));
+    }
+    let Some(owner) = models.owner_by_key(declaring) else {
+        return Err(refuse(
+            meter,
+            Code::MissingDeclaration,
+            Cause::MissingName,
+            at.key("declaring"),
+        ));
+    };
+    if !matches!(
+        owner.form,
+        DeclarationForm::ObjectType | DeclarationForm::Process | DeclarationForm::StateMachine
+    ) {
+        return Err(refuse(
+            meter,
+            Code::IllTyped,
+            Cause::OperatorIneligible,
+            at.key("declaring"),
+        ));
+    }
+    if owner.package.identity.as_ref() != document {
+        return Err(refuse(
+            meter,
+            Code::InvalidPackage,
+            Cause::InvalidValue,
+            at.key("document"),
+        ));
+    }
+    let Some(declared) = owner.package.object_types.get(owner.node) else {
+        return Err(refuse(
+            meter,
+            Code::IllTyped,
+            Cause::OperatorIneligible,
+            at.key("declaring"),
+        ));
+    };
+    match own_operation(declared, operation) {
+        Some(operation) => Ok((owner, operation)),
+        None => Err(refuse(
+            meter,
+            Code::IllTyped,
+            Cause::OperatorIneligible,
+            at.key("operation"),
+        )),
+    }
 }
 
 fn validate_effect_entries(
@@ -674,6 +760,74 @@ fn compare_source_frame(
     Ok(())
 }
 
+/// The `(document, declaring, operation)` key of a per-operation carrier row.
+pub(super) type Key<'a> = (&'a str, &'a CheckedNodeId, &'a str);
+
+pub(super) fn key_of<'a>(
+    document: &'a str,
+    declaring: &'a CheckedNodeId,
+    operation: &'a str,
+) -> Key<'a> {
+    (document, declaring, operation)
+}
+
+/// Every row's key with its position, sorted, on a table charged at `site`.
+pub(super) fn sorted_keys<'a>(
+    meter: &mut WorkMeter,
+    site: &Site<'_>,
+    keys: impl ExactSizeIterator<Item = Key<'a>>,
+) -> Result<Vec<(Key<'a>, usize)>, ValidationFailure> {
+    let mut covered = stage_storage::vec(meter, site, keys.len())?;
+    covered.extend(keys.enumerate().map(|(position, key)| (key, position)));
+    covered.sort_unstable();
+    Ok(covered)
+}
+
+/// The least position of a row whose key an earlier row already holds.
+pub(super) fn first_repeated(covered: &[(Key<'_>, usize)]) -> Option<usize> {
+    covered
+        .windows(2)
+        .filter(|pair| pair[0].0 == pair[1].0)
+        .map(|pair| pair[1].1)
+        .min()
+}
+
+/// Whether a selected object type, process or state machine declares an
+/// operation member that no key of `covered` names.
+pub(super) fn has_uncovered_operation(
+    models: &RetainedModels,
+    covered: &[(Key<'_>, usize)],
+) -> bool {
+    for (key, declaration) in models.selected_declarations() {
+        if !matches!(
+            declaration.form,
+            DeclarationForm::ObjectType | DeclarationForm::Process | DeclarationForm::StateMachine
+        ) {
+            continue;
+        }
+        let Some(owner) = models.owner_by_key(key) else {
+            continue;
+        };
+        let Some(declared) = owner.package.object_types.get(owner.node) else {
+            continue;
+        };
+        for operation in &declared.operations {
+            let probe: Key<'_> = (
+                owner.package.identity.as_ref(),
+                key,
+                member_name(&operation.identity),
+            );
+            if covered
+                .binary_search_by(|(held, _)| held.cmp(&probe))
+                .is_err()
+            {
+                return true;
+            }
+        }
+    }
+    false
+}
+
 /// Validate a present carrier against selected declarations and the selected
 /// document's parsed operation frames before exposing any borrowed row.
 pub(super) fn validate(
@@ -687,108 +841,29 @@ pub(super) fn validate(
     if rows.is_empty() {
         return Err(malformed(meter, 0, rows_at()));
     }
-    type Key<'a> = (&'a str, &'a CheckedNodeId, &'a str);
-    fn key_of(row: &CheckedOperationEffectRow) -> Key<'_> {
-        (
-            row.document.as_ref(),
-            &row.declaring,
-            row.operation.as_ref(),
-        )
-    }
     // The first row that repeats an earlier row's operation, and the sorted
     // table the final coverage check searches.
-    let mut covered: Vec<(Key<'_>, usize)> =
-        stage_storage::vec(meter, &site(0, rows_at()), rows.len())?;
-    covered.extend(
+    let covered = sorted_keys(
+        meter,
+        &site(0, rows_at()),
         rows.iter()
-            .enumerate()
-            .map(|(position, row)| (key_of(row), position)),
-    );
-    covered.sort_unstable();
-    let repeated = covered
-        .windows(2)
-        .filter(|pair| pair[0].0 == pair[1].0)
-        .map(|pair| pair[1].1)
-        .min();
+            .map(|row| key_of(&row.document, &row.declaring, &row.operation)),
+    )?;
+    let repeated = first_repeated(&covered);
     let mut previous: Option<Key<'_>> = None;
     for (index, row) in rows.iter().enumerate() {
         let at = rows_at().index(index);
         stage_storage::work(meter, &site(index, at), 1)?;
         check_shape(row, meter, index)?;
-        if !models
-            .selected_models()
-            .iter()
-            .any(|model| model.identity == row.document)
-        {
-            return Err(refused(
-                meter,
-                index,
-                Code::MissingDeclaration,
-                Cause::MissingSelection,
-                at.key("document"),
-            ));
-        }
-        if !models
-            .selected_models()
-            .iter()
-            .any(|model| model.identity == row.declaring.package)
-        {
-            return Err(refused(
-                meter,
-                index,
-                Code::InvalidPackage,
-                Cause::InvalidValue,
-                at.key("declaring"),
-            ));
-        }
-        let Some(owner) = models.owner_by_key(&row.declaring) else {
-            return Err(refused(
-                meter,
-                index,
-                Code::MissingDeclaration,
-                Cause::MissingName,
-                at.key("declaring"),
-            ));
-        };
-        if !matches!(
-            owner.form,
-            DeclarationForm::ObjectType | DeclarationForm::Process | DeclarationForm::StateMachine
-        ) {
-            return Err(refused(
-                meter,
-                index,
-                Code::IllTyped,
-                Cause::OperatorIneligible,
-                at.key("declaring"),
-            ));
-        }
-        if owner.package.identity != row.document {
-            return Err(refused(
-                meter,
-                index,
-                Code::InvalidPackage,
-                Cause::InvalidValue,
-                at.key("document"),
-            ));
-        }
-        let Some(declared) = owner.package.object_types.get(owner.node) else {
-            return Err(refused(
-                meter,
-                index,
-                Code::IllTyped,
-                Cause::OperatorIneligible,
-                at.key("declaring"),
-            ));
-        };
-        let Some(operation) = own_operation(declared, &row.operation) else {
-            return Err(refused(
-                meter,
-                index,
-                Code::IllTyped,
-                Cause::OperatorIneligible,
-                at.key("operation"),
-            ));
-        };
+        let (owner, operation) = join_member(
+            models,
+            &row.document,
+            &row.declaring,
+            &row.operation,
+            at,
+            meter,
+            &mut |meter, code, cause, locus| refused(meter, index, code, cause, locus),
+        )?;
         if row.provenance.member != operation.identity {
             return Err(refused(
                 meter,
@@ -817,7 +892,7 @@ pub(super) fn validate(
                 at,
             ));
         }
-        let key = key_of(row);
+        let key = key_of(&row.document, &row.declaring, &row.operation);
         if previous.is_some_and(|earlier| earlier >= key) {
             return Err(refused(
                 meter,
@@ -829,38 +904,14 @@ pub(super) fn validate(
         }
         previous = Some(key);
     }
-    for (key, declaration) in models.selected_declarations() {
-        if !matches!(
-            declaration.form,
-            DeclarationForm::ObjectType | DeclarationForm::Process | DeclarationForm::StateMachine
-        ) {
-            continue;
-        }
-        let Some(owner) = models.owner_by_key(key) else {
-            continue;
-        };
-        let Some(declared) = owner.package.object_types.get(owner.node) else {
-            continue;
-        };
-        for operation in &declared.operations {
-            let probe: Key<'_> = (
-                owner.package.identity.as_ref(),
-                key,
-                member_name(&operation.identity),
-            );
-            if covered
-                .binary_search_by(|(held, _)| held.cmp(&probe))
-                .is_err()
-            {
-                return Err(refused(
-                    meter,
-                    0,
-                    Code::InvalidPackage,
-                    Cause::InvalidValue,
-                    rows_at(),
-                ));
-            }
-        }
+    if has_uncovered_operation(models, &covered) {
+        return Err(refused(
+            meter,
+            0,
+            Code::InvalidPackage,
+            Cause::InvalidValue,
+            rows_at(),
+        ));
     }
     Ok(())
 }

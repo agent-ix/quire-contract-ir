@@ -331,6 +331,7 @@ fn default_feature_consumer_reads_an_actual_admitted_monitor_plan() {
         quire_contract_model::CheckedPackageSidecarsRef {
             temporal_clause_names: package.temporal_clause_names(),
             operation_effects: None,
+            operation_bodies: None,
             checked_term_data: package.checked_term_data(),
             temporal_bindings: package.temporal_bindings(),
             schedulability_claims: package.schedulability_claim_rows(),

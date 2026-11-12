@@ -67,6 +67,7 @@ mod operation_catalog;
 mod operation_catalog_index;
 pub(in crate::checked_package) mod read_charge;
 pub use operation_catalog::{initialize_operation_catalog, CatalogReadError};
+mod operation_bodies;
 mod operation_effects;
 mod operation_witness;
 mod operations;
@@ -221,6 +222,7 @@ pub use exact_projection::{
     SelectedSourceRecordRow, SelectedSourceTupleRow, SelectedSourceUnionRow, SelectedSourceUnitRow,
     SelectedTupleDeclarationRow, SelectedTuplePositionRow, SelectedUnionMemberRow,
 };
+pub use operation_bodies::{OperationBody, OperationBodyRow};
 pub use operation_effects::{
     CheckedOperationEffect, CheckedOperationEffectOrigin, CheckedOperationEffectProvenance,
     CheckedOperationEffectRef, CheckedOperationEffectRow,
@@ -804,7 +806,7 @@ macro_rules! checked_package_envelope {
     ($($name:ident: $parameter:ident => $encoding:ident),+ $(,)?) => {
         #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
         #[serde(deny_unknown_fields)]
-        struct CheckedPackageEnvelope<C, N, L, G, S, R, T, B, M, H, E, A, D> {
+        struct CheckedPackageEnvelope<C, N, L, G, S, R, T, B, M, H, E, O, A, D> {
             $($name: $parameter,)+
             #[serde(default, skip_serializing_if = "Option::is_none")]
             refinement_step_rows: Option<R>,
@@ -818,6 +820,8 @@ macro_rules! checked_package_envelope {
             schedulability_claims: Option<H>,
             #[serde(default, deserialize_with = "operation_effects::present_rows", bound(deserialize = "E: Deserialize<'de>"), skip_serializing_if = "Option::is_none")]
             operation_effects: Option<E>,
+            #[serde(default, deserialize_with = "operation_effects::present_rows", bound(deserialize = "O: Deserialize<'de>"), skip_serializing_if = "Option::is_none")]
+            operation_bodies: Option<O>,
         }
 
         impl<Body: quire_canonical::Encode> quire_canonical::Encode for CheckedPackageEnvelope<
@@ -832,6 +836,7 @@ macro_rules! checked_package_envelope {
             &[TemporalClauseName],
             &[CheckedSchedulabilityClaimRow],
             &[CheckedOperationEffectRow],
+            &[OperationBodyRow],
             &[CheckedCapability],
             &CheckedDiagnosticsV2,
         > {
@@ -856,6 +861,9 @@ macro_rules! checked_package_envelope {
                 }
                 if let Some(rows) = &self.operation_effects {
                     encode::elements(writer, "operation_effects", rows)?;
+                }
+                if let Some(rows) = &self.operation_bodies {
+                    encode::elements(writer, "operation_bodies", rows)?;
                 }
                 writer.end_object()
             }
@@ -885,6 +893,7 @@ type CheckedPackageWireV2<Body = CheckedTerm> = CheckedPackageEnvelope<
     Vec<TemporalClauseName>,
     Vec<CheckedSchedulabilityClaimRow>,
     Vec<CheckedOperationEffectRow>,
+    Vec<OperationBodyRow>,
     Vec<CheckedCapability>,
     CheckedDiagnosticsV2,
 >;
@@ -920,11 +929,14 @@ pub struct CheckedPackageSidecarsRef<'a> {
     pub schedulability_claims: Option<&'a [CheckedSchedulabilityClaimRow]>,
     /// Selected model operation effect rows, absent when unavailable.
     pub operation_effects: Option<&'a [CheckedOperationEffectRow]>,
+    /// Selected model operation body rows, absent when bodies are unavailable.
+    pub operation_bodies: Option<&'a [OperationBodyRow]>,
 }
 
 /// Canonically encodes a complete checked-package V2 envelope under the
 /// caller's byte limits. The supplied name is the package's identity. An
-/// absent checked-term, temporal, schedulability or operation-effect sidecar is omitted.
+/// absent checked-term, temporal, schedulability, operation-effect or
+/// operation-body sidecar is omitted.
 pub fn encode_checked_package_v2<Body: quire_canonical::Encode>(
     name: &str,
     lock: &CheckedPackageLockV2,
@@ -961,6 +973,7 @@ pub fn encode_checked_package_v2<Body: quire_canonical::Encode>(
         temporal_clause_names: sidecars.temporal_clause_names,
         schedulability_claims: sidecars.schedulability_claims,
         operation_effects: sidecars.operation_effects,
+        operation_bodies: sidecars.operation_bodies,
         capability_report,
         diagnostics,
     };
@@ -1597,6 +1610,7 @@ impl CheckedPackageV2 {
             temporal_clause_names,
             schedulability_claims,
             operation_effects,
+            operation_bodies,
             capability_report,
             diagnostics,
         } = wire;
@@ -1632,6 +1646,7 @@ impl CheckedPackageV2 {
             temporal_clause_names,
             schedulability_claims,
             operation_effects,
+            operation_bodies,
             capability_report,
             diagnostics,
         };
@@ -2047,6 +2062,14 @@ fn validate(
     validate_diagnostics(wire, limits, &mut meter)?;
     let models = RetainedModels::build(declarations, models, &mut Budget::node(&mut meter, 0))?;
     operation_effects::validate(wire.operation_effects.as_deref(), &models, &mut meter)?;
+    operation_bodies::validate(
+        wire.operation_bodies.as_deref(),
+        wire,
+        &kinds,
+        &terms,
+        &models,
+        &mut meter,
+    )?;
     if let Some(data) = wire.checked_term_data.as_ref() {
         dispatch_projection::validate_checked_term_data(
             data, wire, &kinds, &terms, &models, &mut meter,
@@ -5528,6 +5551,7 @@ mod tests {
                 super::CheckedPackageSidecarsRef {
                     temporal_clause_names: wire.temporal_clause_names.as_deref(),
                     operation_effects: wire.operation_effects.as_deref(),
+                    operation_bodies: wire.operation_bodies.as_deref(),
                     checked_term_data: wire.checked_term_data.as_ref(),
                     temporal_bindings: wire.temporal_bindings.as_deref(),
                     schedulability_claims: wire.schedulability_claims.as_deref(),
@@ -5587,6 +5611,7 @@ mod tests {
                 super::CheckedPackageSidecarsRef {
                     temporal_clause_names: wire.temporal_clause_names.as_deref(),
                     operation_effects: wire.operation_effects.as_deref(),
+                    operation_bodies: wire.operation_bodies.as_deref(),
                     checked_term_data: wire.checked_term_data.as_ref(),
                     temporal_bindings: wire.temporal_bindings.as_deref(),
                     schedulability_claims: wire.schedulability_claims.as_deref(),
@@ -5687,6 +5712,7 @@ mod tests {
                         super::CheckedPackageSidecarsRef {
                             temporal_clause_names: wire.temporal_clause_names.as_deref(),
                             operation_effects: wire.operation_effects.as_deref(),
+                            operation_bodies: wire.operation_bodies.as_deref(),
                             checked_term_data: wire.checked_term_data.as_ref(),
                             temporal_bindings: wire.temporal_bindings.as_deref(),
                             schedulability_claims: wire.schedulability_claims.as_deref(),

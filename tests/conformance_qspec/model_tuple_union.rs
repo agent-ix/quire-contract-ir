@@ -1575,6 +1575,7 @@ fn published_tuple_union_typed_writer_round_trips() {
         quire_contract_model::CheckedPackageSidecarsRef {
             temporal_clause_names: admitted.temporal_clause_names(),
             operation_effects: None,
+            operation_bodies: None,
             checked_term_data: admitted.checked_term_data(),
             temporal_bindings: admitted.temporal_bindings(),
             schedulability_claims: None,

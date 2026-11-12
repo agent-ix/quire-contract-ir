@@ -48,6 +48,7 @@ fn encode(value: &Value, limits: Limits) -> Result<Vec<u8>, Error> {
         quire_contract_model::CheckedPackageSidecarsRef {
             temporal_clause_names: temporal_clause_names.as_deref(),
             operation_effects: None,
+            operation_bodies: None,
             checked_term_data: None,
             temporal_bindings: temporal_bindings.as_deref(),
             schedulability_claims: None,

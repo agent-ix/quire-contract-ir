@@ -499,6 +499,11 @@ fn clause_kind(body: &CheckedTerm) -> Option<OwnerClauseKind> {
     }
 }
 
+/// Whether `body` is the body of a `body` clause function.
+pub(super) fn is_body_clause(body: &CheckedTerm) -> bool {
+    clause_kind(body) == Some(OwnerClauseKind::Body)
+}
+
 fn model_kind_matches(
     kind: CheckedNodeKind,
     term: &CheckedTerm,
