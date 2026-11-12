@@ -182,11 +182,6 @@ fn invalid(meter: &mut WorkMeter, row: usize, at: Path<'static>) -> ValidationFa
     )
 }
 
-/// Whether `term` is a clause function of kind `body`.
-fn is_body_clause(term: &CheckedTerm) -> bool {
-    super::owner::is_body_clause(term)
-}
-
 /// Whether `node` is owned by the operation member `member` of `document`.
 fn owned_by(node: &CheckedSemanticNodeV2<CheckedJson>, document: &str, member: &str) -> bool {
     matches!(
@@ -256,7 +251,9 @@ pub(super) fn validate(
                 }),
                 Some(kind),
                 Some(term),
-            ) if matches!(kind, CheckedNodeKind::Function(_)) && is_body_clause(term) => {
+            ) if matches!(kind, CheckedNodeKind::Function(_))
+                && super::owner::is_body_clause(term) =>
+            {
                 Some((identity.as_ref(), member.as_ref()))
             }
             _ => None,
@@ -325,7 +322,9 @@ pub(super) fn validate(
                     node_at,
                 ));
             }
-            let own = terms.get(position).is_some_and(is_body_clause)
+            let own = terms
+                .get(position)
+                .is_some_and(super::owner::is_body_clause)
                 && owned_by(&nodes[position], &row.document, &operation.identity);
             if !own {
                 return Err(invalid(meter, index, node_at));

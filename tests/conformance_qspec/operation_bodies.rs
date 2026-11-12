@@ -86,6 +86,15 @@ fn expand_document_with_processes(sketch: &Value) -> Value {
             operation["returns"] = json!({"typeRef": "ix://quire/native/Integer",
                 "multiplicity": {"lower": 1, "upper": 1, "ordered": false, "unique": true}});
         }
+        if ty["identity"] == format!("ix://{identity}/Premium")
+            && sketch["types"]
+                .as_array()
+                .expect("types")
+                .iter()
+                .any(|t| t["name"] == "Order")
+        {
+            ty["supertypes"] = json!([format!("ix://{identity}/Order")]);
+        }
         if is_process {
             ty["kind"] = json!({"module": identity, "name": "process"});
             let key = format!("{}/id", ty["identity"].as_str().expect("type identity"));
@@ -141,7 +150,10 @@ fn plain_node(
 
 /// One `dispatch_call` of the candidate's selected operation on a receiver of
 /// the declaring type, and the dispatch table that holds the candidate.
-fn add_dispatch_table(package: &mut Value, candidate: &Value) {
+fn add_dispatch_table(package: &mut Value, candidates: &[Value]) {
+    let Some(candidate) = candidates.first() else {
+        return;
+    };
     let declaring = candidate["selected_operation"]["declaring"].clone();
     let operation = candidate["selected_operation"]["operation"].clone();
     let integer = scalar("integer");
@@ -214,12 +226,13 @@ fn add_dispatch_table(package: &mut Value, candidate: &Value) {
         "dispatch_tables": [{
             "application": call, "occurrence": {"role": "type", "ordinal": 0},
             "operation": candidate["selected_operation"], "context": declaring,
-            "candidates": [{
-                "selected_operation": candidate["selected_operation"],
+            "candidates": candidates.iter().map(|held| json!({
+                "selected_operation": held["selected_operation"],
                 "selection_key": {"owner_effective_type": null,
-                    "original": {"package": declaring["package"], "node": declaring["path"][2]}},
-                "operation_body": candidate["operation_body"], "effective_precondition": null,
-            }],
+                    "original": {"package": held["selection_type"]["package"],
+                        "node": held["selection_type"]["path"][2]}},
+                "operation_body": held["operation_body"], "effective_precondition": null,
+            })).collect::<Vec<_>>(),
         }],
     });
 }
@@ -303,8 +316,18 @@ fn read(case: &Value) -> (Value, CheckedPackageEvidence, CheckedPackageV2ReadRes
             .unwrap()
             .push(graph_node(entry));
     }
-    for candidate in case["dispatch_candidates"].as_array().into_iter().flatten() {
-        add_dispatch_table(&mut package, candidate);
+    if let Some(candidates) = case["dispatch_candidates"].as_array() {
+        let candidates: Vec<Value> = candidates
+            .iter()
+            .map(|held| {
+                let mut held = held.clone();
+                if held.get("selection_type").is_none() {
+                    held["selection_type"] = held["selected_operation"]["declaring"].clone();
+                }
+                held
+            })
+            .collect();
+        add_dispatch_table(&mut package, &candidates);
     }
     evidence.support_feature("quire.value.complete/v1");
     fixture::settle(&mut package);
@@ -413,7 +436,8 @@ fn tc_987_published_refusal_vectors_refuse_with_the_recorded_code_and_locus() {
                 panic!("{id}: unexpectedly admitted");
             };
             if id.starts_with("OBR-21") {
-                // The package's own owner join refuses the node first.
+                // STD-661: the vector cannot reach its recorded code and locus,
+                // because the package's own owner join refuses the node first.
                 assert_eq!(code_word(refusal.code), "missing_declaration", "{id}");
                 assert_eq!(
                     refusal.cause.map(cause_word),
@@ -465,5 +489,45 @@ fn a_package_without_the_member_has_no_operation_bodies() {
     assert_eq!(
         none,
         serde_json::from_value(json!({"kind": "no_body"})).unwrap()
+    );
+}
+
+/// A dispatch table with two candidates for one selected operation, each with
+/// its own body node, beside a correct carrier is the intended admitted case.
+#[trace("TC-987", "FR-322-AC-397", "FR-038-AC-541")]
+#[test]
+#[ignore = "STD-661"]
+fn two_dispatch_candidates_with_their_own_bodies_admit_beside_the_carrier() {
+    let vectors = vectors();
+    let mut input = case(&vectors, "OBC-05-dispatch-candidate");
+    let order = input["dispatch_candidates"][0]["selected_operation"]["declaring"].clone();
+    let mut second = input["dispatch_candidates"][0].clone();
+    second["selection_type"] = fixture::structural_id(
+        "acme/orders",
+        vec![
+            json!("model"),
+            json!("object_type"),
+            json!("ix://acme/orders/Premium"),
+        ],
+        0,
+    );
+    second["selected_operation"]["declaring"] = order;
+    second["operation_body"] = fixture::structural_id(
+        "acme/orders",
+        vec![
+            json!("function"),
+            json!("pure_function"),
+            json!("ix://acme/orders/Order/settle/other"),
+        ],
+        0,
+    );
+    input["dispatch_candidates"]
+        .as_array_mut()
+        .unwrap()
+        .push(second);
+    let (_, _, result) = read(&input);
+    assert!(
+        matches!(result, CheckedPackageV2ReadResult::Admitted(_)),
+        "{result:?}"
     );
 }
