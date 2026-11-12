@@ -275,6 +275,14 @@ impl std::fmt::Display for CatalogReadError {
 impl std::error::Error for CatalogReadError {}
 
 impl CatalogReadError {
+    /// A catalog read error for the member at `path`, failing with `message`.
+    pub fn new(path: impl Into<String>, message: impl Into<String>) -> Self {
+        Self {
+            path: path.into(),
+            message: message.into(),
+        }
+    }
+
     /// The path of the entry the read failed at.
     pub fn path(&self) -> &str {
         &self.path
@@ -290,6 +298,14 @@ impl CatalogReadError {
 mod tests {
     use super::*;
     use ix_trace_rs::trace;
+
+    #[test]
+    fn catalog_read_error_new_carries_path_and_message() {
+        let error = CatalogReadError::new("operations[3].kind", String::from("unknown kind"));
+        assert_eq!(error.path(), "operations[3].kind");
+        assert_eq!(error.message(), "unknown kind");
+        assert_eq!(error.to_string(), "at `operations[3].kind`: unknown kind");
+    }
 
     #[trace("TC-460")]
     #[test]
