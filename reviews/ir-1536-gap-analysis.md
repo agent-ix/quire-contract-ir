@@ -37,3 +37,9 @@ Ticket: IR-1536, PR quire-contract-ir#1021, head 7fddc1a. Planless, diff-scoped 
 ## Verdict
 
 REQUEST CHANGES: one high spec-versus-code contradiction (FND-001), fixable by a spec edit in this PR. AC-511 and AC-512 are clean. AC-511's adverse shapes still run under unlimited, exact, repeated and one-below budgets with the unpaid-byte bound unchanged. AC-512's lowering-of-every-node equality applies to the TC-048 corpus, whose callers keep `ReadViewScope::Full` (whole_read_accounting.rs and qspec_read_proof.rs). The `Core` narrowing for adverse shapes therefore drops no criterion's oracle.
+
+## Dispositions
+
+| FND | Outcome | Reason |
+| --- | --- | --- |
+| FND-001 | fixed | 2a8afff2 amends FR-038-AC-308 and AC-309 to the per-request walk over retained adjacency with no per-call whole-graph index, binds `one_request_compares_ids_by_its_closure_not_by_graph_size` to both, and rewrites matrix rows 52-53; `quire validate` passes on both files. |

@@ -52,3 +52,12 @@ REQUEST CHANGES on this method, driven by the spec contradiction recorded in the
 The core product change is correct and behaviour-preserving. Deleting `SccClosureIndex` yields the same closure set, because `lower_one`'s walk over `fact.successors` already visited exactly the SCC-condensation closure. The retained-index lookups (`node_position`, `PositionIndex::node_sources` plus a sort that restores source-map order) are equivalent to the per-call maps they replace. The sparse projection maps are equivalent rewrites. The new `one_request_compares_ids_by_its_closure_not_by_graph_size` test is a real complexity oracle and would fail on the old per-call `BTreeMap` index.
 
 The `ReadViewScope::Core` narrowing for adverse shapes is legitimate. AC-511 is an allocation-accounting criterion, and AC-512's "lowering of every node" equality is explicitly scoped to the TC-048 corpus, which keeps `Full`. `Core` still asserts complete retained-outcome equality (`assert_eq!` on the package and on the budgeted result). Per-node lowering equality between two reads through the same lowering code was never an oracle for lowering correctness, so no real oracle is lost. Only FND-003's comment and small-shape nit remain.
+
+## Dispositions
+
+| FND | Outcome | Reason |
+| --- | --- | --- |
+| FND-001 | fixed | 2a8afff2 removes `LoweringNodeFacts::component`, `assign_components_charged`, the cfg(test) `assign_components` helper, the admission call at mod.rs and the `component` asserts; clippy --all-targets -D warnings clean. |
+| FND-002 | fixed | Replaced by `a_request_does_not_inherit_the_nodes_that_reach_it`, a `lower()`-level oracle: the shared node's dependencies exclude both leaves and each leaf's dependencies are exactly the shared node. |
+| FND-003 | fixed | `whole_read_adverse` comment reworded to the real rule: AC-511 measures accounting on these shapes and AC-512's per-node lowering equality is scoped to the TC-048 corpus. |
+| FND-004 | fixed | Test renamed `independently_lowered_records_revalidate_no_body_and_equal_single_requests`; the body-walk test doc now describes body revalidation, not a shared closure. |
