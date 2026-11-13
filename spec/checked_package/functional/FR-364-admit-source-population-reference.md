@@ -22,15 +22,15 @@ relationships:
 ## Description
 
 QSpec FR-322 admits a `relation`/`population` population reference only with a
-selected-document owner (the `DeclarationTagRules` of FR-322-AC-82/83). The
-reader SHALL also admit a `relation`/`population` node that carries a
-`declaration` `{qualified_name: [<population name>]}` and a `SourceOwner`, for a
+selected-document owner (FR-322-AC-82/83). The reader SHALL also admit a
+`relation`/`population` node that carries a `declaration`
+`{qualified_name: [<population name>]}` and a `SourceOwner`, for a
 source-declared population (QSL ADR-013 QC-30 items 2c and 4).
 
 ## Inputs
 
-A `relation`/`population` node with a `declaration` and a `SourceOwner`, and its
-use in `all_instances` and `lookup`.
+A `relation`/`population` node with a `declaration` and a `SourceOwner`, and
+its use in `all_instances` and `lookup`.
 
 ## Outputs
 
@@ -39,24 +39,28 @@ refusal.
 
 ## Behavior
 
-The reader SHALL admit a population reference node with a `SourceOwner` as a
-declared node, keyed by its structural id, without a selected document. A
-population reference with a `SourceOwner` SHALL be admitted in the positions
-where a selected-document population reference is admitted, and SHALL be
-refused in each position where one is refused. A population reference with
-neither a selected-document owner nor a `SourceOwner`, and one carrying both,
-SHALL refuse as the ownerless case refuses today. A source population that no
-checked node names has no node and the reader requires none.
+The reader SHALL admit a population reference node with a `declaration` and a
+`SourceOwner` as a declared node keyed by its structural id, without a selected
+document. The reader SHALL admit a source population reference in each
+position where it admits a selected-document population reference, and SHALL
+refuse it in each position where it refuses one, with the refusal of the
+model-owned check. The reader SHALL refuse a population reference node that
+carries a `declaration` and a `ModelOwner` of no selected declaration, and one
+that carries a `SourceOwner` and no `declaration`, with the code, cause and
+locus FR-038 gives today for a population node with that owner and declaration
+defect. A node has one owner, so a node with both owner kinds is not
+representable. A source population that no checked node names has no node and
+the reader requires none.
 
 ## Acceptance Criteria
 
 | ID | Criteria | Verification |
 | --- | --- | --- |
-| FR-364-AC-1 | A source population reference node with a `declaration` and a `SourceOwner` admits, is self-typed, and is readable as a distinct node per population name. | Test |
+| FR-364-AC-1 | A source population reference node with a `declaration` and a `SourceOwner` admits, is self-typed, and is a distinct node per population name. | Test |
 | FR-364-AC-2 | `all_instances` and `lookup` over the source population admit, with the same dependencies and result typing as over a declared model population. | Test |
-| FR-364-AC-3 | The forbidden positions of TC-229 (collection operand, reaches link, forbidden declaring member positions) refuse for a source population exactly as for a model population. | Test |
-| FR-364-AC-4 | A population reference node with no owner, and one with both a selected-document owner and a `SourceOwner`, refuse. | Test |
-| FR-364-AC-5 | Two source populations of distinct names give distinct keys; one name repeated refuses as a duplicate declaration. | Test |
+| FR-364-AC-3 | The forbidden positions of TC-229 (collection operand, reaches link, forbidden declaring member positions) refuse for a source population with the code, cause and locus they give for a model population. | Test |
+| FR-364-AC-4 | A population node with a `declaration` and a `ModelOwner` of no selected declaration, and one with a `SourceOwner` and no `declaration`, each refuse with the FR-038 code, cause and locus for that defect. | Test |
+| FR-364-AC-5 | Two source populations of distinct names give distinct keys; one name repeated refuses with the FR-038 duplicate-declaration code, cause and locus. | Test |
 
 ## Dependencies
 
