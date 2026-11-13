@@ -1147,14 +1147,11 @@ fn field_scenario(
     (Scenario { package, evidence }, position)
 }
 
-/// Adds a population of `identity` with `max` 3 and links the field
+/// Adds a population of `identity` with `max` 3 and `Type` ordinals 4, 1 and 7,
+/// and links the field
 /// application at `position` to it.
-fn link_field_population(
-    scenario: &mut Scenario,
-    position: usize,
-    identity: &str,
-) -> String {
-    let population = scenario.add_population(identity, vec![max_of("3")], &[0]);
+fn link_field_population(scenario: &mut Scenario, position: usize, identity: &str) -> String {
+    let population = scenario.add_population(identity, vec![max_of("3")], &[4, 1, 7]);
     link_application(
         &mut scenario.nodes()[position],
         Some(fixture_id(&population)),
@@ -1187,9 +1184,9 @@ fn tc_048_reaches_population_reads_each_reaches_field_form() {
             .reaches_population(&field_application_id(&package))
             .unwrap_or_else(|error| panic!("{declaring} {name}: {error:?}"))
             .unwrap_or_else(|| panic!("{declaring} {name}: a selector"));
-        assert_eq!(selector.package_name, package.name(), "{name}");
+        assert_eq!(&*selector.package_name, package.name(), "{name}");
         assert_eq!(selector.binding, wire_fixture_id(&package, &population));
-        assert_eq!(selector.occurrence.ordinal, 0);
+        assert_eq!(selector.occurrence.ordinal, 1, "{name}: the least ordinal");
         match select_population(Source::Admitted {
             package: &package,
             selector,

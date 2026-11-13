@@ -121,6 +121,18 @@ impl Defect {
     }
 }
 
+/// Whether an application of `identity` may carry a member `population` key
+/// that the dependency join lists: `reaches`, `navigate` and `reaches_field`.
+/// `KnownOperation` has no `reaches_field` variant, so it is matched by identity.
+#[ix_trace_rs::string_edge]
+fn names_population(identity: &str) -> bool {
+    identity == "quire.op.model.reaches_field"
+        || matches!(
+            super::KnownOperation::from_wire(identity),
+            Some(super::KnownOperation::ModelReaches | super::KnownOperation::ModelNavigate)
+        )
+}
+
 /// Prepay the structural diagnostic before constructing its pointer, node
 /// identity, location and boxed record. The optional node locus preserves the
 /// distinct payloads of structural defects and malformed raw bodies.
@@ -2148,17 +2160,8 @@ pub(super) fn collect_application_dependencies(
                         meter.insert_id(join, id)?;
                     }
                 }
-                // Only a relationship application names a population.
-                let relationship = operation.identity().is_some_and(|identity| {
-                    matches!(
-                        super::KnownOperation::from_wire(identity),
-                        Some(
-                            super::KnownOperation::ModelReaches
-                                | super::KnownOperation::ModelNavigate
-                        )
-                    )
-                });
-                if relationship {
+                // Only a relationship or field-edge reachability names a population.
+                if operation.identity().is_some_and(names_population) {
                     if let Some(id) = member_id("population") {
                         meter.insert_id(join, id)?;
                     }
@@ -2234,20 +2237,12 @@ pub(super) fn application_dependencies_at(
                         }
                     }
                 }
-                // Only a relationship application names a population.
-                let relationship = operation
+                // Only a relationship or field-edge reachability names a population.
+                if operation
                     .get("identity")
                     .and_then(TermNode::as_str)
-                    .is_some_and(|identity| {
-                        matches!(
-                            super::KnownOperation::from_wire(identity),
-                            Some(
-                                super::KnownOperation::ModelReaches
-                                    | super::KnownOperation::ModelNavigate
-                            )
-                        )
-                    });
-                if relationship {
+                    .is_some_and(names_population)
+                {
                     if let Some(id) = member_id(member, "population", row, meter)? {
                         meter.insert_owned_id(&mut join, id)?;
                     }

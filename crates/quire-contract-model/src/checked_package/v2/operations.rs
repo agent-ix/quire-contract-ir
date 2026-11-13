@@ -3624,7 +3624,7 @@ fn check_reference_edge(
             application,
             operation,
             graph,
-            &edge_id,
+            edge_id,
         ))
     } else {
         ineligible(argument_at(target))
@@ -3975,9 +3975,6 @@ fn check_linked_population(
                 })
         })
         .map(|(node, _)| node);
-    let Some(population) = linked else {
-        return ineligible(member_at("population"));
-    };
     let ill_typed = || {
         Some(model_refusal(
             application,
