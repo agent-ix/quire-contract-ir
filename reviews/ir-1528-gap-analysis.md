@@ -49,9 +49,19 @@ Measured at 8e4d0cf4. OBR-20 passes the generic branch of `tc_987_published_refu
 | --- | --- | --- | --- |
 | FND-003 | low | The matrix row, the PR body and the 8e4d0cf4 commit message say OBR-20 "cannot reach" its recorded code or locus. It does, and the test asserts it. Its defect is different: it holds two defects (its candidate body node is absent from the graph) and meets its locus only because the carrier runs before `checked_term_data` (code-review FND-002). The OBR-21 claim is accurate. The OBC-04 claim is accurate in substance, but OBC-04 is a positive case with no recorded code or locus: it is refused as published and admitted only because the harness drops the unreferenced foreign-owner node. Also, FR-038-AC-541 names only OBR-21 as the exception, so the AC and the matrix row disagree. Make the three statements and the AC say the same accurate thing. | spec/checked_package/matrix/tests.md:160 |
 
+## New findings (disposition pass 2)
+
+Measured at 9f4b2267; see the code-review SR for the probes.
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-004 | low | The FR-038-AC-541 matrix row still describes the old join ("a dispatch candidate joins the row of the declaration its selection key names"). The FR-038 statement, the code and the PR body now describe the effective-declaration join. Update the phrase. | spec/checked_package/matrix/tests.md:160 |
+
 ## Dispositions
 
 | FND | outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | STD-661 (QSpec, Backlog) now tracks OBR-21, OBC-04 and the FR-322 candidate wording, and the OBR-21 branch of the test cites it. |
 | FND-002 | still-open | The new multi-candidate test does not cover DT-01's shape: its second candidate has no row and is never joined (code-review FND-006). No test has two joined candidates with distinct bodies. Probe A shows the code admits that shape, so a test for it is a small addition. |
+| FND-002 | fixed | Two joined candidates with distinct bodies are now tested (`a_redefining_receivers_candidate_is_joined_to_its_own_row`, plus its refusal twin), along with the inheriting receiver. Probes over a three-level chain agree. |
+| FND-003 | fixed | The matrix row, the PR body and the 9f4b2267 commit message now say that OBR-20 reaches its recorded result (two defects, carrier first), that OBR-21 cannot, and that OBC-04 is admitted only because the harness drops its foreign-owner node. FR-038-AC-541 now names OBC-04 next to OBR-21. |

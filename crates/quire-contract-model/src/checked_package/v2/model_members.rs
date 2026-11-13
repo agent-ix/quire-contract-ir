@@ -1967,7 +1967,7 @@ impl DomainModel {
             Err(ModelFailure::Limit(failure)) => return Err(failure),
         };
         for (owner, declared) in &self.object_types {
-            budget.charge(1)?;
+            budget.charge(1 + units(declared.operations.len()))?;
             if declared
                 .operations
                 .iter()

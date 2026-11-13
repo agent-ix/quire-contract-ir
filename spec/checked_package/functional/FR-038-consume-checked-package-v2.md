@@ -5395,7 +5395,7 @@ whose receiver (`selection_key.original`) effectively exposes the row's
 operation from the row's declaring node, that is, the receiver itself when it
 redefines the operation and otherwise the ancestor it inherits the operation
 from (`invalid-value` at `body`); a candidate of another declaration, or one
-whose receiver does not resolve, is not joined, and dispatch validation owns
+whose receiver is outside the table's family, is not joined, and dispatch validation owns
 its refusal. This is the join QSpec STD-661 asks FR-322 to state; then repeated key before descending key; then
 coverage at `/operation_bodies`. The existing V2 encoder SHALL accept an
 optional borrowed slice of constructible `OperationBodyRow` values through

@@ -228,23 +228,36 @@ pub(super) fn validate(
         .map_or(&[][..], |data| data.dispatch_tables.as_slice());
     let count = tables.iter().map(|table| table.candidates.len()).sum();
     let mut candidates: Vec<Candidate<'_>> = stage_storage::vec(meter, &site(0, rows_at()), count)?;
-    // The carrier runs before `checked_term_data` validation, so a candidate
-    // whose receiver does not resolve is left to that stage (QSpec OBR-20
-    // records the carrier locus for a package holding both defects).
-    for candidate in tables.iter().flat_map(|table| table.candidates.iter()) {
-        let original = &candidate.selection_key.original;
-        let Some(model) = models.selected_model(&original.package) else {
+    // The carrier runs before `checked_term_data` validation, so it joins only
+    // a candidate whose receiver is in its table's family (the family owner's
+    // package, and `operation_in_family`); any other candidate is left to
+    // dispatch validation to refuse (QSpec OBR-20 records the carrier locus
+    // for a package holding both defects).
+    for table in tables {
+        let Some(family) = models.owner_by_key(&table.operation.declaring) else {
             continue;
         };
-        let name = candidate.selected_operation.operation.as_ref();
-        let mut budget = Budget::new(meter, model.root, model.bytes);
-        if let Some(owner) = model.effective_operation_owner(&original.node, name, &mut budget)? {
-            candidates.push((
-                model.identity.as_ref(),
-                owner,
-                name,
-                &candidate.operation_body,
-            ));
+        let model = family.package;
+        let name = table.operation.operation.as_ref();
+        for candidate in &table.candidates {
+            let original = &candidate.selection_key.original;
+            if original.package.as_ref() != model.identity.as_ref() {
+                continue;
+            }
+            let mut budget = Budget::new(meter, model.root, model.bytes);
+            if !model.operation_in_family(&original.node, family.node, name, &mut budget)? {
+                continue;
+            }
+            if let Some(owner) =
+                model.effective_operation_owner(&original.node, name, &mut budget)?
+            {
+                candidates.push((
+                    model.identity.as_ref(),
+                    owner,
+                    name,
+                    &candidate.operation_body,
+                ));
+            }
         }
     }
     candidates.sort_unstable();

@@ -609,6 +609,20 @@ fn an_inheriting_receivers_candidate_is_joined_to_the_inherited_row() {
     assert_eq!(refused_at(&input), "/operation_bodies/2/body");
 }
 
+/// A receiver outside the dispatch table's family is not joined to a row; the
+/// dispatch stage refuses it at its own locus.
+#[trace("TC-987", "FR-322-AC-397", "FR-038-AC-541")]
+#[test]
+fn a_candidate_outside_the_tables_family_is_refused_by_dispatch_validation() {
+    let mut input = premium_candidate(false, settle_body("Order", "body"));
+    input["dispatch_candidates"][1]["selection_type"] = orders_type("Invoice");
+    let path = refused_at(&input);
+    assert!(
+        path.starts_with("/checked_term_data/dispatch_tables/0/candidates/1"),
+        "{path}"
+    );
+}
+
 /// A candidate joined to a row through its selection key must carry that row's
 /// body node; a candidate of another declaration is not joined.
 #[trace("TC-987", "FR-322-AC-397", "FR-038-AC-541")]
