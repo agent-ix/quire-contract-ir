@@ -5348,7 +5348,7 @@ write the same closed top-level member in canonical order when supplied;
 strictly admitted package may return the borrowed validated row. The
 producer supplies all four entry collections and the selected document,
 declaring node, original member and provenance member; the fixed provenance
-origin is `model_document_operation_frame`.
+origin is `model_document_operation_frame` for a row whose declaring node is a selected model declaration and `source_declaration_operation_frame` for a row whose declaring node is a source-declared object type ([FR-365](./FR-365-read-source-declared-operation-effects.md)). The reader and encoder admit the second origin ahead of QSpec's closed schema; the model-row vectors are unchanged.
 It SHALL NOT derive an operation effect from a state/frame node, name, path or
 default empty value, and SHALL NOT create an independently authoritative IR
 effect mirror.
