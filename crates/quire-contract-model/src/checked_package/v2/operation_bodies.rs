@@ -191,8 +191,14 @@ fn owned_by(node: &CheckedSemanticNodeV2<CheckedJson>, document: &str, member: &
     )
 }
 
-/// A dispatch candidate's selected operation and its operation body.
-type Candidate<'a> = (&'a CheckedNodeId, &'a str, &'a CheckedNodeId);
+/// A dispatch candidate's selection-key declaration (package and node), its
+/// selected operation name, and its operation body.
+///
+/// A candidate joins the row of the declaration its selection key names, not
+/// every row of the family's selected operation: candidates of one dispatch
+/// table share the selected operation but carry different bodies. STD-661
+/// tracks the FR-322 wording for this join.
+type Candidate<'a> = (&'a str, &'a str, &'a str, &'a CheckedNodeId);
 
 /// Validate a present carrier against the selected documents and the package
 /// graph before exposing any borrowed row.
@@ -212,7 +218,7 @@ pub(super) fn validate(
     let mut by_id: Vec<usize> = stage_storage::vec(meter, &site(0, rows_at()), nodes.len())?;
     by_id.extend(0..nodes.len());
     by_id.sort_unstable_by(|&left, &right| nodes[left].node_id.cmp(&nodes[right].node_id));
-    // Dispatch candidates by selected operation, to join a row to its candidates.
+    // Dispatch candidates by selection-key declaration, to join a row to its candidates.
     let tables = wire
         .checked_term_data
         .as_ref()
@@ -222,7 +228,8 @@ pub(super) fn validate(
     candidates.extend(tables.iter().flat_map(|table| {
         table.candidates.iter().map(|candidate| {
             (
-                &candidate.selected_operation.declaring,
+                candidate.selection_key.original.package.as_ref(),
+                candidate.selection_key.original.node.as_ref(),
                 candidate.selected_operation.operation.as_ref(),
                 &candidate.operation_body,
             )
@@ -282,7 +289,7 @@ pub(super) fn validate(
                 at.key("operation"),
             ));
         }
-        let (_, operation) = join_member(
+        let (owner, operation) = join_member(
             models,
             &row.document,
             &row.declaring,
@@ -330,12 +337,12 @@ pub(super) fn validate(
                 return Err(invalid(meter, index, node_at));
             }
         }
-        let start =
-            candidates.partition_point(|held| (held.0, held.1) < (&row.declaring, &*row.operation));
+        let joined = (owner.package.identity.as_ref(), owner.node, &*row.operation);
+        let start = candidates.partition_point(|held| (held.0, held.1, held.2) < joined);
         let agrees = candidates[start..]
             .iter()
-            .take_while(|held| (held.0, held.1) == (&row.declaring, &*row.operation))
-            .all(|held| node == Some(held.2));
+            .take_while(|held| (held.0, held.1, held.2) == joined)
+            .all(|held| node == Some(held.3));
         if !agrees {
             return Err(invalid(meter, index, body_at));
         }

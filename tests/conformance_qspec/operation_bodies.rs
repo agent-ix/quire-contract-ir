@@ -496,7 +496,6 @@ fn a_package_without_the_member_has_no_operation_bodies() {
 /// its own body node, beside a correct carrier is the intended admitted case.
 #[trace("TC-987", "FR-322-AC-397", "FR-038-AC-541")]
 #[test]
-#[ignore = "STD-661"]
 fn two_dispatch_candidates_with_their_own_bodies_admit_beside_the_carrier() {
     let vectors = vectors();
     let mut input = case(&vectors, "OBC-05-dispatch-candidate");
@@ -529,5 +528,33 @@ fn two_dispatch_candidates_with_their_own_bodies_admit_beside_the_carrier() {
     assert!(
         matches!(result, CheckedPackageV2ReadResult::Admitted(_)),
         "{result:?}"
+    );
+}
+
+/// A candidate joined to a row through its selection key must carry that row's
+/// body node; a candidate of another declaration is not joined.
+#[trace("TC-987", "FR-322-AC-397", "FR-038-AC-541")]
+#[test]
+fn a_candidate_joined_through_its_selection_key_must_carry_the_rows_body() {
+    let vectors = vectors();
+    let mut input = case(&vectors, "OBC-05-dispatch-candidate");
+    input["dispatch_candidates"][0]["operation_body"] = fixture::structural_id(
+        "acme/orders",
+        vec![
+            json!("function"),
+            json!("pure_function"),
+            json!("ix://acme/orders/Order/settle/other"),
+        ],
+        0,
+    );
+    let (_, _, result) = read(&input);
+    let CheckedPackageV2ReadResult::Refused(refusal) = result else {
+        panic!("a mismatching joined candidate must refuse");
+    };
+    assert_eq!(code_word(refusal.code), "invalid_package");
+    assert_eq!(refusal.cause.map(cause_word), Some("invalid-value"));
+    assert_eq!(
+        refusal.loci[0].path.as_ref().expect("path").to_string(),
+        "/operation_bodies/2/body"
     );
 }
