@@ -548,11 +548,14 @@ fn premium_candidate(redefines: bool, premium_body: Value) -> Value {
                 "node": "ix://acme/orders/Premium/settle"},
             "clause": "body"
         }));
-        input["operation_bodies"].as_array_mut().unwrap().push(json!({
-            "document": "acme/orders", "declaring": orders_type("Premium"),
-            "operation": "settle",
-            "body": {"kind": "function", "node": settle_body("Premium", "body")}
-        }));
+        input["operation_bodies"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!({
+                "document": "acme/orders", "declaring": orders_type("Premium"),
+                "operation": "settle",
+                "body": {"kind": "function", "node": settle_body("Premium", "body")}
+            }));
     }
     let mut second = input["dispatch_candidates"][0].clone();
     second["selection_type"] = orders_type("Premium");
