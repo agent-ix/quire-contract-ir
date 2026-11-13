@@ -1436,44 +1436,36 @@ impl ContractPackageWireV1 {
         // Preserve each recursion group's source member order in the emitted
         // graph. Group blocks sort by their least structural node ID; no
         // graph-order coordinate is derived for a member's node ID.
-        let nodes = canonical_node_order(
-            source
-                .resolved_graph()
-                .nodes
-                .iter()
-                .enumerate()
-                .filter(|(_, node)| nodes.contains(&node.node_id))
-                .map(|(position, node)| {
-                    (
-                        source
-                            .structural_key_at(position)
-                            .expect("admitted graph key at every position"),
-                        node,
-                    )
-                }),
-        );
-        let source_positions = source
-            .resolved_graph()
-            .nodes
+        // Represented nodes in graph order, found through the retained node
+        // index so the call costs what it represents, not the whole graph.
+        let mut positions = nodes
             .iter()
-            .enumerate()
-            .map(|(position, node)| (&node.node_id, position))
-            .collect::<BTreeMap<_, _>>();
-        let mut projected_positions = vec![None; source.resolved_graph().nodes.len()];
-        for (position, node) in nodes.iter().enumerate() {
-            projected_positions[source_positions[&node.node_id]] = Some(position);
+            .filter_map(|id| source.node_position(id))
+            .collect::<Vec<_>>();
+        positions.sort_unstable();
+        let graph = &source.resolved_graph().nodes;
+        let nodes = canonical_node_order(positions.iter().map(|&position| {
+            (
+                source
+                    .structural_key_at(position)
+                    .expect("admitted graph key at every position"),
+                &graph[position],
+            )
+        }));
+        let mut projected_positions = vec![None; graph.len()];
+        let mut node_kinds: Vec<CheckedNodeKind> = Vec::with_capacity(nodes.len());
+        for (projected, node) in nodes.iter().enumerate() {
+            let position = source
+                .node_position(&node.node_id)
+                .expect("represented node is an admitted graph node");
+            projected_positions[position] = Some(projected);
+            node_kinds.push(
+                *source
+                    .node_kinds()
+                    .get(position)
+                    .expect("admitted kind at every graph position"),
+            );
         }
-        let source_kinds = source
-            .resolved_graph()
-            .nodes
-            .iter()
-            .zip(source.node_kinds())
-            .map(|(node, kind)| (&node.node_id, *kind))
-            .collect::<BTreeMap<_, _>>();
-        let node_kinds: Vec<CheckedNodeKind> = nodes
-            .iter()
-            .map(|node| source_kinds[&node.node_id])
-            .collect();
         let unsupported_tags = records
             .iter()
             .map(|record| match record {
@@ -1617,22 +1609,15 @@ fn source_frame_wire(expanded: &mut Value, source: &CheckedPackageV2) -> Result<
         .iter()
         .map(|at| CheckedNodeId::from_value(expanded.pointer(at.as_str()).ok_or(())?).ok_or(()))
         .collect::<Result<Vec<_>, _>>()?;
-    let source_positions = source
-        .resolved_graph()
-        .nodes
-        .iter()
-        .enumerate()
-        .map(|(position, node)| (&node.node_id, position))
-        .collect::<BTreeMap<_, _>>();
     let mut included = vec![false; source.resolved_graph().nodes.len()];
     let mut pending = VecDeque::new();
     for id in &direct {
-        include_source_operands(id, &source_positions, &mut included, &mut pending)?;
+        include_source_operands(id, source, &mut included, &mut pending)?;
     }
     while let Some(position) = pending.pop_front() {
         include_source_operands(
             &source.resolved_graph().nodes[position].node_id,
-            &source_positions,
+            source,
             &mut included,
             &mut pending,
         )?;
@@ -1674,11 +1659,11 @@ fn source_frame_wire(expanded: &mut Value, source: &CheckedPackageV2) -> Result<
 
 fn include_source_operands(
     id: &CheckedNodeId,
-    source_positions: &BTreeMap<&CheckedNodeId, usize>,
+    source: &CheckedPackageV2,
     included: &mut [bool],
     pending: &mut VecDeque<usize>,
 ) -> Result<(), ()> {
-    if let Some(&position) = source_positions.get(id) {
+    if let Some(position) = source.node_position(id) {
         if !included[position] {
             included[position] = true;
             pending.push_back(position);

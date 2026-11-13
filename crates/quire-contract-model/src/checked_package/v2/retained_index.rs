@@ -90,6 +90,26 @@ impl PositionIndex {
         self.0.iter().map(|&position| &nodes[position].node_id)
     }
 
+    /// The positions of every source-map entry of `id` among `entries`, in
+    /// index order.
+    pub(in crate::checked_package) fn node_sources(
+        &self,
+        entries: &[CheckedSourceMapEntry],
+        id: &CheckedNodeId,
+    ) -> &[usize] {
+        let compare = |position: usize| {
+            entries
+                .get(position)
+                .map_or(Ordering::Greater, |entry| entry.node_id.cmp(id))
+        };
+        let first = self
+            .0
+            .partition_point(|&position| compare(position) == Ordering::Less);
+        let rest = self.0.get(first..).unwrap_or_default();
+        let count = rest.partition_point(|&position| compare(position) == Ordering::Equal);
+        rest.get(..count).unwrap_or_default()
+    }
+
     /// The position of the source-map entry for an occurrence among `entries`.
     pub(in crate::checked_package) fn source(
         &self,

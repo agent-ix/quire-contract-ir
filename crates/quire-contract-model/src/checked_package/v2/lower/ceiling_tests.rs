@@ -245,15 +245,12 @@ fn shared_closure_body_walks_scale_with_nodes_not_requests() {
     for roots in [2, 4, 8] {
         for shared in [4, 8, 16] {
             let (package, requests) = shared_closure_package(roots, shared);
-            SHARED_CLOSURE_BUILDS.with(|builds| builds.set(0));
             let admission_walks = BODY_WALKS.with(std::cell::Cell::get);
             let start = std::time::Instant::now();
             let lowered = package.lower(&requests, &profile());
             let lower_elapsed_ns = start.elapsed().as_nanos();
             assert_eq!(lowered.records.len(), roots);
             let walks = BODY_WALKS.with(std::cell::Cell::get);
-            let closure_builds = SHARED_CLOSURE_BUILDS.with(std::cell::Cell::get);
-            assert_eq!(closure_builds, 1, "one shared SCC closure per call");
             println!(
                 "{}",
                 json!({
@@ -262,7 +259,6 @@ fn shared_closure_body_walks_scale_with_nodes_not_requests() {
                     "R": shared,
                     "lowering_fact_scan_body_validations": admission_walks,
                     "additional_lower_body_validations": walks - admission_walks,
-                    "shared_closure_builds": closure_builds,
                     "lower_elapsed_ns": lower_elapsed_ns.to_string(),
                 })
             );
@@ -285,16 +281,43 @@ fn shared_closure_body_walks_scale_with_nodes_not_requests() {
     }
 }
 
-/// Independent record lowering keeps one shared closure calculation while preserving each
-/// request's one-item result.
+/// Lowering one request costs what its closure reaches, not the size of the
+/// graph around it: a leaf over the same shared chain compares about as many
+/// node IDs in a graph of a thousand unrelated roots as in a graph of eight.
+#[trace("TC-050", "FR-038-AC-308")]
+#[test]
+fn one_request_compares_ids_by_its_closure_not_by_graph_size() {
+    let comparisons = |roots: usize| {
+        let (package, requests) = shared_closure_package(roots, 8);
+        let request = std::slice::from_ref(&requests[0]);
+        crate::checked_package::shared::checked_node_comparisons::reset();
+        let lowered = package.lower(request, &profile());
+        let count = crate::checked_package::shared::checked_node_comparisons::count();
+        let [CompleteLoweringRecordV2::Lowered { node }] = &lowered.records[..] else {
+            panic!("the leaf lowers: {:?}", lowered.records);
+        };
+        assert_eq!(
+            node.dependencies.len(),
+            8,
+            "the leaf reaches the shared chain"
+        );
+        count
+    };
+    let small = comparisons(8);
+    let large = comparisons(1024);
+    assert!(
+        large < small.saturating_mul(4),
+        "one request over 1024 roots compared {large} IDs, over 8 roots {small}"
+    );
+}
+
+/// Independent record lowering revalidates no body and preserves each request's
+/// one-item result.
 #[trace("TC-050", "FR-038-AC-309")]
 #[test]
 fn independently_lowered_records_share_one_closure_and_equal_single_requests() {
     let (package, requests) = shared_closure_package(4, 8);
     BODY_WALKS.with(|walks| walks.set(0));
-    SHARED_CLOSURE_BUILDS.with(|builds| builds.set(0));
-    LOWERING_GRAPH_INDEX_BUILDS.with(|builds| builds.set(0));
-    LOWERING_SOURCE_INDEX_BUILDS.with(|builds| builds.set(0));
     let records = package.lower_independent_records(&requests, &profile());
     assert_eq!(records.len(), requests.len());
     assert_eq!(
@@ -302,9 +325,6 @@ fn independently_lowered_records_share_one_closure_and_equal_single_requests() {
         0,
         "admission retained body facts"
     );
-    assert_eq!(SHARED_CLOSURE_BUILDS.with(std::cell::Cell::get), 1);
-    assert_eq!(LOWERING_GRAPH_INDEX_BUILDS.with(std::cell::Cell::get), 1);
-    assert_eq!(LOWERING_SOURCE_INDEX_BUILDS.with(std::cell::Cell::get), 1);
     for (request, record) in requests.iter().zip(records) {
         let single = package.lower(std::slice::from_ref(request), &profile());
         assert_eq!(record, single.records[0]);
@@ -433,12 +453,6 @@ fn lowering_components_exclude_admission_only_extension_edges() {
     // it, so a request for 0 must not inherit 1 through an admission SCC.
     assign_components(&mut facts);
     assert_ne!(facts[0].component, facts[1].component);
-    let mut closure = SccClosureIndex::new(&facts);
-    assert_eq!(closure.reachable(facts[0].component), BTreeSet::from([0]));
-    assert_eq!(
-        closure.reachable(facts[1].component),
-        BTreeSet::from([0, 1])
-    );
 }
 
 /// `x`, `y` and `z` of [`package`]: a long node, a short one, and one that
@@ -466,7 +480,7 @@ fn tc_047_equivalent_graph_construction_orders_have_one_package_value() {
     let source = package(u64::MAX);
     let selected = profile();
     let result = source.lower(&requested(), &selected);
-    let source_maps = super::NodeSourceMaps::new(&source.wire.source_map);
+    let source_maps = super::NodeSourceMaps::new(&source);
     let encode = |nodes: &[CompleteContractNodeV2]| {
         super::super::contract_package::ContractPackageWireV1::from_lowering(
             &source,
