@@ -1951,6 +1951,34 @@ impl DomainModel {
         }
     }
 
+    /// The object type that declares the effective operation `name` of
+    /// `context`: the context itself when it redefines the operation, else the
+    /// nearest ancestor that does. `None` when the context has no unique
+    /// effective operation of that name.
+    pub(super) fn effective_operation_owner(
+        &self,
+        context: &str,
+        name: &str,
+        budget: &mut Budget<'_, '_>,
+    ) -> Result<Option<&str>, ValidationFailure> {
+        let effective = match self.resolve(context, MemberKind::Operation, name, budget) {
+            Ok(Resolved::Operation(operation)) => operation,
+            Ok(Resolved::Field(_)) | Err(ModelFailure::Refused(_)) => return Ok(None),
+            Err(ModelFailure::Limit(failure)) => return Err(failure),
+        };
+        for (owner, declared) in &self.object_types {
+            budget.charge(1)?;
+            if declared
+                .operations
+                .iter()
+                .any(|operation| operation.identity == effective.identity)
+            {
+                return Ok(Some(owner.as_ref()));
+            }
+        }
+        Ok(None)
+    }
+
     /// FR-322 step 3: the member of `kind` named `name` among the exposed
     /// effective members of the object or record type `node`. A field is selected from
     /// the field table built at admission, one work unit per exposed or hidden

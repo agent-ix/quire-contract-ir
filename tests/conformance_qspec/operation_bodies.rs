@@ -81,10 +81,17 @@ fn expand_document_with_processes(sketch: &Value) -> Value {
                     && ty["identity"]
                         == format!("ix://{identity}/{}", declared["name"].as_str().unwrap())
             });
+        let is_premium = ty["identity"] == format!("ix://{identity}/Premium");
         for operation in ty["operations"].as_array_mut().expect("operations") {
             // A dispatched call is typed by its operation's result.
             operation["returns"] = json!({"typeRef": "ix://quire/native/Integer",
                 "multiplicity": {"lower": 1, "upper": 1, "ordered": false, "unique": true}});
+            if is_premium {
+                operation["redefines"] = json!(format!(
+                    "ix://{identity}/Order/{}",
+                    operation["name"].as_str().unwrap()
+                ));
+            }
         }
         if ty["identity"] == format!("ix://{identity}/Premium")
             && sketch["types"]
@@ -492,43 +499,114 @@ fn a_package_without_the_member_has_no_operation_bodies() {
     );
 }
 
-/// A dispatch table with two candidates for one selected operation, each with
-/// its own body node, beside a correct carrier is the intended admitted case.
-#[trace("TC-987", "FR-322-AC-397", "FR-038-AC-541")]
-#[test]
-fn two_dispatch_candidates_with_their_own_bodies_admit_beside_the_carrier() {
-    let vectors = vectors();
-    let mut input = case(&vectors, "OBC-05-dispatch-candidate");
-    let order = input["dispatch_candidates"][0]["selected_operation"]["declaring"].clone();
-    let mut second = input["dispatch_candidates"][0].clone();
-    second["selection_type"] = fixture::structural_id(
+fn orders_type(name: &str) -> Value {
+    fixture::structural_id(
         "acme/orders",
         vec![
             json!("model"),
             json!("object_type"),
-            json!("ix://acme/orders/Premium"),
+            json!(format!("ix://acme/orders/{name}")),
         ],
         0,
-    );
-    second["selected_operation"]["declaring"] = order;
-    second["operation_body"] = fixture::structural_id(
+    )
+}
+
+fn settle_body(owner: &str, leaf: &str) -> Value {
+    fixture::structural_id(
         "acme/orders",
         vec![
             json!("function"),
             json!("pure_function"),
-            json!("ix://acme/orders/Order/settle/other"),
+            json!(format!("ix://acme/orders/{owner}/settle/{leaf}")),
         ],
         0,
-    );
+    )
+}
+
+/// OBC-05 with a second dispatch candidate whose receiver is `Premium`. When
+/// `redefines`, Premium redefines `settle` with its own body node and its own
+/// row (row 4); otherwise it inherits Order's `settle` and has no row.
+fn premium_candidate(redefines: bool, premium_body: Value) -> Value {
+    let vectors = vectors();
+    let mut input = case(&vectors, "OBC-05-dispatch-candidate");
+    if redefines {
+        let documents = input["documents"].as_array_mut().unwrap();
+        let orders = documents
+            .iter_mut()
+            .find(|document| document["identity"] == "acme/orders")
+            .unwrap();
+        let premium = orders["types"]
+            .as_array_mut()
+            .unwrap()
+            .iter_mut()
+            .find(|ty| ty["name"] == "Premium")
+            .unwrap();
+        premium["operations"] = json!([{"name": "settle", "params": [], "has_body": true}]);
+        input["graph_nodes"].as_array_mut().unwrap().push(json!({
+            "node": settle_body("Premium", "body"), "form": "function",
+            "owner": {"kind": "model", "identity": "acme/orders",
+                "node": "ix://acme/orders/Premium/settle"},
+            "clause": "body"
+        }));
+        input["operation_bodies"].as_array_mut().unwrap().push(json!({
+            "document": "acme/orders", "declaring": orders_type("Premium"),
+            "operation": "settle",
+            "body": {"kind": "function", "node": settle_body("Premium", "body")}
+        }));
+    }
+    let mut second = input["dispatch_candidates"][0].clone();
+    second["selection_type"] = orders_type("Premium");
+    second["operation_body"] = premium_body;
     input["dispatch_candidates"]
         .as_array_mut()
         .unwrap()
         .push(second);
+    input
+}
+
+fn refused_at(input: &Value) -> String {
+    let (_, _, result) = read(input);
+    let CheckedPackageV2ReadResult::Refused(refusal) = result else {
+        panic!("expected a refusal: {result:?}");
+    };
+    assert_eq!(code_word(refusal.code), "invalid_package");
+    assert_eq!(refusal.cause.map(cause_word), Some("invalid-value"));
+    refusal.loci[0].path.as_ref().expect("path").to_string()
+}
+
+/// A receiver that redefines the operation has its own row, and its candidate
+/// is joined to that row, not to the ancestor's.
+#[trace("TC-987", "FR-322-AC-397", "FR-038-AC-541")]
+#[test]
+fn a_redefining_receivers_candidate_is_joined_to_its_own_row() {
+    let input = premium_candidate(true, settle_body("Premium", "body"));
     let (_, _, result) = read(&input);
     assert!(
         matches!(result, CheckedPackageV2ReadResult::Admitted(_)),
         "{result:?}"
     );
+}
+
+#[trace("TC-987", "FR-322-AC-397", "FR-038-AC-541")]
+#[test]
+fn a_redefining_receivers_candidate_carrying_the_ancestors_body_refuses() {
+    let input = premium_candidate(true, settle_body("Order", "body"));
+    assert_eq!(refused_at(&input), "/operation_bodies/4/body");
+}
+
+/// A receiver that inherits the operation is joined to the declaration it
+/// inherits from, so its candidate must carry that row's body.
+#[trace("TC-987", "FR-322-AC-397", "FR-038-AC-541")]
+#[test]
+fn an_inheriting_receivers_candidate_is_joined_to_the_inherited_row() {
+    let input = premium_candidate(false, settle_body("Order", "body"));
+    let (_, _, result) = read(&input);
+    assert!(
+        matches!(result, CheckedPackageV2ReadResult::Admitted(_)),
+        "{result:?}"
+    );
+    let input = premium_candidate(false, settle_body("Order", "other"));
+    assert_eq!(refused_at(&input), "/operation_bodies/2/body");
 }
 
 /// A candidate joined to a row through its selection key must carry that row's

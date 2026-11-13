@@ -7,6 +7,7 @@
 
 use super::identity::is_identifier;
 use super::model_fields::RetainedModels;
+use super::model_members::Budget;
 use super::native_join_budget::PackageReadStage;
 use super::operation_effects::{
     first_repeated, has_uncovered_operation, join_member, key_of, sorted_keys, Key,
@@ -191,13 +192,15 @@ fn owned_by(node: &CheckedSemanticNodeV2<CheckedJson>, document: &str, member: &
     )
 }
 
-/// A dispatch candidate's selection-key declaration (package and node), its
+/// A dispatch candidate's effective declaration (package and node), its
 /// selected operation name, and its operation body.
 ///
-/// A candidate joins the row of the declaration its selection key names, not
-/// every row of the family's selected operation: candidates of one dispatch
-/// table share the selected operation but carry different bodies. STD-661
-/// tracks the FR-322 wording for this join.
+/// A candidate joins the row of the declaration that declares the operation
+/// its receiver (`selection_key.original`) effectively exposes: the receiver
+/// itself when it redefines the operation, else the ancestor it inherits it
+/// from. Candidates of one dispatch table share the selected operation but
+/// carry different bodies, so the family's `selected_operation` is not the
+/// join. STD-661 tracks the FR-322 wording for this join.
 type Candidate<'a> = (&'a str, &'a str, &'a str, &'a CheckedNodeId);
 
 /// Validate a present carrier against the selected documents and the package
@@ -225,16 +228,25 @@ pub(super) fn validate(
         .map_or(&[][..], |data| data.dispatch_tables.as_slice());
     let count = tables.iter().map(|table| table.candidates.len()).sum();
     let mut candidates: Vec<Candidate<'_>> = stage_storage::vec(meter, &site(0, rows_at()), count)?;
-    candidates.extend(tables.iter().flat_map(|table| {
-        table.candidates.iter().map(|candidate| {
-            (
-                candidate.selection_key.original.package.as_ref(),
-                candidate.selection_key.original.node.as_ref(),
-                candidate.selected_operation.operation.as_ref(),
+    // The carrier runs before `checked_term_data` validation, so a candidate
+    // whose receiver does not resolve is left to that stage (QSpec OBR-20
+    // records the carrier locus for a package holding both defects).
+    for candidate in tables.iter().flat_map(|table| table.candidates.iter()) {
+        let original = &candidate.selection_key.original;
+        let Some(model) = models.selected_model(&original.package) else {
+            continue;
+        };
+        let name = candidate.selected_operation.operation.as_ref();
+        let mut budget = Budget::new(meter, model.root, model.bytes);
+        if let Some(owner) = model.effective_operation_owner(&original.node, name, &mut budget)? {
+            candidates.push((
+                model.identity.as_ref(),
+                owner,
+                name,
                 &candidate.operation_body,
-            )
-        })
-    }));
+            ));
+        }
+    }
     candidates.sort_unstable();
     let covered = sorted_keys(
         meter,

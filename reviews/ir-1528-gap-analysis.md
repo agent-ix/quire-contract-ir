@@ -40,3 +40,18 @@ The code covers the ticket's acceptance except OBR-21, which is a QSpec vector d
 | --- | --- | --- | --- |
 | FND-001 | low | OBR-21 is unreachable as recorded under FR-322's own stage order. The owner join refuses the foreign-owner node with `missing_declaration`/`missing-selection` at `/semantic_graph/nodes/{n}/node_id`. The test hard-codes that result, and FR-038-AC-541 records the exception, but no QSpec ticket is cited to fix the vector. The same applies to OBC-04 carrying that node, and to OBR-20, whose candidate body is absent from the graph (two defects in a case that should hold one). | tests/conformance_qspec/operation_bodies.rs:415-425 |
 | FND-002 | medium | No test covers a dispatch table with more than one candidate (QSpec DT-01's shape) next to an `operation_bodies` member. The only candidate cases (OBC-05, OBR-12, OBR-20) have one candidate each, so the code-review high finding (valid polymorphic dispatch refused) has no failing test. | tests/conformance_qspec/operation_bodies.rs:138-224 |
+
+## New findings (disposition pass 1)
+
+Measured at 8e4d0cf4. OBR-20 passes the generic branch of `tc_987_published_refusal_vectors_refuse_with_the_recorded_code_and_locus` (recorded code, cause and locus `/operation_bodies/1/body`); only OBR-21 is special-cased. OBC-04 as published, with its foreign-owner node kept (probe in a throwaway worktree), is refused `missing_declaration`/`missing-selection` at `/semantic_graph/nodes/12/node_id`.
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-003 | low | The matrix row, the PR body and the 8e4d0cf4 commit message say OBR-20 "cannot reach" its recorded code or locus. It does, and the test asserts it. Its defect is different: it holds two defects (its candidate body node is absent from the graph) and meets its locus only because the carrier runs before `checked_term_data` (code-review FND-002). The OBR-21 claim is accurate. The OBC-04 claim is accurate in substance, but OBC-04 is a positive case with no recorded code or locus: it is refused as published and admitted only because the harness drops the unreferenced foreign-owner node. Also, FR-038-AC-541 names only OBR-21 as the exception, so the AC and the matrix row disagree. Make the three statements and the AC say the same accurate thing. | spec/checked_package/matrix/tests.md:160 |
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | STD-661 (QSpec, Backlog) now tracks OBR-21, OBC-04 and the FR-322 candidate wording, and the OBR-21 branch of the test cites it. |
+| FND-002 | still-open | The new multi-candidate test does not cover DT-01's shape: its second candidate has no row and is never joined (code-review FND-006). No test has two joined candidates with distinct bodies. Probe A shows the code admits that shape, so a test for it is a small addition. |

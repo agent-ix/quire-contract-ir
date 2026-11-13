@@ -2062,6 +2062,10 @@ fn validate(
     validate_diagnostics(wire, limits, &mut meter)?;
     let models = RetainedModels::build(declarations, models, &mut Budget::node(&mut meter, 0))?;
     operation_effects::validate(wire.operation_effects.as_deref(), &models, &mut meter)?;
+    // Runs before `checked_term_data` validation: QSpec's OBR-20 records the
+    // carrier locus for a package whose candidate body is also missing from the
+    // graph. Candidates whose receiver does not resolve are skipped here and
+    // refused by dispatch validation.
     operation_bodies::validate(
         wire.operation_bodies.as_deref(),
         wire,
