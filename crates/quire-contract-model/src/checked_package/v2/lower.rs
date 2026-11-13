@@ -52,85 +52,6 @@ pub(super) enum EdgeRole {
 pub(super) struct LoweringNodeFacts {
     pub(super) terms: Result<u64, ValidationFailure>,
     pub(super) successors: Vec<(usize, EdgeRole)>,
-    pub(super) component: usize,
-}
-
-/// Assign SCCs from the exact lowering edges. Graph admission also validates
-/// extension-body targets, but lowering does not follow those targets; using
-/// the admission SCCs would add nodes to a lowering closure in that case.
-#[cfg(test)]
-pub(super) fn assign_components(facts: &mut [LoweringNodeFacts]) {
-    let mut meter = super::WorkMeter::new(u64::MAX);
-    assign_components_charged(facts, &mut meter).expect("unlimited lowering storage");
-}
-
-pub(super) fn assign_components_charged(
-    facts: &mut [LoweringNodeFacts],
-    meter: &mut super::WorkMeter<'_>,
-) -> Result<(), ValidationFailure> {
-    let size = facts.len();
-    let mut incoming_counts = meter.filled(size, 0_usize)?;
-    for fact in facts.iter() {
-        for &(target, _) in &fact.successors {
-            if let Some(count) = incoming_counts.get_mut(target) {
-                *count = count.saturating_add(1);
-            }
-        }
-    }
-    let mut reversed: Vec<Vec<usize>> = meter.vec(size)?;
-    for &count in &incoming_counts {
-        reversed.push(meter.vec(count)?);
-    }
-    for (source, fact) in facts.iter().enumerate() {
-        for &(target, _) in &fact.successors {
-            if let Some(incoming) = reversed.get_mut(target) {
-                incoming.push(source);
-            }
-        }
-    }
-    let mut seen = meter.filled(size, false)?;
-    let mut postorder = meter.vec(size)?;
-    let mut pending: Vec<(usize, usize)> = meter.vec(size)?;
-    for root in 0..size {
-        if seen[root] {
-            continue;
-        }
-        seen[root] = true;
-        pending.push((root, 0));
-        while let Some((vertex, edge)) = pending.last_mut() {
-            if let Some(&(target, _)) = facts[*vertex].successors.get(*edge) {
-                *edge += 1;
-                if !seen[target] {
-                    seen[target] = true;
-                    pending.push((target, 0));
-                }
-            } else {
-                postorder.push(*vertex);
-                pending.pop();
-            }
-        }
-    }
-    let mut assigned = meter.filled(size, false)?;
-    let mut component = 0;
-    let mut pending: Vec<usize> = meter.vec(size)?;
-    for root in postorder.into_iter().rev() {
-        if assigned[root] {
-            continue;
-        }
-        assigned[root] = true;
-        pending.push(root);
-        while let Some(vertex) = pending.pop() {
-            facts[vertex].component = component;
-            for &source in &reversed[vertex] {
-                if !assigned[source] {
-                    assigned[source] = true;
-                    pending.push(source);
-                }
-            }
-        }
-        component += 1;
-    }
-    Ok(())
 }
 
 /// The explicit I12 lowering-profile reference, separate from source profiles.
@@ -577,8 +498,7 @@ impl CheckedPackageV2 {
         &self,
         index: &BTreeMap<&CheckedNodeId, usize>,
     ) -> Vec<LoweringNodeFacts> {
-        let mut facts: Vec<_> = self
-            .resolved_graph()
+        self.resolved_graph()
             .nodes
             .iter()
             .zip(self.node_kinds())
@@ -628,15 +548,9 @@ impl CheckedPackageV2 {
                         Ok(())
                     },
                 );
-                LoweringNodeFacts {
-                    terms,
-                    successors,
-                    component: position,
-                }
+                LoweringNodeFacts { terms, successors }
             })
-            .collect();
-        assign_components(&mut facts);
-        facts
+            .collect()
     }
 
     fn lower_one(

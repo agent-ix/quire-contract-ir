@@ -4333,7 +4333,6 @@ fn validate_graph(
             lower::LoweringNodeFacts {
                 terms: Ok(terms),
                 successors: lowering_successors,
-                component: position,
             },
         )?;
     }
@@ -4349,7 +4348,6 @@ fn validate_graph(
         }
     };
     validate_recursion(&graph.nodes, &adjacency, meter, &edge_position)?;
-    lower::assign_components_charged(&mut lowering_facts, meter)?;
     let mut admitted_terms = meter.vec(terms.len())?;
     for (position, term) in terms.into_iter().enumerate() {
         let term = match term {

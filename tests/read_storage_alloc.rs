@@ -70,9 +70,9 @@ fn whole_read(label: &str, bytes: &[u8], evidence: &CheckedPackageEvidence) {
 }
 
 /// Whole-read accounting of an adverse shape, compared with the plain read by
-/// its complete retained outcome. Derived-view and per-node lowering equality
-/// is the TC-048 corpus's proof; on these shapes it is quadratic in node count
-/// (a chain node's lowering carries its whole dependency chain).
+/// its complete retained outcome. AC-511 measures accounting on these shapes;
+/// AC-512's derived-view and per-node lowering equality is scoped to the TC-048
+/// corpus, whose reads keep the full comparison.
 fn whole_read_adverse(label: &str, bytes: &[u8], evidence: &CheckedPackageEvidence) {
     read_allocation_proof::assert_read::<ThreadCounter>(
         label,

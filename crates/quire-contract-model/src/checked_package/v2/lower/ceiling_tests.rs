@@ -234,8 +234,9 @@ fn shared_closure_package(roots: usize, shared: usize) -> (CheckedPackageV2, Vec
     (package, requests)
 }
 
-/// The same shared closure is parsed once per call, independent of the number
-/// of requested leaves. Each request's work meter still charges its full closure.
+/// Lowering validates no body again: admission's body validations depend on the
+/// shared nodes and leaves, not on the number of requested leaves. Each
+/// request's work meter still charges its full closure.
 ///
 /// Tracing: FR-038-AC-308
 #[trace("TC-050", "FR-038-AC-308")]
@@ -284,7 +285,7 @@ fn shared_closure_body_walks_scale_with_nodes_not_requests() {
 /// Lowering one request costs what its closure reaches, not the size of the
 /// graph around it: a leaf over the same shared chain compares about as many
 /// node IDs in a graph of a thousand unrelated roots as in a graph of eight.
-#[trace("TC-050", "FR-038-AC-308")]
+#[trace("TC-050", "FR-038-AC-308", "FR-038-AC-309")]
 #[test]
 fn one_request_compares_ids_by_its_closure_not_by_graph_size() {
     let comparisons = |roots: usize| {
@@ -315,7 +316,7 @@ fn one_request_compares_ids_by_its_closure_not_by_graph_size() {
 /// one-item result.
 #[trace("TC-050", "FR-038-AC-309")]
 #[test]
-fn independently_lowered_records_share_one_closure_and_equal_single_requests() {
+fn independently_lowered_records_revalidate_no_body_and_equal_single_requests() {
     let (package, requests) = shared_closure_package(4, 8);
     BODY_WALKS.with(|walks| walks.set(0));
     let records = package.lower_independent_records(&requests, &profile());
@@ -415,10 +416,6 @@ fn grouped_recursive_shared_closure_keeps_independent_records() {
         .map(|(position, node)| (&node.node_id, position))
         .collect();
     package.lowering_facts = package.scan_lowering_facts(&index);
-    assert_eq!(
-        package.lowering_facts[0].component,
-        package.lowering_facts[1].component
-    );
     let batch = package.lower(&requests, &profile());
     assert_eq!(batch.records.len(), 3);
     for (request, record) in requests.iter().zip(&batch.records) {
@@ -434,25 +431,39 @@ fn grouped_recursive_shared_closure_keeps_independent_records() {
     }
 }
 
+/// A request reaches only what its own edges lead to: a shared node that two
+/// leaves type themselves at does not inherit either leaf.
 #[trace("TC-050", "FR-038-AC-308")]
 #[test]
-fn lowering_components_exclude_admission_only_extension_edges() {
-    let mut facts = vec![
-        LoweringNodeFacts {
-            terms: Ok(1),
-            successors: vec![(0, EdgeRole::Typing)],
-            component: usize::MAX,
-        },
-        LoweringNodeFacts {
-            terms: Ok(1),
-            successors: vec![(0, EdgeRole::Typing)],
-            component: usize::MAX,
-        },
-    ];
-    // Admission may also see 0 -> 1 as an extension target. Lowering omits
-    // it, so a request for 0 must not inherit 1 through an admission SCC.
-    assign_components(&mut facts);
-    assert_ne!(facts[0].component, facts[1].component);
+fn a_request_does_not_inherit_the_nodes_that_reach_it() {
+    let (package, leaves) = shared_closure_package(2, 1);
+    let shared: CheckedNodeId = serde_json::from_value(json!({
+        "package": "lowering-test",
+        "path": ["node-0"],
+        "ordinal": 0,
+    }))
+    .expect("shared node");
+    let lowered = package.lower(std::slice::from_ref(&shared), &profile());
+    let [CompleteLoweringRecordV2::Lowered { node }] = &lowered.records[..] else {
+        panic!("the shared node lowers: {:?}", lowered.records);
+    };
+    for leaf in &leaves {
+        assert!(
+            !node.dependencies.contains(leaf),
+            "{leaf:?} reaches the shared node but is not reached by it"
+        );
+    }
+    for leaf in &leaves {
+        let lowered = package.lower(std::slice::from_ref(leaf), &profile());
+        let [CompleteLoweringRecordV2::Lowered { node }] = &lowered.records[..] else {
+            panic!("the leaf lowers: {:?}", lowered.records);
+        };
+        assert_eq!(
+            node.dependencies,
+            vec![shared.clone()],
+            "a leaf reaches the shared node"
+        );
+    }
 }
 
 /// `x`, `y` and `z` of [`package`]: a long node, a short one, and one that
