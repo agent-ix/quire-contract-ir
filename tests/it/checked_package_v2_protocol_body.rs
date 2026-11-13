@@ -11474,6 +11474,7 @@ fn port_member_borrowed_read_and_typed_writer_preserve_the_exact_pair() {
             temporal_clause_names: admitted.temporal_clause_names(),
             schedulability_claims: admitted.schedulability_claim_rows(),
             operation_effects: admitted.operation_effect_rows(),
+            operation_bodies: admitted.operation_body_rows(),
         },
         admitted.capability_report(),
         admitted.diagnostics(),

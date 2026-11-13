@@ -276,6 +276,7 @@ fn encode(package: &CheckedPackageV2, limit: u64) -> Result<Vec<u8>, Error> {
         quire_contract_model::CheckedPackageSidecarsRef {
             temporal_clause_names: package.temporal_clause_names(),
             operation_effects: None,
+            operation_bodies: None,
             checked_term_data: package.checked_term_data(),
             temporal_bindings: package.temporal_bindings(),
             schedulability_claims: None,

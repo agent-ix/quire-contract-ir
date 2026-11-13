@@ -91,6 +91,7 @@ fn encode(
         quire_contract_model::CheckedPackageSidecarsRef {
             temporal_clause_names: None,
             operation_effects: None,
+            operation_bodies: None,
             checked_term_data: None,
             temporal_bindings: None,
             schedulability_claims: None,

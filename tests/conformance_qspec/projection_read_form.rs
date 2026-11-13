@@ -152,6 +152,7 @@ fn published_model_field_read_forms_survive_admission_and_round_trip() {
                     quire_contract_model::CheckedPackageSidecarsRef {
                         temporal_clause_names: package.temporal_clause_names(),
                         operation_effects: None,
+                        operation_bodies: None,
                         checked_term_data: package.checked_term_data(),
                         temporal_bindings: package.temporal_bindings(),
                         schedulability_claims: None,

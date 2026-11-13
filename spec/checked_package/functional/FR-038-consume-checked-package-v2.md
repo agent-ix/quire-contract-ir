@@ -305,6 +305,9 @@ it admits in its own reader — `crates/quire-contract-model/src/checked_package
 - A typed optional `operation_effects` input to the existing complete V2
   encoder, through `CheckedPackageSidecarsRef`. A constructible input row is
   untrusted until the strict reader admits the resulting package.
+- A borrowed typed read of the optional `operation_bodies` carrier and a typed
+  optional `operation_bodies` input to the same encoder; see "Operation-body
+  carrier" (FR-038-AC-541).
 - A typed accessor on the admitted package for a scalar application's ordered
   operands. Each entry carries its argument ordinal, a typed child identity,
   and its own inclusive integer range; see "Typed scalar application operands"
@@ -5369,6 +5372,37 @@ QSpec checkout by reference, checking OEC-01..07, OES-01..14 and OER-01..26
 against their published admission or exact refusal oracle; IR SHALL store no
 copy of that vector or schema.
 
+### Operation-body carrier
+
+The strict reader SHALL admit QSpec FR-322's optional top-level
+`operation_bodies` member (FR-322-AC-397, TC-987) as a closed array of
+`{document, declaring, operation, body}` rows, where `body` is
+`{"kind": "function", "node"}` or `{"kind": "no_body"}`. If absent, bodies are
+unavailable and no other member of the package changes. If present, it holds
+exactly one row for each operation member declared by a selected
+`model`/`object_type`, `model`/`process` or `model`/`state_machine` declaration
+(the members that carry an `operation_effects` row), keyed and sorted by `(document, declaring, operation)`, and is empty
+exactly when no selected document declares such a member; unlike
+`operation_effects`, an empty array is admitted. The reader SHALL apply the
+`operation_effects` joins for `document`, `declaring` and `operation` with the
+same codes, causes and loci; then SHALL require `body` to be a `function`
+exactly when the package holds a `function` node whose `ModelOwner` is the
+row's `document` and operation member and whose `clause` binding is `body`,
+and that node to be the one `body` names (`missing-name`, `operator-ineligible`
+or `invalid-value` at `body/node`); then SHALL require the row's `body` to
+equal the `operation_body` of every `checked_term_data` dispatch candidate
+whose receiver (`selection_key.original`) effectively exposes the row's
+operation from the row's declaring node, that is, the receiver itself when it
+redefines the operation and otherwise the ancestor it inherits the operation
+from (`invalid-value` at `body`); a candidate of another declaration, or one
+whose receiver is outside the table's family, is not joined, and dispatch validation owns
+its refusal. This is the join QSpec STD-661 asks FR-322 to state; then repeated key before descending key; then
+coverage at `/operation_bodies`. The existing V2 encoder SHALL accept an
+optional borrowed slice of constructible `OperationBodyRow` values through
+`CheckedPackageSidecarsRef::operation_bodies` and write the same member;
+`None` omits it. TC-987's vectors are read from the selected QSpec checkout by
+reference; IR SHALL store no copy of them.
+
 ### Authenticated schedulability claim carrier
 
 The strict reader SHALL admit the optional top-level `schedulability_claims`
@@ -5899,6 +5933,7 @@ a charge for an owned refusal or `incomplete` diagnostic uses them with `form`
 | `Capabilities` | capability-report entry index | `"capability_report"` | Capability checks. |
 | `Diagnostics` | diagnostic entry index | `"diagnostics.entries"` | Diagnostic tables and worklists. |
 | `OperationEffects` | operation-effect row index | `"operation_effects"` | Operation-effect tables and worklists. |
+| `OperationBodies` | operation-body row index | `"operation_bodies"` | Operation-body tables and worklists. |
 | `CheckedTermData` | checked-term-data row index | `"checked_term_data"` | Checked-term-data tables and worklists. |
 | `Retained` | 0 | `"direct_dependencies"`, `"closure_index"`, `"semantic_graph"`, `"node_index"`, `"source_index"`, `"timed_model_roots"`, `"package"`, `"admission_binding"` or `"result"` | The direct dependency vector, closure index, typed semantic graph assembled with its terms, node and source indexes, timed-model roots, each shared `Arc` of the admitted package, the admission binding and the `Box` of the admitted result. |
 
@@ -6496,6 +6531,9 @@ the minimum the read uses.
 | FR-038-AC-538 | A composition with two components of one name or over one subject refuses `invalid_model_binding`/`conflicting-binding` at the second; a guarantee or premise naming an undeclared component refuses `missing_declaration`/`missing-name`; a premise whose guarantee is undeclared, whose two sides name one component, a rely on liveness or a depends with a non-liveness side refuses `invalid_model_binding`/`malformed-declaration`; component subjects and clauses resolve through admitted dependency packages, clauses must belong to the component model subject, scheduling operations must belong to a component subject, and environment assumptions and names obey the guarantee checks. | Test (TC-474) |
 | FR-038-AC-539 | A package holding a `correspondence`/`component_composition` node whose component clause is a node of a supplied dependency named by its own operand admits when the composition's `operand_rows` entry for that operand is the dependency position `{package, node}`; the importing graph holds no node of the dependency, the position lies past the importing graph's last node, the typed body keeps the dependency position, and the graph as shown is read again. | Test (TC-474) |
 | FR-038-AC-540 | A dependency position naming an unsupplied package or a `node` past the dependency's last node refuses `malformed_wire` at the row entry; a `{package, node}` object written as an id path segment refuses `malformed_wire` at the segment; a local index segment in a foreign id refuses `missing_declaration`/`missing-name` at the member holding it. | Test (TC-474) |
+| FR-038-AC-492 | An admitted `CheckedPackageV2` shall issue a cloneable, opaque `AdmissionBinding` capability and report whether it retains that capability. Clones from one read are members; an independent read of equal canonical bytes is not. | Test (TC-048) |
+| FR-038-AC-493 | The public capability shall use the reader's original admission binding and expose no construction path, buffer contents, copied carrier, or compatibility representation. | Review (IR-1370) |
+| FR-038-AC-541 | A default-feature producer passes a borrowed `OperationBodyRow` slice as `CheckedPackageSidecarsRef::operation_bodies` and the strict reader returns the same rows from `operation_body_rows`, and each body by key from `operation_body`; absence of the member leaves both `None` and every other member unchanged. The reader reads QSpec TC-987's positive cases OBC-01 to OBC-06 and refuses its 13 schema cases OBS-01 to OBS-13 as `malformed_wire` and its 21 reader cases OBR-01 to OBR-21 with the published code, cause and locus, reading the vectors from the QSpec checkout by reference. OBR-21 is the exception: the package's owner join refuses the foreign-owner function node first (STD-661). OBC-04's published form holds the same foreign-owner node and is refused the same way, so the harness omits that node. | Test (TC-987) |
 | FR-038-AC-495 | `CheckedPackageV2::read_with_budget(bytes, limits, evidence, &mut NativeJoinBudget)` and `read_checked_package_with_budget` are the budgeted V2 read entries, and `CheckedPackageV2::read(bytes, limits, evidence)` and `read_checked_package(bytes, limits, evidence)` keep their existing signatures, result types and outcomes. The call graph holds one read implementation: each unbudgeted entry creates `NativeJoinBudget::new(limits.work, u64::MAX).with_read_storage_limit(u64::MAX)`, calls its budgeted entry and maps the result variant for variant, with no second decoder, fallback limit or private work meter. No existing in-repository or downstream caller of the unbudgeted entries changes. For every TC-048 input, including each fixture at its exact work limit and one below it, the unbudgeted entry's outcome equals today's outcome; one below the work requirement it returns `CheckedPackageIncomplete` with `Work`, `limits.work`, the same `consumed` and the same pointer. `read_checked_package_with_budget` has no V1 branch and passes the budget through unchanged. Changing `CheckedPackageReadLimits.work` changes no budgeted-entry outcome; each other member keeps its own `Incomplete` outcome and pointer on every entry. | Test, Inspection (TC-472) |
 | FR-038-AC-496 | A budgeted read clears the budget's previous success deltas and first-unpaid records, keeps cumulative consumption and the configured limits, and on admission records a work delta and a read-storage delta equal to its own charges and a logical storage delta of zero. A refused, `Incomplete`, `BudgetIncomplete` or `Exhausted` read leaves the deltas absent and its admitted charges in cumulative consumption. Two budgeted reads, each affordable alone, composed on one budget whose work or read-storage limit is below their sum, admit the first and stop the second at its first unpaid charge; an FR-358 native join after a read on the same budget has its own unchanged logical storage requirement and shares the work counter. | Test (TC-472) |
 | FR-038-AC-497 | Envelope stage. For a genuine admitted package and for the adverse shapes of FR-038-AC-511, a read-storage limit equal to the read's measured requirement admits the package, and a read-storage limit one below the cumulative read storage admitted through the shared reader's last package-bytes reservation refuses at that reservation: first unpaid `ReadStorage` with the reservation's byte amount, locus `PackageRead(Envelope, 0)` and form `"package_bytes"`, no document and no package. Each reader list class (arena nodes, child ids/members, decoded text, open-container stack and children, duplicate-name sort buffer) is the denied class in at least one one-below case, and the pointer and lexeme of a duplicate-name and of a number-out-of-range refusal are each charged before the refusal is returned. | Test (TC-472) |
@@ -6522,9 +6560,6 @@ the minimum the read uses.
 | FR-038-AC-518 | The strict reader matches a `duration` aggregate bound's `type` against the clause's clock unit by `node_id.path` (`["scalar_type", "unit", T]`, `T` the `timestamp_unit` the clause's bindings name) alone, and never builds the clock unit's `node_id` from the clause node's package. A clause in package `example` whose `timestamp_unit` is `ix://acme/orders/unit/ms` admits bounds typed by the model-owned `acme/orders` node of that unit, and refuses an `upper` typed by the `ix://acme/orders/unit/s` node with `ill_typed`/`unit-mismatch` at `upper`'s value (QSpec FR-370-AC-20). | Test (TC-048; QSpec FR-370-AC-20, TC-303) |
 | FR-038-AC-530 | The strict reader's temporal step admits a `reference` to a `temporal`/`fairness` node as a direct member of a quantifier Group of a `claim`/`hyperproperty` node's `quantifiers` Tuple, and refuses `ill_typed`/`operator-ineligible` at the hyperproperty node a reference to a `temporal`/`fairness` node anywhere else in its body (`match`, `align_skip`, the `body` target, a Group `binding` value, a bare `quantifiers` Tuple member, a Group of another `claim` form) and a reference to a `temporal`/`formula` node anywhere in its body; this restates QSpec FR-370 "Placement" and FR-370-AC-21, whose enumeration of the refused places is not exhaustive. The hyperproperty step then runs after the step-relation step and before the hybrid step, over each `claim`/`hyperproperty` node in ascending node-id order, with QSpec FR-402 "Reader order" steps 1 to 4 in that order and the node's first defect the package's: step 1 refuses a body that is not the seven bindings in order, or a quantifier Group that is not `variable`, `quantifier`, `alias` (for a finite domain, whose `domain` is a `reference`, `variable` and `quantifier` only, with no `subjects` member, `alias` binding or fairness reference) and then references only, `invalid_semantic_graph` at the first member that breaks the layout, and a `quantifier` value other than `forall`/`exists` `invalid_package`/`invalid-value` at that value; step 2 refuses a `subjects` target that is no `model`/`model_root` node `invalid_model_binding`/`malformed-declaration` at the target, a Group `alias` naming no `subjects` binding `missing_declaration`/`missing-name` at the `alias` binding, and a `subjects` binding no Group names `invalid_semantic_graph` at the binding; step 4 resolves each Group reference as a clause's fairness member, located at the reference, refusing a non-`operation` target `invalid_model_binding`/`malformed-declaration`, FR-370 "Fairness resolution" steps 1 to 3 with their codes and causes, a declaring node outside the package of its alias's `model_root` `invalid_model_binding`/`malformed-declaration`, and a non-empty set under a body wrapper whose profile admits none `invalid_package`/`operation-member-mismatch`. Step 3 refuses a `behaviours` `body` target that is no `temporal`/`temporal_clause` node `ill_typed`/`operator-ineligible` at the hyperproperty node and a body wrapper whose fairness argument is not empty `invalid_semantic_graph` at the wrapper's `body/arguments/4`, and a finite domain's `body` target that is no `expression` node typed by the `scalar_type`/`boolean` node `ill_typed`/`non-boolean-root` at the target; this PR implements FR-402 "Reader order" in full. | Test (TC-346; QSpec FR-370-AC-21) |
 | FR-038-AC-531 | The strict reader's hyperproperty step (QSpec FR-402 "Reader order" step 4, check 1) refuses `ill_typed`/`operator-ineligible` at the reference `/semantic_graph/nodes/{n}/body/members/3/value/members/{g}/members/{m}` a quantifier Group `reference` whose target is a node other than a `temporal`/`fairness` node (a `temporal`/`temporal_clause`, an `expression` or a `model` node among them), before any fairness-target or resolution check of that reference; a reference to a `temporal`/`formula` node is the temporal step's. | Test (TC-346; QSpec FR-402-AC-10) |
-
-| FR-038-AC-492 | An admitted `CheckedPackageV2` shall issue a cloneable, opaque `AdmissionBinding` capability and report whether it retains that capability. Clones from one read are members; an independent read of equal canonical bytes is not. | Test (TC-048) |
-| FR-038-AC-493 | The public capability shall use the reader's original admission binding and expose no construction path, buffer contents, copied carrier, or compatibility representation. | Review (IR-1370) |
 
 
 FR-038-AC-66 is retired and its ID is not reused (ADR-0056). It required that every

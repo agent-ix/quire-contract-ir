@@ -197,6 +197,7 @@ fn published_temporal_occurrence_vectors_bind_exact_read_and_write() {
                     quire_contract_model::CheckedPackageSidecarsRef {
                         temporal_clause_names: admitted.temporal_clause_names(),
                         operation_effects: None,
+                        operation_bodies: None,
                         checked_term_data: admitted.checked_term_data(),
                         temporal_bindings: admitted.temporal_bindings(),
                         schedulability_claims: None,
@@ -311,6 +312,7 @@ fn published_temporal_clause_names_admit_and_refuse_at_exact_loci() {
                     },
                     quire_contract_model::CheckedPackageSidecarsRef {
                         operation_effects: None,
+                        operation_bodies: None,
                         checked_term_data: admitted.checked_term_data(),
                         temporal_bindings: admitted.temporal_bindings(),
                         temporal_clause_names: admitted.temporal_clause_names(),
@@ -834,6 +836,7 @@ fn temporal_clock_writer_retains_a_configured_clause_row() {
         quire_contract_model::CheckedPackageSidecarsRef {
             temporal_clause_names: read.temporal_clause_names(),
             operation_effects: None,
+            operation_bodies: None,
             checked_term_data: read.checked_term_data(),
             temporal_bindings: read.temporal_bindings(),
             schedulability_claims: None,

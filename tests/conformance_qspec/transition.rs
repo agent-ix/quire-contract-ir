@@ -36,6 +36,7 @@ fn write(read: &CheckedPackageV2) -> Value {
         quire_contract_model::CheckedPackageSidecarsRef {
             temporal_clause_names: read.temporal_clause_names(),
             operation_effects: None,
+            operation_bodies: None,
             checked_term_data: read.checked_term_data(),
             temporal_bindings: read.temporal_bindings(),
             schedulability_claims: None,

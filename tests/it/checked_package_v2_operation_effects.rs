@@ -233,6 +233,7 @@ fn admitted_effect_rows_round_trip_through_typed_writer() {
             temporal_clause_names: admitted.temporal_clause_names(),
             schedulability_claims: None,
             operation_effects: Some(rows),
+            operation_bodies: None,
             checked_term_data: admitted.checked_term_data(),
             temporal_bindings: admitted.temporal_bindings(),
         },
