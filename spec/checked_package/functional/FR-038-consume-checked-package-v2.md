@@ -316,9 +316,10 @@ it admits in its own reader — `crates/quire-contract-model/src/checked_package
   `quire.op.model.reaches` application, `relationship_end`; see "Typed relationship
   end of a reaches application" (FR-038-AC-262 through FR-038-AC-268, IR-851).
 - A typed accessor on the admitted package for the finite model-object population
-  a `quire.op.model.reaches` application walks, `reaches_population`, returning the
-  selector FR-053 reads; see "Typed population of a reaches application"
-  (FR-038-AC-269 through FR-038-AC-280, IR-852).
+  a `quire.op.model.reaches` or `quire.op.model.reaches_field` application walks,
+  `reaches_population`, returning the selector FR-053 reads; see "Typed population
+  of a reaches application" (FR-038-AC-269 through FR-038-AC-280, IR-852;
+  FR-038-AC-542 through FR-038-AC-544, IR-1533).
 
 - A typed composite operand accessor, `composite_application_operands`,
   returning authentic positional children, authored shapes and introduced positions
@@ -3896,6 +3897,11 @@ reaches application").
 
 ### Typed population of a reaches application
 
+IR-1533 extends this section to a `quire.op.model.reaches_field` application
+("The field-edge link" below); every sentence that says "reaches application"
+without qualification reads both operations, except where a sentence names the
+relationship end.
+
 Measured at `origin/main` (IR-852, whose own text is a claim and was
 re-measured). A `quire.op.model.reaches` application carries no population: its
 body keys are the closed set `term`, `operator`, `operation`, `result_type` and
@@ -3932,6 +3938,23 @@ stage (FR-322's schema stage against this reader's operation stage, which has no
 member schema, and FR-322's derived-shape check against this reader's lack of one)
 is stated where it arises.
 
+**The field-edge link.** A `quire.op.model.reaches_field` application MAY carry
+the same `population` key in its `field` member, holding the node id of one
+`bounded_domain` / `model_population` node, over a field of type `Reference<T>`,
+`Option<Reference<T>>` or a bounded `Sequence<Reference<T>>`. The producing
+language owns when the key is present; absence names no population and is never
+inferred. The reader checks the key after every other check of the application,
+with the refusals of the reaches link at the member's `population` pointer
+(`ill_typed`/`operator-ineligible` for an absent node, a node that is not a
+`model_population` node, a node with no `Type` occurrence or an invalid derived
+shape), and compares the node's object type to `T`, the object type that
+declares the resolved field, not to the member's `declaration`: a field
+inherited through a subtype `declaration` links a population of `T`. A
+population of another object type refuses `ill_typed`/`operator-ineligible` at
+`population`. This reader check follows QSpec FR-322 "Reaches over a field";
+admitting the key on the `field` member in QSpec is the open amendment STD-663,
+and QSL FR-380 (QSL-1904) is the producer.
+
 **The accessor.** `CheckedPackageV2::reaches_population(&self, application:
 &CheckedNodeId) -> Result<Option<CheckedSelectedPopulationSelector>,
 CheckedReachesPopulationError>` shall return, for the node whose body root is
@@ -3964,9 +3987,10 @@ second selector type.
 `CheckedReachesPopulationError` has the closed variants `UnknownNode`,
 `NotReachesApplication` and `UnresolvedPopulation`. When called with an id
 absent from the graph, `reaches_population` shall refuse `UnknownNode`. When
-called with a node whose body root is not a `quire.op.model.reaches`
-application, `reaches_population` shall refuse `NotReachesApplication`,
-whatever its tag, including a `quire.op.model.navigate` application. When called
+called with a node whose body root is neither a `quire.op.model.reaches` nor a
+`quire.op.model.reaches_field` application, `reaches_population` shall refuse
+`NotReachesApplication`, whatever its tag, including a `quire.op.model.navigate`
+application. When called
 with a reaches application whose `population` key no longer resolves as
 admission resolved it, `reaches_population` shall refuse `UnresolvedPopulation`:
 a value that is not a node id, a node id absent from the graph, a node that is
@@ -6495,6 +6519,9 @@ the minimum the read uses.
 | FR-038-AC-537 | A guarantee whose `progress` or fairness operation its context does not declare refuses `missing_declaration`/`missing-name`; an operation the context only inherits, a non-Rust `initial` or `decreases` path and `bound` 0 refuse `invalid_model_binding`/`malformed-declaration`; two `progress` members for one operation and two `environment` members of one name refuse `invalid_model_binding`/`conflicting-binding` at the second. | Test (TC-474) |
 | FR-038-AC-538 | A composition with two components of one name or over one subject refuses `invalid_model_binding`/`conflicting-binding` at the second; a guarantee or premise naming an undeclared component refuses `missing_declaration`/`missing-name`; a premise whose guarantee is undeclared, whose two sides name one component, a rely on liveness or a depends with a non-liveness side refuses `invalid_model_binding`/`malformed-declaration`; component subjects and clauses resolve through admitted dependency packages, clauses must belong to the component model subject, scheduling operations must belong to a component subject, and environment assumptions and names obey the guarantee checks. | Test (TC-474) |
 | FR-038-AC-539 | A package holding a `correspondence`/`component_composition` node whose component clause is a node of a supplied dependency named by its own operand admits when the composition's `operand_rows` entry for that operand is the dependency position `{package, node}`; the importing graph holds no node of the dependency, the position lies past the importing graph's last node, the typed body keeps the dependency position, and the graph as shown is read again. | Test (TC-474) |
+| FR-038-AC-542 | PLANNED/UNRUN (IR-1533). For an admitted `quire.op.model.reaches_field` application whose `field` member carries `population` naming a `model_population` node over the field owner `T`, with `max` 3, over each of a `Reference<T>`, an `Option<Reference<T>>` and a bounded `Sequence<Reference<T>>` field, and over an inherited field whose member `declaration` is a subtype of `T`, `reaches_population` returns `Ok(Some(selector))` with the package's name, the node id the member holds and its least-ordinal `Type` occurrence, and `select_population` over it is `Finite` with maximum "3" and object type `T`. | Test (TC-048) |
+| FR-038-AC-543 | PLANNED/UNRUN (IR-1533). `reaches_population` over an admitted `reaches_field` application whose member has no `population` key returns `Ok(None)` and infers none; an object declaration node and a `quire.op.model.navigate` application still refuse `NotReachesApplication`. | Test (TC-048) |
+| FR-038-AC-544 | PLANNED/UNRUN (IR-1533). A `reaches_field` application whose `population` names a `model_population` node over another object type than the field owner `T` (including the member's subtype `declaration`), or a node that is not a population node, is refused `ill_typed`/`operator-ineligible` at the member's `population` pointer, with no partial package. | Test (TC-048) |
 | FR-038-AC-540 | A dependency position naming an unsupplied package or a `node` past the dependency's last node refuses `malformed_wire` at the row entry; a `{package, node}` object written as an id path segment refuses `malformed_wire` at the segment; a local index segment in a foreign id refuses `missing_declaration`/`missing-name` at the member holding it. | Test (TC-474) |
 | FR-038-AC-495 | `CheckedPackageV2::read_with_budget(bytes, limits, evidence, &mut NativeJoinBudget)` and `read_checked_package_with_budget` are the budgeted V2 read entries, and `CheckedPackageV2::read(bytes, limits, evidence)` and `read_checked_package(bytes, limits, evidence)` keep their existing signatures, result types and outcomes. The call graph holds one read implementation: each unbudgeted entry creates `NativeJoinBudget::new(limits.work, u64::MAX).with_read_storage_limit(u64::MAX)`, calls its budgeted entry and maps the result variant for variant, with no second decoder, fallback limit or private work meter. No existing in-repository or downstream caller of the unbudgeted entries changes. For every TC-048 input, including each fixture at its exact work limit and one below it, the unbudgeted entry's outcome equals today's outcome; one below the work requirement it returns `CheckedPackageIncomplete` with `Work`, `limits.work`, the same `consumed` and the same pointer. `read_checked_package_with_budget` has no V1 branch and passes the budget through unchanged. Changing `CheckedPackageReadLimits.work` changes no budgeted-entry outcome; each other member keeps its own `Incomplete` outcome and pointer on every entry. | Test, Inspection (TC-472) |
 | FR-038-AC-496 | A budgeted read clears the budget's previous success deltas and first-unpaid records, keeps cumulative consumption and the configured limits, and on admission records a work delta and a read-storage delta equal to its own charges and a logical storage delta of zero. A refused, `Incomplete`, `BudgetIncomplete` or `Exhausted` read leaves the deltas absent and its admitted charges in cumulative consumption. Two budgeted reads, each affordable alone, composed on one budget whose work or read-storage limit is below their sum, admit the first and stop the second at its first unpaid charge; an FR-358 native join after a read on the same budget has its own unchanged logical storage requirement and shares the work counter. | Test (TC-472) |
