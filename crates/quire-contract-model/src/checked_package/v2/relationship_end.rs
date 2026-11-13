@@ -53,7 +53,7 @@ pub enum CheckedRelationshipEndError {
 pub(super) enum ReachesLookup {
     /// The id is absent from the graph.
     Unknown,
-    /// The node's body root is not a `quire.op.model.reaches` application.
+    /// The node's body root is not a reaches application of the lookup's kind.
     NotReaches,
 }
 
@@ -71,6 +71,24 @@ impl CheckedPackageV2 {
         (operation.identity() == Some("quire.op.model.reaches"))
             .then_some(operation)
             .ok_or(ReachesLookup::NotReaches)
+    }
+
+    /// The node `id` when its body root is a `quire.op.model.reaches` or
+    /// `quire.op.model.reaches_field` application.
+    pub(super) fn reaches_or_field_application(
+        &self,
+        id: &CheckedNodeId,
+    ) -> Result<&super::typed_terms::CheckedApplicationOperation, ReachesLookup> {
+        self.node(id).ok_or(ReachesLookup::Unknown)?;
+        let Some(super::CheckedTerm::Application { operation, .. }) = self.term(id) else {
+            return Err(ReachesLookup::NotReaches);
+        };
+        matches!(
+            operation.identity(),
+            Some("quire.op.model.reaches" | "quire.op.model.reaches_field")
+        )
+        .then_some(operation)
+        .ok_or(ReachesLookup::NotReaches)
     }
 
     /// Reads the destination end of an admitted `quire.op.model.reaches`

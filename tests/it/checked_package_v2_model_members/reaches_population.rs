@@ -1133,3 +1133,123 @@ fn selected_population_result_provenance_and_work_boundary_hold() {
         CheckedPackageV2ReadResult::Incomplete(_)
     ));
 }
+
+/// The `reaches_field` package of [`reaches_package`] over `declaring`, field
+/// `name` and the given operand types, as a scenario whose application is at
+/// the returned position.
+fn field_scenario(
+    declaring: &'static str,
+    name: &str,
+    source: &'static str,
+    target: &'static str,
+) -> (Scenario, usize) {
+    let (package, evidence, position) = reaches(declaring, name, source, target);
+    (Scenario { package, evidence }, position)
+}
+
+/// Adds a population of `identity` with `max` 3 and links the field
+/// application at `position` to it.
+fn link_field_population(
+    scenario: &mut Scenario,
+    position: usize,
+    identity: &str,
+) -> String {
+    let population = scenario.add_population(identity, vec![max_of("3")], &[0]);
+    link_application(
+        &mut scenario.nodes()[position],
+        Some(fixture_id(&population)),
+        Some(&population),
+    );
+    scenario.settle();
+    population
+}
+
+fn field_application_id(package: &CheckedPackageV2) -> CheckedNodeId {
+    application_of(package, "quire.op.model.reaches_field")
+}
+
+/// FR-038-AC-542: the field forms the edge accepts each link a population and
+/// the accessor selects it, also when the member's declaring node is a
+/// subtype of the field owner.
+#[trace("TC-048", "FR-038-AC-542")]
+#[test]
+fn tc_048_reaches_population_reads_each_reaches_field_form() {
+    for (declaring, name, source, target) in [
+        (ORDER, "origin", ORDER, ORDER),
+        (ORDER, "parent", ORDER, ORDER),
+        (ORDER, "prior", ORDER, ORDER),
+        (SUB, "parent", SUB, ORDER),
+    ] {
+        let (mut scenario, position) = field_scenario(declaring, name, source, target);
+        let population = link_field_population(&mut scenario, position, ORDER);
+        let package = scenario.admitted();
+        let selector = package
+            .reaches_population(&field_application_id(&package))
+            .unwrap_or_else(|error| panic!("{declaring} {name}: {error:?}"))
+            .unwrap_or_else(|| panic!("{declaring} {name}: a selector"));
+        assert_eq!(selector.package_name, package.name(), "{name}");
+        assert_eq!(selector.binding, wire_fixture_id(&package, &population));
+        assert_eq!(selector.occurrence.ordinal, 0);
+        match select_population(Source::Admitted {
+            package: &package,
+            selector,
+        }) {
+            Outcome::Finite(finite) => {
+                assert_eq!(finite.maximum.as_str(), "3", "{name}");
+                assert_eq!(finite.object_type, order_declaration_id(), "{name}");
+            }
+            other => panic!("{name}: expected a finite population, got {other:?}"),
+        }
+    }
+}
+
+/// FR-038-AC-543: a field application without the link selects no population,
+/// and a node that is neither a reaches nor a reaches_field application keeps
+/// its typed refusal.
+#[trace("TC-048", "FR-038-AC-543")]
+#[test]
+fn tc_048_reaches_population_over_a_reaches_field_without_a_link_is_none() {
+    let (scenario, _) = field_scenario(ORDER, "parent", ORDER, ORDER);
+    let package = scenario.admitted();
+    assert_eq!(
+        package.reaches_population(&field_application_id(&package)),
+        Ok(None)
+    );
+    assert_eq!(
+        package.reaches_population(&order_declaration_id()),
+        Err(CheckedReachesPopulationError::NotReachesApplication)
+    );
+    let (navigate, evidence) = relationship_package(authored_relationship(), "links");
+    let package = admitted(&navigate, &evidence);
+    assert_eq!(
+        package.reaches_population(&application_of(&package, "quire.op.model.navigate")),
+        Err(CheckedReachesPopulationError::NotReachesApplication)
+    );
+}
+
+/// FR-038-AC-544: a field application whose population covers another object
+/// type than the field owner is refused at the member's `population`, as is a
+/// node that is not a population.
+#[trace("TC-048", "FR-038-AC-544")]
+#[test]
+fn tc_048_a_reaches_field_population_of_another_type_than_the_owner_is_refused() {
+    let (mut scenario, position) = field_scenario(SUB, "parent", SUB, ORDER);
+    link_field_population(&mut scenario, position, SUB);
+    scenario.assert_refused(
+        ILL_TYPED,
+        &format!("/semantic_graph/nodes/{position}/body/operation/member/population"),
+    );
+
+    let (mut scenario, position) = field_scenario(ORDER, "parent", ORDER, ORDER);
+    let not_population = scenario.reference_of(ORDER);
+    link_application(
+        &mut scenario.nodes()[position],
+        Some(fixture_id(&not_population)),
+        Some(&not_population),
+    );
+    scenario.settle();
+    scenario.assert_refused(
+        ILL_TYPED,
+        &format!("/semantic_graph/nodes/{position}/body/operation/member/population"),
+    );
+}
