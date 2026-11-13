@@ -9,6 +9,13 @@ type: TestMatrix
 
 | Functional Req | Acceptance Criteria | Test Cases | Status |
 |---|---|---|---|
+| FR-362 | FR-362-AC-1 through FR-362-AC-3 | TC-475 | 🚧 Planned (IR-1529): unchanged read of packages without source objects, and source type admission. |
+| FR-363 | FR-363-AC-1 through FR-363-AC-5 | TC-475 | 🚧 Planned (IR-1529). |
+| FR-364 | FR-364-AC-1 through FR-364-AC-5 | TC-475 | 🚧 Planned (IR-1529). |
+| FR-365 | FR-365-AC-1 through FR-365-AC-6 | TC-475 | 🚧 Planned (IR-1529). |
+| FR-366 | FR-366-AC-1 through FR-366-AC-5 | TC-475 | 🚧 Planned (IR-1529). |
+| FR-367 | FR-367-AC-1 through FR-367-AC-6 | TC-475 | 🚧 Planned (IR-1529). |
+| FR-368 | FR-368-AC-1 through FR-368-AC-5 | TC-475 | 🚧 Planned (IR-1529). |
 | FR-357 | FR-357-AC-13, FR-357-AC-14 | TC-469 | 🚧 IR-1353's package-private reached-model prerequisite has focused value and refusal tests over an IR-owned admitted monitor root. The complete closure and producer handoff remain planned under IR-721. |
 | FR-357 | FR-357-AC-1 through FR-357-AC-4, FR-357-AC-21, FR-357-AC-22 | TC-470 | ✅ IR-1354's public atomic closure composes reached model, source, clock, Exact and admitted equality reads under one caller-owned native work and storage budget. IR-owned strict monitor value, first-refusal and exact/one-below tests pass. Same-emission producer acceptance remains AC-11 in quire-integration. |
 | FR-358 | FR-358-AC-1 through FR-358-AC-7 | TC-467 | 🚧 IR-1357 implements the caller-owned native join budget for stage acquisition and source joins. IR-1375 extends the same budget to admitted equality reads with exact, one-below, composed and zero-storage controls; independent review and final aggregate gate remain pending. |
