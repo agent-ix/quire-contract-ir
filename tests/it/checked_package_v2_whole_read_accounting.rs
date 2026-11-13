@@ -86,6 +86,7 @@ fn original_wide_bounded_quantity_provider_is_accounted_within_the_bound_at_core
         &input.bytes,
         &input.evidence,
         input.expected,
+        proof::ReadViewScope::Full,
     );
     eprintln!("Original wide bounded-quantity builder: admitted; exact core accounting; no all-family FR-038-AC-516 or source-site census claim");
 }
@@ -1393,6 +1394,7 @@ fn every_registered_input_is_accounted_within_the_bound_at_core_bounds() {
             &input.bytes,
             &input.evidence,
             input.expected,
+            proof::ReadViewScope::Full,
         );
     }
 }
@@ -1494,6 +1496,7 @@ fn the_actual_tc048_catalogue_and_refusal_corpus_is_accounted_within_the_bound()
             &input.bytes,
             &input.evidence,
             input.expected,
+            proof::ReadViewScope::Full,
         );
     }
 }

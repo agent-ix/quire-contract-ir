@@ -42,7 +42,7 @@ impl Drop for RestoreRequested {
 mod read_allocation_proof;
 use read_allocation_proof::{
     accounted, drop_without_request, every_request, generous_limits, measure_read, unpaid, Counter,
-    Expected, UNPAID_BOUND,
+    Expected, ReadViewScope, UNPAID_BOUND,
 };
 
 struct ThreadCounter;
@@ -57,8 +57,30 @@ impl Counter for ThreadCounter {
     }
 }
 
+/// Whole-read accounting of a positive fixture, compared with the plain read
+/// through every derived view and every node's own lowering.
 fn whole_read(label: &str, bytes: &[u8], evidence: &CheckedPackageEvidence) {
-    read_allocation_proof::assert_read::<ThreadCounter>(label, bytes, evidence, Expected::Admitted);
+    read_allocation_proof::assert_read::<ThreadCounter>(
+        label,
+        bytes,
+        evidence,
+        Expected::Admitted,
+        ReadViewScope::Full,
+    );
+}
+
+/// Whole-read accounting of an adverse shape, compared with the plain read by
+/// its complete retained outcome. Derived-view and per-node lowering equality
+/// is the TC-048 corpus's proof; on these shapes it is quadratic in node count
+/// (a chain node's lowering carries its whole dependency chain).
+fn whole_read_adverse(label: &str, bytes: &[u8], evidence: &CheckedPackageEvidence) {
+    read_allocation_proof::assert_read::<ThreadCounter>(
+        label,
+        bytes,
+        evidence,
+        Expected::Admitted,
+        ReadViewScope::Core,
+    );
 }
 
 #[trace("TC-472", "FR-038-AC-511")]
@@ -74,7 +96,7 @@ fn whole_read_over_one_mebibyte_has_no_unpaid_allocation() {
     let value = v2_all_families();
     let (bytes, _) = checked_package::v2_reference_chain(4000);
     assert!(bytes.len() > 1 << 20);
-    whole_read("over1MiB sequence", &bytes, &evidence_for(&value));
+    whole_read_adverse("over1MiB sequence", &bytes, &evidence_for(&value));
 }
 
 /// Reads one package shape at growing sizes. At every size the unpaid heap is
@@ -266,6 +288,7 @@ fn duplicate_member_precedes_a_later_out_of_range_number() {
             bytes,
             &evidence,
             Expected::Refused(expected),
+            ReadViewScope::Full,
         );
         accounted("first byte-stream fault", &read);
         drop_without_request::<ThreadCounter>(read);
@@ -282,14 +305,14 @@ fn whole_read_chain_100000() {
     // A large graph of shallow reference terms is not a single deep term
     // walk. Keep its normal stage/class endpoint proof; it does not designate
     // every per-node initial walker reservation as repeated stack growth.
-    whole_read("chain_100000", &input.bytes, &input.evidence);
+    whole_read_adverse("chain_100000", &input.bytes, &input.evidence);
 }
 
 #[trace("TC-472", "FR-038-AC-511")]
 #[test]
 fn whole_read_flat_graph_and_source_map_10000() {
     let input = read_storage_inputs::flat_graph_and_source_map_10000();
-    whole_read(
+    whole_read_adverse(
         "flat_graph_and_source_map_10000",
         &input.bytes,
         &input.evidence,
@@ -300,35 +323,35 @@ fn whole_read_flat_graph_and_source_map_10000() {
 #[test]
 fn whole_read_node_with_10000_dependencies() {
     let input = read_storage_inputs::dependencies_10000();
-    whole_read("dependencies_10000", &input.bytes, &input.evidence);
+    whole_read_adverse("dependencies_10000", &input.bytes, &input.evidence);
 }
 
 #[trace("TC-472", "FR-038-AC-511")]
 #[test]
 fn whole_read_single_string_one_mebibyte() {
     let input = read_storage_inputs::string_one_mebibyte();
-    whole_read("string_one_mebibyte", &input.bytes, &input.evidence);
+    whole_read_adverse("string_one_mebibyte", &input.bytes, &input.evidence);
 }
 
 #[trace("TC-472", "FR-038-AC-511")]
 #[test]
 fn whole_read_diagnostics_10000_with_details() {
     let input = read_storage_inputs::diagnostics_10000();
-    whole_read("diagnostics_10000", &input.bytes, &input.evidence);
+    whole_read_adverse("diagnostics_10000", &input.bytes, &input.evidence);
 }
 
 #[trace("TC-472", "FR-038-AC-511")]
 #[test]
 fn whole_read_direct_dependencies_64() {
     let input = read_storage_inputs::direct_dependencies_64();
-    whole_read("direct_dependencies_64", &input.bytes, &input.evidence);
+    whole_read_adverse("direct_dependencies_64", &input.bytes, &input.evidence);
 }
 
 #[trace("TC-472", "FR-038-AC-511")]
 #[test]
 fn whole_read_two_selected_documents_512k() {
     let input = read_storage_inputs::selected_models_two_512k();
-    whole_read("selected_models_two_512k", &input.bytes, &input.evidence);
+    whole_read_adverse("selected_models_two_512k", &input.bytes, &input.evidence);
 }
 
 /// Destructor accounting is independent of the still-red during-call proof.
