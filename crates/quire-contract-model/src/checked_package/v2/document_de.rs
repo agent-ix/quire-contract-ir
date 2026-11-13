@@ -253,6 +253,7 @@ const FORMS: &[(&[&str], &str)] = &[
     (&["temporal_clause_names"], "temporal_clause_names"),
     (&["schedulability_claims"], "schedulability_claims"),
     (&["operation_effects"], "operation_effects"),
+    (&["operation_bodies"], "operation_bodies"),
 ];
 
 /// What a decode shares: the retained document, the budget and the position.

@@ -1174,6 +1174,7 @@ fn build_fixture(document: &Value, declared: &[(&str, DeclarationForm)]) -> Fixt
         temporal_clause_names: None,
         schedulability_claims: None,
         operation_effects: None,
+        operation_bodies: None,
         contract_version: raw.contract_version,
         name: raw.name,
         lock: raw.lock,

@@ -88,6 +88,7 @@ mod monitor_plan_fixtures;
 mod native_join_budget;
 mod node_index;
 mod node_ordinal;
+mod operation_bodies;
 mod operation_effects;
 mod probabilistic_claims;
 mod projection_read_form;
@@ -576,6 +577,7 @@ fn qspec_positive_fixtures_expose_complete_public_typed_reads() {
             quire_contract_model::CheckedPackageSidecarsRef {
                 temporal_clause_names: admitted.temporal_clause_names(),
                 operation_effects: None,
+                operation_bodies: None,
                 checked_term_data: admitted.checked_term_data(),
                 temporal_bindings: admitted.temporal_bindings(),
                 schedulability_claims: None,
@@ -983,6 +985,7 @@ fn qspec_admitted_values_members_and_catalog_constraints_are_exact() {
         quire_contract_model::CheckedPackageSidecarsRef {
             temporal_clause_names: admitted.temporal_clause_names(),
             operation_effects: None,
+            operation_bodies: None,
             checked_term_data: admitted.checked_term_data(),
             temporal_bindings: admitted.temporal_bindings(),
             schedulability_claims: None,
@@ -1352,6 +1355,7 @@ fn tc_048_published_nominal_structural_ids_survive_reader_and_writer() {
         quire_contract_model::CheckedPackageSidecarsRef {
             temporal_clause_names: admitted.temporal_clause_names(),
             operation_effects: None,
+            operation_bodies: None,
             checked_term_data: admitted.checked_term_data(),
             temporal_bindings: admitted.temporal_bindings(),
             schedulability_claims: None,

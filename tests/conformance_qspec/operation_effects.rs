@@ -17,7 +17,7 @@ fn vectors() -> Value {
         .expect("current QSpec TC-977 vectors")
 }
 
-fn patch(value: &mut Value, patch: &Value) {
+pub(super) fn patch(value: &mut Value, patch: &Value) {
     let path = patch["path"].as_str().expect("patch path");
     let (parent, member) = path.rsplit_once('/').expect("patch member");
     let target = value.pointer_mut(parent).expect("published patch parent");
@@ -51,7 +51,7 @@ fn slot(identity: &str, name: &str, type_ref: &str) -> Value {
         "multiplicity":{"lower":1,"upper":1,"ordered":false,"unique":true}})
 }
 
-fn expand_document(sketch: &Value) -> Value {
+pub(super) fn expand_document(sketch: &Value) -> Value {
     let identity = sketch["identity"].as_str().expect("document identity");
     let mut types = Vec::new();
     for ty in sketch["types"].as_array().expect("sketch types") {
@@ -104,7 +104,7 @@ fn expand_document(sketch: &Value) -> Value {
                     .collect::<Vec<_>>();
                 let mut value = json!({"identity":op_id,"name":op_name,"params":params,
                 "pre":[],"post":[]});
-                if form != "persistence_interface" {
+                if form != "persistence_interface" && !operation["frame"].is_null() {
                     value["frame"] = operation["frame"].clone();
                 }
                 value
@@ -140,7 +140,7 @@ fn expand_document(sketch: &Value) -> Value {
         ],"types":types})
 }
 
-fn normalize_relationship(value: &mut Value) {
+pub(super) fn normalize_relationship(value: &mut Value) {
     match value {
         Value::String(text) if text == "ix://acme/orders/Placed" => {
             *text = "ix://acme/orders/relationship/Placed".into();

@@ -85,6 +85,8 @@ relationships:
     type: verifies
   - target: ix://agent-ix/quire-contract-ir/FR-038-AC-529
     type: verifies
+  - target: ix://agent-ix/quire-contract-ir/FR-038-AC-541
+    type: verifies
   - target: ix://agent-ix/quire-specification/TC-187
     type: references
 ---

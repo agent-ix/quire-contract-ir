@@ -179,6 +179,7 @@ fn default_feature_consumer_borrows_admitted_clock_rows() {
             temporal_clause_names: Some(&supplied),
             schedulability_claims: None,
             operation_effects: None,
+            operation_bodies: None,
         },
         package.capability_report(),
         package.diagnostics(),
