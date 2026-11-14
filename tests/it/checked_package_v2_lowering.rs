@@ -3,6 +3,7 @@
 
 //! Exact, independent per-item lowering of admitted CheckedPackage V2 nodes.
 
+use crate::checked_package_v2_map_type::keyed_map_package;
 use crate::support::checked_package::{
     self, canonical, evidence_for, refresh_identity, settle, typed_node_id, v2_all_families,
     v2_nominal,
@@ -717,8 +718,8 @@ fn forms_package(scalar_form: &str, composite_form: &str) -> Forms {
 
 #[trace("TC-052", "FR-038-AC-8")]
 #[test]
-fn tc_052_unbounded_forms_are_exactly_the_ten_declared_forms() {
-    // FR-038-AC-8: each of the ten forms raises requires_bound and each
+fn tc_052_unbounded_scalar_and_collection_forms_are_the_declared_ones() {
+    // FR-038-AC-8: each of these ten forms (map is the eleventh, covered by its own test) raises requires_bound and each
     // other declared form of those two families does not. bbbb's closure is
     // {bbbb, aaaa} and holds no reachable bounded_domain, so the outcome is
     // decided by the two forms alone.
@@ -804,6 +805,37 @@ fn tc_052_unbounded_forms_are_exactly_the_ten_declared_forms() {
             );
         }
     }
+}
+
+#[trace("TC-052", "FR-038-AC-8")]
+#[test]
+fn tc_052_map_is_the_eleventh_unbounded_form() {
+    // FR-038-AC-8: a Map over bounded key and value types is the only
+    // unbounded type in its closure, so it alone raises requires_bound.
+    let (value, position) = keyed_map_package("boolean", "uuid");
+    let map: CheckedNodeId =
+        serde_json::from_value(value["semantic_graph"]["nodes"][position]["node_id"].clone())
+            .expect("map id");
+    let package = admit(&value);
+    let mut bounded_profile = profile(u64::MAX);
+    bounded_profile.require_bounds = true;
+    assert_eq!(
+        package
+            .lower(std::slice::from_ref(&map), &bounded_profile)
+            .records[0],
+        CompleteLoweringRecordV2::RequiresBound {
+            node_id: map.clone(),
+            unbounded_type: map.clone(),
+        }
+    );
+    assert_eq!(
+        record_kind(
+            &package
+                .lower(std::slice::from_ref(&map), &profile(u64::MAX))
+                .records[0]
+        ),
+        "lowered"
+    );
 }
 
 #[trace("TC-052", "FR-038-AC-8")]
