@@ -319,9 +319,10 @@ it admits in its own reader — `crates/quire-contract-model/src/checked_package
   `quire.op.model.reaches` application, `relationship_end`; see "Typed relationship
   end of a reaches application" (FR-038-AC-262 through FR-038-AC-268, IR-851).
 - A typed accessor on the admitted package for the finite model-object population
-  a `quire.op.model.reaches` application walks, `reaches_population`, returning the
-  selector FR-053 reads; see "Typed population of a reaches application"
-  (FR-038-AC-269 through FR-038-AC-280, IR-852).
+  a `quire.op.model.reaches` or `quire.op.model.reaches_field` application walks,
+  `reaches_population`, returning the selector FR-053 reads; see "Typed population
+  of a reaches application" (FR-038-AC-269 through FR-038-AC-280, IR-852;
+  FR-038-AC-542 through FR-038-AC-544, IR-1533).
 
 - A typed composite operand accessor, `composite_application_operands`,
   returning authentic positional children, authored shapes and introduced positions
@@ -3899,6 +3900,11 @@ reaches application").
 
 ### Typed population of a reaches application
 
+IR-1533 extends this section to a `quire.op.model.reaches_field` application
+("The field-edge link" below); every sentence that says "reaches application"
+without qualification reads both operations, except where a sentence names the
+relationship end.
+
 Measured at `origin/main` (IR-852, whose own text is a claim and was
 re-measured). A `quire.op.model.reaches` application carries no population: its
 body keys are the closed set `term`, `operator`, `operation`, `result_type` and
@@ -3935,6 +3941,25 @@ stage (FR-322's schema stage against this reader's operation stage, which has no
 member schema, and FR-322's derived-shape check against this reader's lack of one)
 is stated where it arises.
 
+**The field-edge link.** A `quire.op.model.reaches_field` application MAY carry
+the same `population` key in its `field` member, holding the node id of one
+`bounded_domain` / `model_population` node, over a field of type `Reference<T>`,
+`Option<Reference<T>>` or a bounded `Sequence<Reference<T>>`. The producing
+language owns when the key is present; absence names no population and shall
+never be inferred. The reader shall check the key as the last step of
+`check_reference_edge`, after every other check of the `reaches_field`
+constraint, and shall refuse `ill_typed`/`operator-ineligible` at the member's
+`population` pointer for an absent node, a node that is not a `model_population`
+node, a node with no `Type` occurrence or an invalid derived shape. The reader
+shall compare the node's object type to `T`, the object type that declares the
+resolved field, not to the member's `declaration`: a field inherited through a
+subtype `declaration` links a population of `T`, and a population of another
+object type shall be refused `ill_typed`/`operator-ineligible` at `population`.
+The dependency join lists the `population` of a `reaches_field` application as
+for a reaches ("Dependencies"). This reader check follows QSpec FR-322 "Reaches
+over a field"; admitting the key on the `field` member in QSpec is the open
+amendment STD-663, and QSL FR-380 (QSL-1904) is the producer.
+
 **The accessor.** `CheckedPackageV2::reaches_population(&self, application:
 &CheckedNodeId) -> Result<Option<CheckedSelectedPopulationSelector>,
 CheckedReachesPopulationError>` shall return, for the node whose body root is
@@ -3967,9 +3992,10 @@ second selector type.
 `CheckedReachesPopulationError` has the closed variants `UnknownNode`,
 `NotReachesApplication` and `UnresolvedPopulation`. When called with an id
 absent from the graph, `reaches_population` shall refuse `UnknownNode`. When
-called with a node whose body root is not a `quire.op.model.reaches`
-application, `reaches_population` shall refuse `NotReachesApplication`,
-whatever its tag, including a `quire.op.model.navigate` application. When called
+called with a node whose body root is neither a `quire.op.model.reaches` nor a
+`quire.op.model.reaches_field` application, `reaches_population` shall refuse
+`NotReachesApplication`, whatever its tag, including a `quire.op.model.navigate`
+application. When called
 with a reaches application whose `population` key no longer resolves as
 admission resolved it, `reaches_population` shall refuse `UnresolvedPopulation`:
 a value that is not a node id, a node id absent from the graph, a node that is
@@ -4042,12 +4068,14 @@ order:
   change an `Order` role end's required `Set<Reference<Order>>` population.
   A subtype of the role end's declared type does not conform.
 
-For an application of any operation other than `navigate` and `reaches`,
+For an application of any operation other than `navigate`, `reaches` and `reaches_field`,
 `check_relationship_member` does not run, and the application keeps its present
 outcome for a `population` key in its member: a member kind whose shape is
 closed today (`type_argument`, `temporal_interval`, `fairness`, `state_clause`)
-refuses the key as it does today, and every other member kind (`field`, `position`,
-`element`, `operation`, `profile_operator`) is opaque today and admits it unread. FR-322's section "Population link of a `reaches`" has the schema
+refuses the key as it does today, and every other member kind (`position`,
+`element`, `operation`, `profile_operator`, and the `field` member of any operation
+other than `reaches_field`) is opaque today and admits it unread; the `field` member of
+`reaches_field` is read by "The field-edge link". FR-322's section "Population link of a `reaches`" has the schema
 refuse the key on every other member kind; this reader does not add that refusal.
 
 No new refusal code, cause or pointer vocabulary is introduced.
@@ -4055,7 +4083,8 @@ No new refusal code, cause or pointer vocabulary is introduced.
 **Dependencies.** The application-node dependency join
 (`application_dependencies`) shall add the `population` node id to the
 application's unique, structurally ascending dependency list when the application is a
-`quire.op.model.reaches` or a `quire.op.model.navigate` application and its
+`quire.op.model.reaches`, a `quire.op.model.navigate` or a
+`quire.op.model.reaches_field` application and its
 member carries a node id there, as it already adds the member `declaration`. The
 join shall add nothing for an application of any other operation. A package whose
 `dependencies` omit that id, or list a population id that no such application
@@ -6324,8 +6353,8 @@ the minimum the read uses.
 | FR-038-AC-272 | Implemented (IR-852). A reaches application whose `operation.member.population` is not a node id (a number, an object and `null`), or is a node id with no node in the graph and listed in `dependencies`, is refused by the reader with `ill_typed`/`operator-ineligible` at the member's `population` pointer, for each, and none is refused `missing_declaration`. | Test (TC-048) |
 | FR-038-AC-273 | Implemented (IR-852). A reaches application whose `operation.member.population` names a node that is not a `bounded_domain` / `model_population` node, or a `model_population` node with no `Type` occurrence, is refused by the reader with `ill_typed`/`operator-ineligible` at the member's `population` pointer, for each of the two. | Test (TC-048) |
 | FR-038-AC-274 | Existing wrong-type refusal implemented (IR-852); the role-end comparand correction is PLANNED/UNRUN (IR-1249). A reaches application whose `operation.member.population` names a `model_population` node over an object type other than the declared type of the selected relationship end role, including a subtype of that type, is refused by the reader with `ill_typed`/`operator-ineligible` at the member's `population` pointer, and one over exactly that role end type is admitted. When the selected role end type is `Order` and the producer-supplied `destination_type` is the structural id of `Shipment`, a `Set<Reference<Order>>` population admits; a population over another declared model type refuses at that pointer. Changing only `destination_type` between schema-valid structural ids does not change the population check or its result. | Test (TC-048) |
-| FR-038-AC-275 | Implemented (IR-852). A `quire.op.model.navigate` application whose `operation.member` carries a `population` key that names a node id its `dependencies` list, whatever the node is (an absent node, an integer-range node or a valid population node), is refused by the reader with `ill_typed`/`operator-ineligible` at the member's `population` pointer, at the operation stage; the same application whose `dependencies` omit the id is refused earlier by the dependency join (`invalid_semantic_graph`, no cause). An application of an operation other than `navigate` or `reaches` keeps its present outcome for a `population` key: `type_argument`, `temporal_interval`, `fairness` and `state_clause` members refuse as today and `field`, `position` and `element` members admit it unread. | Test (TC-048) |
-| FR-038-AC-276 | Implemented (IR-852). A reaches or navigate application whose `operation.member.population` is a node id is admitted by the dependency join only when its `dependencies` hold that id in the unique, structurally ascending list; a package that omits that id, and a package that lists a population id no reaches or navigate application names, are each refused at the structural stage with `invalid_semantic_graph` and no cause, and a reaches application without the key keeps the dependency list it has today. | Test (TC-048) |
+| FR-038-AC-275 | Implemented (IR-852). A `quire.op.model.navigate` application whose `operation.member` carries a `population` key that names a node id its `dependencies` list, whatever the node is (an absent node, an integer-range node or a valid population node), is refused by the reader with `ill_typed`/`operator-ineligible` at the member's `population` pointer, at the operation stage; the same application whose `dependencies` omit the id is refused earlier by the dependency join (`invalid_semantic_graph`, no cause). An application of an operation other than `navigate` or `reaches` keeps its present outcome for a `population` key: `type_argument`, `temporal_interval`, `fairness` and `state_clause` members refuse as today and `position` and `element` members, and the `field` member of an operation other than `reaches_field`, admit it unread. | Test (TC-048) |
+| FR-038-AC-276 | Implemented (IR-852). A reaches, navigate or reaches_field application whose `operation.member.population` is a node id is admitted by the dependency join only when its `dependencies` hold that id in the unique, structurally ascending list; a package that omits that id, and a package that lists a population id no reaches, navigate or reaches_field application names, are each refused at the structural stage with `invalid_semantic_graph` and no cause, and a reaches application without the key keeps the dependency list it has today. | Test (TC-048) |
 | FR-038-AC-277 | Implemented (IR-852). When `reaches_population` is called twice on an admitted reaches application and on a clone of the admitted package, the results are equal, the package equals its pre-call self and no work is charged; every package of FR-038-AC-252 through FR-038-AC-257 and FR-038-AC-262 through FR-038-AC-268 that carries no `population` key yields its pre-change admission or refusal outcome at the same pointer. | Test (TC-048) |
 | FR-038-AC-278 | Implemented (IR-852). An external Rust API fixture calls `reaches_population` with `&CheckedNodeId`, binds the result as `Result<Option<CheckedSelectedPopulationSelector>, CheckedReachesPopulationError>` and exhaustively matches `CheckedReachesPopulationError` without a wildcard arm, so a fourth variant fails to compile; no `selected_population` item is `pub use`d at the model crate root or re-exported from the `quire-contract-ir` root (FR-053-AC-5). The FR-019 Public items row for the new error type is added by the code change that exports it, not by this specification change. | Test (TC-048) |
 | FR-038-AC-279 | PLANNED/UNRUN (IR-1141 derived-shape and projection correction and IR-1249 role-end comparand; IR-852's earlier bounded-path evidence remains historical). Under QSpec FR-322 "Derived type forms and forwarding" and FR-322-AC-74, a reaches application linked to a `model_population` over the selected relationship role end's declared type with empty aggregate body and no `max` admits; `reaches_population` returns its exact selector and `select_population(Admitted)` returns `AdmittedUnbounded` retaining package name, selected binding, `Type` occurrence, object type and authentic source regions, with no finite extent. A single integer-literal `max` of 0 or 3 admits and projects `Finite` with exact canonical decimal maximum text and minimum zero; a canonical decimal-string `max` above `u64::MAX` also admits and projects unchanged. A negative or non-integer `max`, a second body member, or a wrong semantic target refuses `invalid_package`/`invalid-derived-shape` at the population node's `node_id` (`RM-POP-MAX`); an invalid non-binding body term retains its earlier graph-term refusal, and a noncanonical JSON number retains `noncanonical_wire` before semantic checks. Neither the reader nor the public projection invents a `u64` maximum cap. | Test (TC-048) |
@@ -6530,6 +6559,9 @@ the minimum the read uses.
 | FR-038-AC-537 | A guarantee whose `progress` or fairness operation its context does not declare refuses `missing_declaration`/`missing-name`; an operation the context only inherits, a non-Rust `initial` or `decreases` path and `bound` 0 refuse `invalid_model_binding`/`malformed-declaration`; two `progress` members for one operation and two `environment` members of one name refuse `invalid_model_binding`/`conflicting-binding` at the second. | Test (TC-474) |
 | FR-038-AC-538 | A composition with two components of one name or over one subject refuses `invalid_model_binding`/`conflicting-binding` at the second; a guarantee or premise naming an undeclared component refuses `missing_declaration`/`missing-name`; a premise whose guarantee is undeclared, whose two sides name one component, a rely on liveness or a depends with a non-liveness side refuses `invalid_model_binding`/`malformed-declaration`; component subjects and clauses resolve through admitted dependency packages, clauses must belong to the component model subject, scheduling operations must belong to a component subject, and environment assumptions and names obey the guarantee checks. | Test (TC-474) |
 | FR-038-AC-539 | A package holding a `correspondence`/`component_composition` node whose component clause is a node of a supplied dependency named by its own operand admits when the composition's `operand_rows` entry for that operand is the dependency position `{package, node}`; the importing graph holds no node of the dependency, the position lies past the importing graph's last node, the typed body keeps the dependency position, and the graph as shown is read again. | Test (TC-474) |
+| FR-038-AC-542 | PLANNED/UNRUN (IR-1533). For an admitted `quire.op.model.reaches_field` application whose `field` member carries `population` naming a `model_population` node over the field owner `T`, with `max` 3, over each of a `Reference<T>`, an `Option<Reference<T>>` and a bounded `Sequence<Reference<T>>` field, and over an inherited field whose member `declaration` is a subtype of `T`, `reaches_population` returns `Ok(Some(selector))` with the package's name, the node id the member holds and its least-ordinal `Type` occurrence, and `select_population` over it is `Finite` with maximum "3" and object type `T`. | Test (TC-048) |
+| FR-038-AC-543 | PLANNED/UNRUN (IR-1533). `reaches_population` over an admitted `reaches_field` application whose member has no `population` key returns `Ok(None)` and infers none; an object declaration node and a `quire.op.model.navigate` application still refuse `NotReachesApplication`. | Test (TC-048) |
+| FR-038-AC-544 | PLANNED/UNRUN (IR-1533). A `reaches_field` application whose `population` names a `model_population` node over another object type than the field owner `T` (including the member's subtype `declaration`), or a node that is not a population node, is refused `ill_typed`/`operator-ineligible` at the member's `population` pointer, with no partial package. | Test (TC-048) |
 | FR-038-AC-540 | A dependency position naming an unsupplied package or a `node` past the dependency's last node refuses `malformed_wire` at the row entry; a `{package, node}` object written as an id path segment refuses `malformed_wire` at the segment; a local index segment in a foreign id refuses `missing_declaration`/`missing-name` at the member holding it. | Test (TC-474) |
 | FR-038-AC-492 | An admitted `CheckedPackageV2` shall issue a cloneable, opaque `AdmissionBinding` capability and report whether it retains that capability. Clones from one read are members; an independent read of equal canonical bytes is not. | Test (TC-048) |
 | FR-038-AC-493 | The public capability shall use the reader's original admission binding and expose no construction path, buffer contents, copied carrier, or compatibility representation. | Review (IR-1370) |

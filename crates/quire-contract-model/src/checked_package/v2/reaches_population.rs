@@ -1,5 +1,5 @@
-//! Typed population selector of an admitted `quire.op.model.reaches`
-//! application.
+//! Typed population selector of an admitted `quire.op.model.reaches` or
+//! `quire.op.model.reaches_field` application.
 
 use super::relationship_end::ReachesLookup;
 use super::{BoundedDomainForm, CheckedNodeId, CheckedNodeKind, CheckedPackageV2};
@@ -14,8 +14,8 @@ pub enum CheckedReachesPopulationError {
     /// The requested node is absent.
     #[error("unknown checked node")]
     UnknownNode,
-    /// The requested node's body root is not a `quire.op.model.reaches`
-    /// application.
+    /// The requested node's body root is neither a `quire.op.model.reaches`
+    /// nor a `quire.op.model.reaches_field` application.
     #[error("checked node is not a reaches application")]
     NotReachesApplication,
     /// The application's `population` no longer resolves to a population node
@@ -25,8 +25,8 @@ pub enum CheckedReachesPopulationError {
 }
 
 impl CheckedPackageV2 {
-    /// Reads the population an admitted `quire.op.model.reaches` application
-    /// names, as the selector FR-053's `select_population` reads.
+    /// Reads the population an admitted `quire.op.model.reaches` or
+    /// `quire.op.model.reaches_field` application names, as the selector FR-053's `select_population` reads.
     ///
     /// `application` is the node whose body root is the application. An
     /// application without a `population` key names no population and returns
@@ -42,7 +42,7 @@ impl CheckedPackageV2 {
         use CheckedReachesPopulationError as Error;
 
         let operation = self
-            .reaches_application(application)
+            .reaches_or_field_application(application)
             .map_err(|lookup| match lookup {
                 ReachesLookup::Unknown => Error::UnknownNode,
                 ReachesLookup::NotReaches => Error::NotReachesApplication,

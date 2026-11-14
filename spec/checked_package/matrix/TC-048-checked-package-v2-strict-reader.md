@@ -2509,6 +2509,20 @@ on a clone and compare results, package equality and work. An external fixture
 exhaustively matches the error enum and binds the result type (AC-278). Do not
 take the expected values from the accessor under test.
 
+## Population of a reaches_field application (FR-038-AC-542 through FR-038-AC-544)
+
+Build the edge package of the reaches_field reader tests (an `Order` with an
+optional, a required and a bounded-sequence self-reference, and a `Sub` subtype),
+append a `Set` and a `model_population` node over `Order` with `max` 3 and `Type` ordinals 4, 1 and 7, name it in
+the `field` member's `population` and list it in `dependencies`. For each field
+form and for `parent` declared through `Sub`, assert the selector's package
+name, binding and least-ordinal (1) `Type` occurrence and the `Finite` maximum "3"
+from `select_population`; expected values come from the authored fixture, not
+the accessor. Assert `Ok(None)` without the key, `NotReachesApplication` for an
+object declaration and a navigate application, and the `ill_typed`/
+`operator-ineligible` refusal at the `population` pointer for a population over
+`Sub` on an `Order` edge and for a node that is not a population.
+
 ## Hybrid nodes and claims (FR-038-AC-311 through FR-038-AC-317)
 
 Read `hybrid-node-vectors.json` and `fixtures/positive-all-families.json` from

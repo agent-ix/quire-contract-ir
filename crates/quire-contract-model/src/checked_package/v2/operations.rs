@@ -3611,7 +3611,21 @@ fn check_reference_edge(
         .package
         .conforms_to(end_owner.node, edge_owner, &mut budget)?
     {
-        Ok(None)
+        // The population link is the last check of the member. It is read
+        // against the field owner `T`, not the member's `declaration`.
+        if operation
+            .member_node()
+            .and_then(|member| member.get("population"))
+            .is_none()
+        {
+            return Ok(None);
+        }
+        Ok(check_linked_population(
+            application,
+            operation,
+            graph,
+            edge_id,
+        ))
     } else {
         ineligible(argument_at(target))
     }
@@ -3910,6 +3924,37 @@ fn check_relationship_member(
     if !reaches {
         return ineligible(member_at("population"));
     }
+    // The population belongs to the end selected by the member's role. The
+    // producer-supplied destination label does not define that end's type.
+    let Some(role_end_form) = owner.package.end_declaration_form(&receiver.type_ref) else {
+        return ineligible(member_at("population"));
+    };
+    let Some(role_end_id) =
+        owners.declaration_id(&owner.package.identity, &receiver.type_ref, role_end_form)
+    else {
+        return ineligible(member_at("population"));
+    };
+    Ok(check_linked_population(
+        application,
+        operation,
+        graph,
+        role_end_id,
+    ))
+}
+
+/// A linked `population` member key: the node must be a `model_population`
+/// node with a `Type` occurrence and a bounded or admitted-unbounded derived
+/// shape, over exactly `expected`, the object type the walk covers (the
+/// relationship role end of a `reaches`, the field owner `T` of a
+/// `reaches_field`). Refuses `ill_typed`/`operator-ineligible` at the member's
+/// `population` pointer.
+fn check_linked_population(
+    application: Application<'_>,
+    operation: &OperationWire,
+    graph: &Graph<'_>,
+    expected: &CheckedNodeId,
+) -> Option<ValidationFailure> {
+    let member_at = |member: &str| application.body(&["operation", "member", member]);
     let term_of = |id: &CheckedNodeId| {
         graph
             .index
@@ -3930,23 +3975,20 @@ fn check_relationship_member(
                 })
         })
         .map(|(node, _)| node);
+    let ill_typed = || {
+        Some(model_refusal(
+            application,
+            member_at("population"),
+            ModelRefusal::ineligible(),
+        ))
+    };
     let Some(population) = linked else {
-        return ineligible(member_at("population"));
+        return ill_typed();
     };
-    // The population belongs to the end selected by the member's role. The
-    // producer-supplied destination label does not define that end's type.
-    let Some(role_end_form) = owner.package.end_declaration_form(&receiver.type_ref) else {
-        return ineligible(member_at("population"));
-    };
-    let Some(role_end_id) =
-        owners.declaration_id(&owner.package.identity, &receiver.type_ref, role_end_form)
-    else {
-        return ineligible(member_at("population"));
-    };
-    if population_object_type_typed(population, term_of).as_ref() != Some(role_end_id) {
-        return ineligible(member_at("population"));
+    if population_object_type_typed(population, term_of).as_ref() != Some(expected) {
+        return ill_typed();
     }
-    Ok(None)
+    None
 }
 
 /// The node a `composite_type`/`reference` type node's body references: `X`
