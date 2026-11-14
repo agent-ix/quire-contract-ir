@@ -28,3 +28,13 @@ CONDITIONAL. Two medium findings and one low finding.
 - FR-038 Behavior, unbounded-form paragraph (examined): A reachable type is unbounded by form exactly when its family and semantic form are a `scalar_type` of form `integer`, `rational`, `decimal`, `float32`, `float64` or `text`, or a `composite_type` of form `sequence`, `set`, `bag` or `ordered_set`. No other family and no other form of those two families is unbounded by form ... A `float32` or `float64` is bounded exactly as the other numeric forms are: by a `bounded_domain` in the closure whose `semantic_type` is that float ...
 - FR-038-AC-8 (examined): ... each of the ten unbounded forms (...) raises `requires_bound` and each other declared form of those two families, carrying no `recursion_group`, does not; a `float32` or `float64` whose closure holds a `float_rounding` domain typed at it lowers under a bounds-required profile, and lowers under the default profile unbounded; ...
 - TC-052 (examined): Exactly the six scalar (including `float32` and `float64`) and four composite unbounded forms return `requires_bound` ... A float whose closure holds a `float_rounding` domain over it lowers under a bounds-required profile ...
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | FR-038 Behavior, AC-8 and TC-052 now state eleven forms, with map as the fifth composite form, and the quantity sentence says 'not one of the eleven forms'. No other text in spec/, tests/ or crates/ counts this set. |
+| FND-002 | fixed | AC-8 now reads 'a request whose closure holds a float32 or float64 and a float_rounding domain typed at it lowers', and TC-052 reads 'A request whose closure holds a float and a float_rounding domain over it lowers'. |
+| FND-003 | fixed | The trailing clause 'which for a float is the float_rounding form, the only bounded-domain form declared over floats' has been removed from FR-038 Behavior. |
+
+Current verdict after disposition pass 1 (head fe7ca84a): **PASS**. No new findings in the fix diff.

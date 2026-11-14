@@ -27,3 +27,11 @@ CONDITIONAL. One medium finding.
 
 - FR-038-AC-8 (examined): A closure holding both an out-of-profile tag and an unbounded type returns `unsupported`; a zero work limit returns `failed` for an absent key rather than `invalid_input`; each named offending key is the least in ascending order rather than the first visited; each of the ten unbounded forms (`integer`, `rational`, `decimal`, `float32`, `float64`, `text`, `sequence`, `set`, `bag`, `ordered_set`) raises `requires_bound` and each other declared form of those two families, carrying no `recursion_group`, does not; a `float32` or `float64` whose closure holds a `float_rounding` domain typed at it lowers under a bounds-required profile, and lowers under the default profile unbounded; and a lowered record's `dependencies` contains every key in its `bounds` and `claims`.
 - TC-052 (examined): Exactly the six scalar (including `float32` and `float64`) and four composite unbounded forms return `requires_bound`, and every other declared form of those families lowers. A float whose closure holds a `float_rounding` domain over it lowers under a bounds-required profile, and an unbounded float lowers under the default profile.
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | AC-8 now lists map as the eleventh unbounded form. The new traced test tc_052_map_is_the_eleventh_unbounded_form lowers a Map<boolean, uuid> under a bounds-required profile and asserts RequiresBound naming the map itself, then asserts the default profile lowers it. It would fail if map's requires_bound arm became false. The arm is unchanged at lower.rs:955. |
+
+Current verdict after disposition pass 1 (head fe7ca84a): **PASS**. No new findings in the fix diff.

@@ -22,3 +22,11 @@ PASS on the code change. The one finding is low and predates this PR.
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
 | FND-001 | low | The lowering bound predicate checks only `domain.semantic_type == type`, never that the domain's form fits the type, and structural admission does not check a `float_rounding` domain's base type (only `text_bounds`, `integer_range` and `collection_bounds` are checked). An admitted `float_rounding` domain typed at an integer, rational or decimal therefore satisfies `require_bounds` for that type. This predates IR-69 and does not make floats over-bounded, because integer_range, text_bounds and collection_bounds over a float are refused at admission. | crates/quire-contract-model/src/checked_package/v2/lower.rs:725-737, crates/quire-contract-model/src/checked_package/v2/structural.rs:1011-1040 |
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | deferred | Deferred to a linked IR-69 subticket the lead is opening. FR-038 states no admission requirement tying a float_rounding domain to a float base type, so adding the check needs a spec ruling first. The gap predates PR #1022 and does not affect how floats are bounded. |
+
+Current verdict after disposition pass 1 (head fe7ca84a): **PASS**. No new findings in the fix diff.
