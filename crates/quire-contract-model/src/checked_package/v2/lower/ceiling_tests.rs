@@ -234,8 +234,9 @@ fn shared_closure_package(roots: usize, shared: usize) -> (CheckedPackageV2, Vec
     (package, requests)
 }
 
-/// The same shared closure is parsed once per call, independent of the number
-/// of requested leaves. Each request's work meter still charges its full closure.
+/// Lowering validates no body again: admission's body validations depend on the
+/// shared nodes and leaves, not on the number of requested leaves. Each
+/// request's work meter still charges its full closure.
 ///
 /// Tracing: FR-038-AC-308
 #[trace("TC-050", "FR-038-AC-308")]
@@ -245,15 +246,12 @@ fn shared_closure_body_walks_scale_with_nodes_not_requests() {
     for roots in [2, 4, 8] {
         for shared in [4, 8, 16] {
             let (package, requests) = shared_closure_package(roots, shared);
-            SHARED_CLOSURE_BUILDS.with(|builds| builds.set(0));
             let admission_walks = BODY_WALKS.with(std::cell::Cell::get);
             let start = std::time::Instant::now();
             let lowered = package.lower(&requests, &profile());
             let lower_elapsed_ns = start.elapsed().as_nanos();
             assert_eq!(lowered.records.len(), roots);
             let walks = BODY_WALKS.with(std::cell::Cell::get);
-            let closure_builds = SHARED_CLOSURE_BUILDS.with(std::cell::Cell::get);
-            assert_eq!(closure_builds, 1, "one shared SCC closure per call");
             println!(
                 "{}",
                 json!({
@@ -262,7 +260,6 @@ fn shared_closure_body_walks_scale_with_nodes_not_requests() {
                     "R": shared,
                     "lowering_fact_scan_body_validations": admission_walks,
                     "additional_lower_body_validations": walks - admission_walks,
-                    "shared_closure_builds": closure_builds,
                     "lower_elapsed_ns": lower_elapsed_ns.to_string(),
                 })
             );
@@ -285,16 +282,43 @@ fn shared_closure_body_walks_scale_with_nodes_not_requests() {
     }
 }
 
-/// Independent record lowering keeps one shared closure calculation while preserving each
-/// request's one-item result.
+/// Lowering one request costs what its closure reaches, not the size of the
+/// graph around it: a leaf over the same shared chain compares about as many
+/// node IDs in a graph of a thousand unrelated roots as in a graph of eight.
+#[trace("TC-050", "FR-038-AC-308", "FR-038-AC-309")]
+#[test]
+fn one_request_compares_ids_by_its_closure_not_by_graph_size() {
+    let comparisons = |roots: usize| {
+        let (package, requests) = shared_closure_package(roots, 8);
+        let request = std::slice::from_ref(&requests[0]);
+        crate::checked_package::shared::checked_node_comparisons::reset();
+        let lowered = package.lower(request, &profile());
+        let count = crate::checked_package::shared::checked_node_comparisons::count();
+        let [CompleteLoweringRecordV2::Lowered { node }] = &lowered.records[..] else {
+            panic!("the leaf lowers: {:?}", lowered.records);
+        };
+        assert_eq!(
+            node.dependencies.len(),
+            8,
+            "the leaf reaches the shared chain"
+        );
+        count
+    };
+    let small = comparisons(8);
+    let large = comparisons(1024);
+    assert!(
+        large < small.saturating_mul(4),
+        "one request over 1024 roots compared {large} IDs, over 8 roots {small}"
+    );
+}
+
+/// Independent record lowering revalidates no body and preserves each request's
+/// one-item result.
 #[trace("TC-050", "FR-038-AC-309")]
 #[test]
-fn independently_lowered_records_share_one_closure_and_equal_single_requests() {
+fn independently_lowered_records_revalidate_no_body_and_equal_single_requests() {
     let (package, requests) = shared_closure_package(4, 8);
     BODY_WALKS.with(|walks| walks.set(0));
-    SHARED_CLOSURE_BUILDS.with(|builds| builds.set(0));
-    LOWERING_GRAPH_INDEX_BUILDS.with(|builds| builds.set(0));
-    LOWERING_SOURCE_INDEX_BUILDS.with(|builds| builds.set(0));
     let records = package.lower_independent_records(&requests, &profile());
     assert_eq!(records.len(), requests.len());
     assert_eq!(
@@ -302,9 +326,6 @@ fn independently_lowered_records_share_one_closure_and_equal_single_requests() {
         0,
         "admission retained body facts"
     );
-    assert_eq!(SHARED_CLOSURE_BUILDS.with(std::cell::Cell::get), 1);
-    assert_eq!(LOWERING_GRAPH_INDEX_BUILDS.with(std::cell::Cell::get), 1);
-    assert_eq!(LOWERING_SOURCE_INDEX_BUILDS.with(std::cell::Cell::get), 1);
     for (request, record) in requests.iter().zip(records) {
         let single = package.lower(std::slice::from_ref(request), &profile());
         assert_eq!(record, single.records[0]);
@@ -395,10 +416,6 @@ fn grouped_recursive_shared_closure_keeps_independent_records() {
         .map(|(position, node)| (&node.node_id, position))
         .collect();
     package.lowering_facts = package.scan_lowering_facts(&index);
-    assert_eq!(
-        package.lowering_facts[0].component,
-        package.lowering_facts[1].component
-    );
     let batch = package.lower(&requests, &profile());
     assert_eq!(batch.records.len(), 3);
     for (request, record) in requests.iter().zip(&batch.records) {
@@ -414,31 +431,39 @@ fn grouped_recursive_shared_closure_keeps_independent_records() {
     }
 }
 
+/// A request reaches only what its own edges lead to: a shared node that two
+/// leaves type themselves at does not inherit either leaf.
 #[trace("TC-050", "FR-038-AC-308")]
 #[test]
-fn lowering_components_exclude_admission_only_extension_edges() {
-    let mut facts = vec![
-        LoweringNodeFacts {
-            terms: Ok(1),
-            successors: vec![(0, EdgeRole::Typing)],
-            component: usize::MAX,
-        },
-        LoweringNodeFacts {
-            terms: Ok(1),
-            successors: vec![(0, EdgeRole::Typing)],
-            component: usize::MAX,
-        },
-    ];
-    // Admission may also see 0 -> 1 as an extension target. Lowering omits
-    // it, so a request for 0 must not inherit 1 through an admission SCC.
-    assign_components(&mut facts);
-    assert_ne!(facts[0].component, facts[1].component);
-    let mut closure = SccClosureIndex::new(&facts);
-    assert_eq!(closure.reachable(facts[0].component), BTreeSet::from([0]));
-    assert_eq!(
-        closure.reachable(facts[1].component),
-        BTreeSet::from([0, 1])
-    );
+fn a_request_does_not_inherit_the_nodes_that_reach_it() {
+    let (package, leaves) = shared_closure_package(2, 1);
+    let shared: CheckedNodeId = serde_json::from_value(json!({
+        "package": "lowering-test",
+        "path": ["node-0"],
+        "ordinal": 0,
+    }))
+    .expect("shared node");
+    let lowered = package.lower(std::slice::from_ref(&shared), &profile());
+    let [CompleteLoweringRecordV2::Lowered { node }] = &lowered.records[..] else {
+        panic!("the shared node lowers: {:?}", lowered.records);
+    };
+    for leaf in &leaves {
+        assert!(
+            !node.dependencies.contains(leaf),
+            "{leaf:?} reaches the shared node but is not reached by it"
+        );
+    }
+    for leaf in &leaves {
+        let lowered = package.lower(std::slice::from_ref(leaf), &profile());
+        let [CompleteLoweringRecordV2::Lowered { node }] = &lowered.records[..] else {
+            panic!("the leaf lowers: {:?}", lowered.records);
+        };
+        assert_eq!(
+            node.dependencies,
+            vec![shared.clone()],
+            "a leaf reaches the shared node"
+        );
+    }
 }
 
 /// `x`, `y` and `z` of [`package`]: a long node, a short one, and one that
@@ -466,7 +491,7 @@ fn tc_047_equivalent_graph_construction_orders_have_one_package_value() {
     let source = package(u64::MAX);
     let selected = profile();
     let result = source.lower(&requested(), &selected);
-    let source_maps = super::NodeSourceMaps::new(&source.wire.source_map);
+    let source_maps = super::NodeSourceMaps::new(&source);
     let encode = |nodes: &[CompleteContractNodeV2]| {
         super::super::contract_package::ContractPackageWireV1::from_lowering(
             &source,

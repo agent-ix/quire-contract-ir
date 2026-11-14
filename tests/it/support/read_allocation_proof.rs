@@ -12,6 +12,7 @@ use quire_contract_model::{
 };
 
 use crate::qspec_read_proof::observation;
+pub(crate) use crate::qspec_read_proof::ReadViewScope;
 #[cfg(feature = "test-support")]
 pub(crate) use observation::REFUSAL_DIAGNOSTIC_UNPAID_BOUND;
 pub(crate) use observation::{
@@ -47,11 +48,14 @@ pub(crate) fn generous_limits() -> CheckedPackageReadLimits {
     }
 }
 
+/// Reads `bytes` under ample, exact, repeated and one-short budgets and checks
+/// each admitted outcome against the plain read at `views`.
 pub(crate) fn assert_read<C: Counter>(
     label: &str,
     bytes: &[u8],
     evidence: &CheckedPackageEvidence,
     expected: Expected,
+    views: ReadViewScope,
 ) {
     initialize_operation_catalog().expect("the specified catalogue gate succeeds");
     let limits = generous_limits();
@@ -69,7 +73,7 @@ pub(crate) fn assert_read<C: Counter>(
             CheckedPackageV2ReadResult::Admitted(left),
             CheckedPackageV2BudgetedReadResult::Admitted(right),
             Expected::Admitted,
-        ) => crate::qspec_read_proof::assert_admitted_views_equal(left, right, label),
+        ) => views.admitted(left, right, label),
         (
             CheckedPackageV2ReadResult::Refused(left),
             CheckedPackageV2BudgetedReadResult::Refused(right),
@@ -87,7 +91,7 @@ pub(crate) fn assert_read<C: Counter>(
                 (
                     CheckedPackageV2ReadResult::Admitted(a),
                     CheckedPackageV2BudgetedReadResult::Admitted(b),
-                ) => crate::qspec_read_proof::assert_admitted_views_equal(a, b, label),
+                ) => views.admitted(a, b, label),
                 (
                     CheckedPackageV2ReadResult::Refused(a),
                     CheckedPackageV2BudgetedReadResult::Refused(b),
@@ -116,11 +120,7 @@ pub(crate) fn assert_read<C: Counter>(
         (u64::MAX, u64::MAX),
     ] {
         let exact = measure_at::<C>(bytes, evidence, limits, work_limit, storage_limit);
-        crate::qspec_read_proof::assert_budgeted_results_equal(
-            &exact.result,
-            &reference.result,
-            label,
-        );
+        views.budgeted(&exact.result, &reference.result, label);
         assert_eq!(
             exact.budget.consumed(),
             reference.budget.consumed(),

@@ -11,6 +11,7 @@
 //! substitute for meaning it could not represent.
 
 use super::encode::{elements, encoded};
+use super::retained_index::PositionIndex;
 use super::{
     BoundedDomainForm, CheckedNodeKind, CheckedNodeTag, CheckedPackageV2, CheckedSemanticNodeV2,
     CheckedTerm, ClaimForm, CompositeTypeForm, CorrespondenceForm, ExpressionForm, FunctionForm,
@@ -30,9 +31,6 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 #[cfg(test)]
 thread_local! {
     pub(super) static BODY_WALKS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
-    static SHARED_CLOSURE_BUILDS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
-    static LOWERING_GRAPH_INDEX_BUILDS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
-    static LOWERING_SOURCE_INDEX_BUILDS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
 /// Schema version of the target-neutral `ContractPackage` wire.
@@ -54,191 +52,6 @@ pub(super) enum EdgeRole {
 pub(super) struct LoweringNodeFacts {
     pub(super) terms: Result<u64, ValidationFailure>,
     pub(super) successors: Vec<(usize, EdgeRole)>,
-    pub(super) component: usize,
-}
-
-/// Assign SCCs from the exact lowering edges. Graph admission also validates
-/// extension-body targets, but lowering does not follow those targets; using
-/// the admission SCCs would add nodes to a lowering closure in that case.
-#[cfg(test)]
-pub(super) fn assign_components(facts: &mut [LoweringNodeFacts]) {
-    let mut meter = super::WorkMeter::new(u64::MAX);
-    assign_components_charged(facts, &mut meter).expect("unlimited lowering storage");
-}
-
-pub(super) fn assign_components_charged(
-    facts: &mut [LoweringNodeFacts],
-    meter: &mut super::WorkMeter<'_>,
-) -> Result<(), ValidationFailure> {
-    let size = facts.len();
-    let mut incoming_counts = meter.filled(size, 0_usize)?;
-    for fact in facts.iter() {
-        for &(target, _) in &fact.successors {
-            if let Some(count) = incoming_counts.get_mut(target) {
-                *count = count.saturating_add(1);
-            }
-        }
-    }
-    let mut reversed: Vec<Vec<usize>> = meter.vec(size)?;
-    for &count in &incoming_counts {
-        reversed.push(meter.vec(count)?);
-    }
-    for (source, fact) in facts.iter().enumerate() {
-        for &(target, _) in &fact.successors {
-            if let Some(incoming) = reversed.get_mut(target) {
-                incoming.push(source);
-            }
-        }
-    }
-    let mut seen = meter.filled(size, false)?;
-    let mut postorder = meter.vec(size)?;
-    let mut pending: Vec<(usize, usize)> = meter.vec(size)?;
-    for root in 0..size {
-        if seen[root] {
-            continue;
-        }
-        seen[root] = true;
-        pending.push((root, 0));
-        while let Some((vertex, edge)) = pending.last_mut() {
-            if let Some(&(target, _)) = facts[*vertex].successors.get(*edge) {
-                *edge += 1;
-                if !seen[target] {
-                    seen[target] = true;
-                    pending.push((target, 0));
-                }
-            } else {
-                postorder.push(*vertex);
-                pending.pop();
-            }
-        }
-    }
-    let mut assigned = meter.filled(size, false)?;
-    let mut component = 0;
-    let mut pending: Vec<usize> = meter.vec(size)?;
-    for root in postorder.into_iter().rev() {
-        if assigned[root] {
-            continue;
-        }
-        assigned[root] = true;
-        pending.push(root);
-        while let Some(vertex) = pending.pop() {
-            facts[vertex].component = component;
-            for &source in &reversed[vertex] {
-                if !assigned[source] {
-                    assigned[source] = true;
-                    pending.push(source);
-                }
-            }
-        }
-        component += 1;
-    }
-    Ok(())
-}
-
-/// The admitted SCC condensation. Shared successor components retain their
-/// reachable positions once, while every item still pays its own ordered
-/// node, term and edge charges in `lower_one`.
-struct SccClosureIndex {
-    members: BTreeMap<usize, Vec<usize>>,
-    successors: BTreeMap<usize, BTreeSet<usize>>,
-    shared: BTreeSet<usize>,
-    memo: BTreeMap<usize, Vec<usize>>,
-    uncacheable: BTreeSet<usize>,
-    memo_positions: usize,
-    memo_limit: usize,
-}
-
-impl SccClosureIndex {
-    fn new(facts: &[LoweringNodeFacts]) -> Self {
-        let mut members: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
-        let mut successors: BTreeMap<usize, BTreeSet<usize>> = BTreeMap::new();
-        let mut predecessors: BTreeMap<usize, BTreeSet<usize>> = BTreeMap::new();
-        for (position, fact) in facts.iter().enumerate() {
-            members.entry(fact.component).or_default().push(position);
-            for &(target, _) in &fact.successors {
-                let Some(target_fact) = facts.get(target) else {
-                    continue;
-                };
-                if target_fact.component != fact.component {
-                    successors
-                        .entry(fact.component)
-                        .or_default()
-                        .insert(target_fact.component);
-                    predecessors
-                        .entry(target_fact.component)
-                        .or_default()
-                        .insert(fact.component);
-                }
-            }
-        }
-        let shared = predecessors
-            .into_iter()
-            .filter_map(|(component, from)| (from.len() > 1).then_some(component))
-            .collect();
-        Self {
-            members,
-            successors,
-            shared,
-            memo: BTreeMap::new(),
-            uncacheable: BTreeSet::new(),
-            memo_positions: 0,
-            memo_limit: facts.len().saturating_mul(4),
-        }
-    }
-
-    fn closure_from(&self, start: usize) -> Vec<usize> {
-        let mut components = BTreeSet::new();
-        let mut pending = vec![start];
-        let mut positions = Vec::new();
-        while let Some(component) = pending.pop() {
-            if !components.insert(component) {
-                continue;
-            }
-            if let Some(members) = self.members.get(&component) {
-                positions.extend(members);
-            }
-            if let Some(next) = self.successors.get(&component) {
-                pending.extend(next.iter().copied());
-            }
-        }
-        positions.sort_unstable();
-        positions
-    }
-
-    fn reachable(&mut self, start: usize) -> BTreeSet<usize> {
-        let mut components = BTreeSet::new();
-        let mut pending = vec![start];
-        let mut positions = BTreeSet::new();
-        while let Some(component) = pending.pop() {
-            if !components.insert(component) {
-                continue;
-            }
-            if self.shared.contains(&component) && !self.uncacheable.contains(&component) {
-                if !self.memo.contains_key(&component) {
-                    #[cfg(test)]
-                    SHARED_CLOSURE_BUILDS.with(|builds| builds.set(builds.get() + 1));
-                    let closure = self.closure_from(component);
-                    if self.memo_positions.saturating_add(closure.len()) <= self.memo_limit {
-                        self.memo_positions += closure.len();
-                        self.memo.insert(component, closure);
-                    } else {
-                        self.uncacheable.insert(component);
-                    }
-                }
-                if let Some(cached) = self.memo.get(&component) {
-                    positions.extend(cached.iter().copied());
-                    continue;
-                }
-            }
-            if let Some(members) = self.members.get(&component) {
-                positions.extend(members.iter().copied());
-            }
-            if let Some(next) = self.successors.get(&component) {
-                pending.extend(next.iter().copied());
-            }
-        }
-        positions
-    }
 }
 
 /// The explicit I12 lowering-profile reference, separate from source profiles.
@@ -508,30 +321,29 @@ impl Encode for ContractPackageDependencyV2 {
     }
 }
 
-/// The source map's entries grouped by node, once per lowering call, so the
-/// entries of one node are found without scanning the whole map for it: a
-/// lowering that reaches every node of a package visits each node's entries
-/// once, not once per node of the package.
-pub(super) struct NodeSourceMaps<'a>(BTreeMap<&'a CheckedNodeId, Vec<&'a CheckedSourceMapEntry>>);
+/// A node's source-map entries found through the package's retained source
+/// index, so a lowering call costs the size of what it reaches, not the size
+/// of the whole source map.
+pub(super) struct NodeSourceMaps<'a> {
+    entries: &'a [CheckedSourceMapEntry],
+    index: &'a PositionIndex,
+}
 
 impl<'a> NodeSourceMaps<'a> {
-    fn new(source_map: &'a [CheckedSourceMapEntry]) -> Self {
-        #[cfg(test)]
-        LOWERING_SOURCE_INDEX_BUILDS.with(|builds| builds.set(builds.get() + 1));
-        let mut grouped: BTreeMap<&CheckedNodeId, Vec<&CheckedSourceMapEntry>> = BTreeMap::new();
-        for entry in source_map {
-            grouped.entry(&entry.node_id).or_default().push(entry);
+    pub(super) fn new(package: &'a CheckedPackageV2) -> Self {
+        Self {
+            entries: package.source_map(),
+            index: &package.source_index,
         }
-        Self(grouped)
     }
 
     /// The entries of `node_id`, in source-map order.
     pub(super) fn of(&self, node_id: &CheckedNodeId) -> Vec<CheckedSourceMapEntry> {
-        self.0
-            .get(node_id)
+        let mut positions = self.index.node_sources(self.entries, node_id).to_vec();
+        positions.sort_unstable();
+        positions
             .into_iter()
-            .flatten()
-            .map(|entry| (*entry).clone())
+            .filter_map(|position| self.entries.get(position).cloned())
             .collect()
     }
 }
@@ -548,8 +360,8 @@ impl CheckedPackageV2 {
         self.lower_requests(requested, profile, self.bytes)
     }
 
-    /// Lowers each key as a separate one-key request while sharing the graph,
-    /// source-map, and closure indexes across the call. The result has no
+    /// Lowers each key as a separate one-key request against the package's
+    /// retained graph and source-map indexes. The result has no
     /// aggregate package; each record has the same byte ceiling and terminal
     /// outcome as `lower` called with that key alone.
     pub fn lower_independent_records(
@@ -558,8 +370,7 @@ impl CheckedPackageV2 {
         profile: &CompleteLoweringProfileV2,
     ) -> Vec<CompleteLoweringRecordV2> {
         let ceiling = self.bytes;
-        let (index, source_maps, records) =
-            self.lower_record_candidates(requested, profile, ceiling);
+        let (source_maps, records) = self.lower_record_candidates(requested, profile, ceiling);
         requested
             .iter()
             .zip(records)
@@ -567,7 +378,6 @@ impl CheckedPackageV2 {
                 match self.assemble(
                     profile,
                     std::slice::from_ref(&record),
-                    &index,
                     &source_maps,
                     ceiling,
                 ) {
@@ -588,38 +398,13 @@ impl CheckedPackageV2 {
         requested: &[CheckedNodeId],
         profile: &CompleteLoweringProfileV2,
         ceiling: u64,
-    ) -> (
-        BTreeMap<&'a CheckedNodeId, usize>,
-        NodeSourceMaps<'a>,
-        Vec<CompleteLoweringRecordV2>,
-    ) {
-        #[cfg(test)]
-        LOWERING_GRAPH_INDEX_BUILDS.with(|builds| builds.set(builds.get() + 1));
-        let index = self
-            .resolved_graph()
-            .nodes
-            .iter()
-            .enumerate()
-            .map(|(position, node)| (&node.node_id, position))
-            .collect::<BTreeMap<_, _>>();
-        let source_maps = NodeSourceMaps::new(self.source_map());
-        let facts = &self.lowering_facts;
-        let mut closure_index = SccClosureIndex::new(facts);
+    ) -> (NodeSourceMaps<'a>, Vec<CompleteLoweringRecordV2>) {
+        let source_maps = NodeSourceMaps::new(self);
         let records = requested
             .iter()
-            .map(|request| {
-                self.lower_one(
-                    request,
-                    profile,
-                    &index,
-                    facts,
-                    &mut closure_index,
-                    &source_maps,
-                    ceiling,
-                )
-            })
+            .map(|request| self.lower_one(request, profile, &source_maps, ceiling))
             .collect::<Vec<_>>();
-        (index, source_maps, records)
+        (source_maps, records)
     }
 
     fn lower_requests(
@@ -628,9 +413,8 @@ impl CheckedPackageV2 {
         profile: &CompleteLoweringProfileV2,
         ceiling: u64,
     ) -> CompleteLoweringResultV2 {
-        let (index, source_maps, records) =
-            self.lower_record_candidates(requested, profile, ceiling);
-        match self.assemble(profile, &records, &index, &source_maps, ceiling) {
+        let (source_maps, records) = self.lower_record_candidates(requested, profile, ceiling);
+        match self.assemble(profile, &records, &source_maps, ceiling) {
             Ok(package) => CompleteLoweringResultV2 { records, package },
             // The package is over the ceiling: no package exists, so no
             // lowered node, dependency node, bytes or id is returned and every
@@ -654,7 +438,6 @@ impl CheckedPackageV2 {
         &self,
         profile: &CompleteLoweringProfileV2,
         records: &[CompleteLoweringRecordV2],
-        index: &BTreeMap<&CheckedNodeId, usize>,
         source_maps: &NodeSourceMaps<'_>,
         ceiling: u64,
     ) -> Result<CompleteContractPackageV2, u64> {
@@ -676,7 +459,7 @@ impl CheckedPackageV2 {
         let dependencies = reached
             .into_iter()
             .filter_map(|key| {
-                let position = *index.get(key)?;
+                let position = self.node_position(key)?;
                 let node = nodes.get(position)?;
                 Some(ContractPackageDependencyV2 {
                     node: node.clone(),
@@ -715,8 +498,7 @@ impl CheckedPackageV2 {
         &self,
         index: &BTreeMap<&CheckedNodeId, usize>,
     ) -> Vec<LoweringNodeFacts> {
-        let mut facts: Vec<_> = self
-            .resolved_graph()
+        self.resolved_graph()
             .nodes
             .iter()
             .zip(self.node_kinds())
@@ -766,24 +548,15 @@ impl CheckedPackageV2 {
                         Ok(())
                     },
                 );
-                LoweringNodeFacts {
-                    terms,
-                    successors,
-                    component: position,
-                }
+                LoweringNodeFacts { terms, successors }
             })
-            .collect();
-        assign_components(&mut facts);
-        facts
+            .collect()
     }
 
     fn lower_one(
         &self,
         request: &CheckedNodeId,
         profile: &CompleteLoweringProfileV2,
-        index: &BTreeMap<&CheckedNodeId, usize>,
-        facts: &[LoweringNodeFacts],
-        closure_index: &mut SccClosureIndex,
         source_maps: &NodeSourceMaps<'_>,
         ceiling: u64,
     ) -> CompleteLoweringRecordV2 {
@@ -797,7 +570,8 @@ impl CheckedPackageV2 {
         if work > profile.work_limit {
             return failed(work);
         }
-        let Some(&start) = index.get(request) else {
+        let facts = &self.lowering_facts;
+        let Some(start) = self.node_position(request) else {
             return CompleteLoweringRecordV2::InvalidInput {
                 node_id: request.clone(),
             };
@@ -911,17 +685,16 @@ impl CheckedPackageV2 {
                 }
             }
         }
-        let Some(component) = facts.get(start).map(|fact| fact.component) else {
+        if facts.get(start).is_none() {
             return CompleteLoweringRecordV2::InvalidInput {
                 node_id: request.clone(),
             };
-        };
-        let reached_positions = closure_index.reachable(component);
-        let reachable = reached_positions
+        }
+        // The completed walk visited exactly the closure reachable from `start`.
+        let mut ordered = visited
             .iter()
             .filter_map(|position| Some((nodes.get(*position)?, *kinds.get(*position)?)))
             .collect::<Vec<_>>();
-        let mut ordered = reachable.clone();
         ordered.sort_by(|left, right| left.0.node_id.cmp(&right.0.node_id));
         if let Some((node, kind)) = ordered
             .iter()
