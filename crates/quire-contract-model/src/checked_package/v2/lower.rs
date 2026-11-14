@@ -929,6 +929,8 @@ fn requires_bound(kind: CheckedNodeKind) -> bool {
             ScalarTypeForm::Integer
             | ScalarTypeForm::Rational
             | ScalarTypeForm::Decimal
+            | ScalarTypeForm::Float32
+            | ScalarTypeForm::Float64
             | ScalarTypeForm::Text,
         ) => true,
         K::ScalarType(
@@ -936,8 +938,6 @@ fn requires_bound(kind: CheckedNodeKind) -> bool {
             | ScalarTypeForm::String
             | ScalarTypeForm::Uuid
             | ScalarTypeForm::Timestamp
-            | ScalarTypeForm::Float32
-            | ScalarTypeForm::Float64
             | ScalarTypeForm::Dimension
             | ScalarTypeForm::DimensionEquivalence
             | ScalarTypeForm::Unit

@@ -21,7 +21,7 @@ pub(crate) fn map_package() -> (Value, usize) {
 
 /// A package with a `Map<key, value>` node over fresh scalar type nodes of
 /// the two forms, which must differ.
-fn keyed_map_package(key: &str, value: &str) -> (Value, usize) {
+pub(crate) fn keyed_map_package(key: &str, value: &str) -> (Value, usize) {
     let mut package = v2_all_families();
     let name = package["name"].clone();
     let nodes = package["semantic_graph"]["nodes"]
