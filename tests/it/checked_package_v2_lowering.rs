@@ -717,13 +717,15 @@ fn forms_package(scalar_form: &str, composite_form: &str) -> Forms {
 
 #[trace("TC-052", "FR-038-AC-8")]
 #[test]
-fn tc_052_unbounded_forms_are_exactly_the_eight_declared_forms() {
-    // FR-038-AC-8: each of the eight forms raises requires_bound and each
+fn tc_052_unbounded_forms_are_exactly_the_ten_declared_forms() {
+    // FR-038-AC-8: each of the ten forms raises requires_bound and each
     // other declared form of those two families does not. bbbb's closure is
     // {bbbb, aaaa} and holds no reachable bounded_domain, so the outcome is
     // decided by the two forms alone.
-    let scalar_unbounded = ["integer", "rational", "decimal", "text"];
-    let scalar_bounded = ["boolean", "float32", "float64"];
+    let scalar_unbounded = [
+        "integer", "rational", "decimal", "float32", "float64", "text",
+    ];
+    let scalar_bounded = ["boolean"];
     let composite_unbounded = ["sequence", "set", "bag", "ordered_set"];
     let composite_bounded = ["option", "record", "tuple", "alias", "reference"];
 
@@ -801,6 +803,75 @@ fn tc_052_unbounded_forms_are_exactly_the_eight_declared_forms() {
                 "scalar {scalar_form} / composite {composite_form} must not require a bound"
             );
         }
+    }
+}
+
+#[trace("TC-052", "FR-038-AC-8")]
+#[test]
+fn tc_052_float_rounding_domain_bounds_a_float() {
+    // FR-038-AC-8: a float is unbounded unless a float_rounding domain typed
+    // at it is in the closure. Requested alone the float requires a bound;
+    // requested through its domain it lowers; the default profile never asks.
+    let mut bounded_profile = profile(u64::MAX);
+    bounded_profile.require_bounds = true;
+    for float in ["float32", "float64"] {
+        let mut forms = forms_package(float, "record");
+        let domain_key = format!("lowering/domain/{float}-rounding");
+        let scalar_key = format!("lowering/a-scalar/{float}");
+        let text_key = "lowering/annotation/text";
+        forms.value["semantic_graph"]["nodes"]
+            .as_array_mut()
+            .expect("nodes")
+            .push(json!({
+                "node_id": checked_package::node_id(&domain_key),
+                "schema_version": "quire.checked-semantic-graph/v2",
+                "node_tag": "bounded_domain",
+                "semantic_form": "float_rounding",
+                "semantic_type": checked_package::node_id(&scalar_key),
+                "dependencies": [checked_package::node_id(&scalar_key)],
+                "occurrences": [{"role": "generated", "ordinal": 0}],
+                "body": {"term": "aggregate", "members": [{
+                    "term": "binding", "name": "rounding",
+                    "value": {"term": "literal",
+                        "type": checked_package::node_id(text_key),
+                        "value_kind": "text", "value": "nearest-even"}
+                }]},
+            }));
+        checked_package::rebuild_source_map(&mut forms.value);
+        refresh_identity(&mut forms.value);
+        let package = admit(&forms.value);
+        let domain = typed_node_id(&domain_key);
+
+        let alone = package
+            .lower(std::slice::from_ref(&forms.scalar), &bounded_profile)
+            .records[0]
+            .clone();
+        assert_eq!(
+            alone,
+            CompleteLoweringRecordV2::RequiresBound {
+                node_id: forms.scalar.clone(),
+                unbounded_type: forms.scalar.clone(),
+            },
+            "{float} alone is unbounded"
+        );
+        let bounded = package
+            .lower(std::slice::from_ref(&domain), &bounded_profile)
+            .records[0]
+            .clone();
+        assert_eq!(
+            record_kind(&bounded),
+            "lowered",
+            "{float} bounded by float_rounding lowers"
+        );
+        let default = package
+            .lower(std::slice::from_ref(&forms.scalar), &profile(u64::MAX))
+            .records[0]
+            .clone();
+        assert_eq!(
+            record_kind(&default),
+            "lowered",
+            "default profile never requires a bound"
+        );
     }
 }
 

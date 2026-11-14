@@ -35,7 +35,10 @@ reachable kinds are each named and distinct. A closure that is both unsupported
 and unbounded returns `unsupported`. A zero work limit returns `failed` for an
 absent key while a sufficient limit returns `invalid_input` for the same key.
 Each named offending key is the least in ascending order, not the first visited.
-Exactly the four scalar and four composite unbounded forms return
-`requires_bound`, and every other declared form of those families lowers. Every
+Exactly the six scalar (including `float32` and `float64`) and four composite
+unbounded forms return `requires_bound`, and every other declared form of those
+families lowers. A float whose closure holds a `float_rounding` domain over it
+lowers under a bounds-required profile, and an unbounded float lowers under the
+default profile. Every
 key in a record's `bounds` and `claims` also appears in its `dependencies`,
 which is ascending and excludes the requested node.
