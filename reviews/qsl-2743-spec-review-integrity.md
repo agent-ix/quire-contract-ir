@@ -37,6 +37,10 @@ Integrity analysis (completeness, consistency, atomicity) of the changed IR rows
 
 **PASS for this artifact.** Round 2 (head 16a686c): both compound criteria are split into atomic rows (FR-352-AC-31..37, FR-358-AC-15..20). No new integrity finding; the narrowing defect is recorded in the base SR. The PR overall stays MERGEABLE=FALSE.
 
+## Disposition round 3 verdict
+
+**PASS for this artifact.** Round 3 (head 70b24456c): no open finding; the restored FR-352-AC-35 and FR-352-AC-37 are single obligations each. The PR overall stays MERGEABLE=FALSE.
+
 ## Machine-readable data
 
 ```yaml
@@ -119,5 +123,17 @@ Integrity analysis (completeness, consistency, atomicity) of the changed IR rows
     }
   ],
   "new_findings": []
+}
+```
+
+## Disposition round 3 data
+
+```yaml
+{
+  "round": 3,
+  "head": "70b24456c7132d4603f0ddcaa5f3ba87aba3befc",
+  "dispositions": [],
+  "new_findings": [],
+  "nonregression": "FND-001 and FND-002 remain fixed: FR-352-AC-31..37 and FR-358-AC-15..20 stay atomic at 70b24456c. The restored AC-35 and AC-37 widen their scope but are still one projection obligation and one rebind obligation."
 }
 ```

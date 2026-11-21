@@ -36,6 +36,13 @@ Base checklist review of the IR spec rows PR 1117 adds or changes. Ticket: QSL-2
 | FND-006 | medium | IR criteria were narrowed to match the available evidence, without contract or architecture authority. The original FR-352-AC-31 required a record or object field of an admitted union to project to Composite(type_handle); FR-352-AC-35 now says only a record field and an optional record field, after the object-field case was dropped from the test fixture. FR-352-AC-37 likewise keeps only the refusal half of validate_and_rebind, with no positive rebind and no union-completeness stage, which the old FND-010 scope required. | spec/checked_package/functional/FR-352-project-admitted-exact-value-types.md:631, 633 |
 | FND-007 | low | FR-069-AC-12 names no refusal code, cause or locus, unlike its FR-069 siblings (AC-8 states code/cause/location). Its test asserts only that the read is not Admitted, so any refusal (or a panic-free unrelated failure) satisfies it. | spec/checked_package/functional/FR-069-admit-model-tuple-and-union-payload-declarations.md:167; tests/conformance_fspec/model_union_witness.rs:1551-1589 |
 
+## New findings (disposition pass 3)
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-008 | medium | FR-358-AC-17 still says a budget one below the measured edges refuses 'at the ModelUnionRow locus of the row being closed'. 6e9a31c09 locates every closure-edge charge at NativeJoinLocusSource::GraphNode of the graph node examined, and budget_case_b02, which is bound to AC-17, asserts GraphNode and not ModelUnionRow. FR-830 allows either locus source, but the IR criterion now states a locus that neither the code nor its own bound test produces. | spec/checked_package/functional/FR-358-compose-native-identity-join-budget.md:258; crates/filament-contract-model/src/checked_package/v2/exact_projection/model_union.rs:193-207; tests/conformance_fspec/model_union_witness.rs:966-1060 |
+| FND-009 | medium | 58e981bbf widens the shared record-field projection (project_record_field_type), which every record, object, tuple-position, runtime selected-type and selected-fact projection uses. Float32, Float64, Bytes, JsonObject, RationalRange, TextBounds and CarriedRational fields used to refuse UnsupportedExactType; they now project to Exact types. The bare-Float exact mode matches filament-exact (ieee.rs: a bare Float32/Float64 is strict exact). But no IR criterion states the new record-field behavior: FR-352-AC-32 covers union payloads only, and four existing it tests and one reached test were re-pointed from Float32 to Clock instead. The CarriedQuantity field form has no positive test. | spec/checked_package/functional/FR-352-project-admitted-exact-value-types.md:628; crates/filament-contract-model/src/checked_package/v2/exact_projection.rs:3450-3500 |
+
 ## Dispositions
 
 | FND | outcome | reason |
@@ -45,10 +52,16 @@ Base checklist review of the IR spec rows PR 1117 adds or changes. Ticket: QSL-2
 | FND-003 | fixed | Round 2 (head 16a686c). Fixed; the verbatim after_excerpt is in the round-2 data block below and in the round-2 tracker comment. |
 | FND-004 | fixed | Round 2 (head 16a686c). Fixed; the verbatim after_excerpt is in the round-2 data block below and in the round-2 tracker comment. |
 | FND-005 | fixed | Round 2 (head 16a686c). Fixed; the verbatim after_excerpt is in the round-2 data block below and in the round-2 tracker comment. |
+| FND-006 | fixed | Round 3 (head 70b2445). Fixed; the verbatim after_excerpt is in the round-3 data block below and in the round-3 tracker comment. |
+| FND-007 | fixed | Round 3 (head 70b2445). Fixed; the verbatim after_excerpt is in the round-3 data block below and in the round-3 tracker comment. |
 
 ## Disposition round 2 verdict
 
 **CONDITIONAL — MERGEABLE=FALSE.** Round 2 (head 16a686c): all five original findings are fixed by the atomic rewrite. New: FND-006 medium (criteria narrowed to match evidence: FR-352-AC-35 object field, FR-352-AC-37 rebind) and FND-007 low (FR-069-AC-12 names no code or locus).
+
+## Disposition round 3 verdict
+
+**CONDITIONAL — MERGEABLE=FALSE.** Round 3 (head 70b24456c): FND-006 and FND-007 are fixed. New: FND-008 medium (FR-358-AC-17 states a ModelUnionRow locus that the code and its bound test do not produce) and FND-009 medium (the widened record-field projection has no IR criterion).
 
 ## Machine-readable data
 
@@ -223,5 +236,60 @@ Base checklist review of the IR spec rows PR 1117 adds or changes. Ticket: QSL-2
       "finding": "FR-069-AC-12 names no refusal code, cause or locus, unlike its FR-069 siblings (AC-8 states code/cause/location). Its test asserts only that the read is not Admitted, so any refusal (or a panic-free unrelated failure) satisfies it."
     }
   ]
+}
+```
+
+## Disposition round 3 data
+
+```yaml
+{
+  "round": 3,
+  "head": "70b24456c7132d4603f0ddcaa5f3ba87aba3befc",
+  "dispositions": [
+    {
+      "fnd": "FND-006",
+      "outcome": "fixed",
+      "after_excerpt": "`validate_and_rebind` over a package whose model declares unions returns an equal witness when every family is complete; refuses a witness that lacks only a union row with `IncompleteIdentityWitness` at that union node, form `selected_model_union`, after the tuple stage; re-validates every retained union row against the package it is rebound to, before completeness, and refuses a row that is wrong for that package with the row's own refusal; and never mutates the receiver."
+    },
+    {
+      "fnd": "FND-007",
+      "outcome": "fixed",
+      "after_excerpt": "A model union variant payload naming an object type that no selected-package declaration provides is refused by the strict read with `UnsupportedConstruct`, cause `DeclarationForm`, at the payload `typeRef` of the offending variant in the document and at the `owner` of the union declaration node in the package; the same union naming the selected-package object is admitted."
+    }
+  ],
+  "new_findings": [
+    {
+      "fnd": "FND-008",
+      "severity": "medium",
+      "confidence": "high",
+      "method": "spec-review/base",
+      "check": "soundness",
+      "artifact_id": "FR-358-AC-17",
+      "related_ids": [
+        "FR-830-AC-11"
+      ],
+      "path": "spec/checked_package/functional/FR-358-compose-native-identity-join-budget.md",
+      "lines": "258; crates/filament-contract-model/src/checked_package/v2/exact_projection/model_union.rs:193-207; tests/conformance_fspec/model_union_witness.rs:966-1060",
+      "excerpt": "The reached closure charges one edge per typed member of every reached union (scalars included, `Clock` none); a budget one unit below the measured edges refuses at the `ModelUnionRow` locus of the row being closed.",
+      "finding": "FR-358-AC-17 still says a budget one below the measured edges refuses 'at the ModelUnionRow locus of the row being closed'. 6e9a31c09 locates every closure-edge charge at NativeJoinLocusSource::GraphNode of the graph node examined, and budget_case_b02, which is bound to AC-17, asserts GraphNode and not ModelUnionRow. FR-830 allows either locus source, but the IR criterion now states a locus that neither the code nor its own bound test produces."
+    },
+    {
+      "fnd": "FND-009",
+      "severity": "medium",
+      "confidence": "high",
+      "method": "spec-review/base",
+      "check": "missing-requirement",
+      "artifact_id": "FR-352-AC-32",
+      "related_ids": [
+        "FR-352-AC-14",
+        "FR-357-AC-5"
+      ],
+      "path": "spec/checked_package/functional/FR-352-project-admitted-exact-value-types.md",
+      "lines": "628; crates/filament-contract-model/src/checked_package/v2/exact_projection.rs:3450-3500",
+      "excerpt": "A model union case whose payload is data of any admitted type except `Clock` (scalar, quantity, record, tuple, union, object reference, option, collection, bounded, carried-quantity or enum) joins when its payload node and original type agree with the type its own member form derives; a `Clock` payload is retained as a Clock payload and is never read as data or as a nullary case. A wrong payload node or original type refuses with the published code.",
+      "finding": "58e981bbf widens the shared record-field projection (project_record_field_type), which every record, object, tuple-position, runtime selected-type and selected-fact projection uses. Float32, Float64, Bytes, JsonObject, RationalRange, TextBounds and CarriedRational fields used to refuse UnsupportedExactType; they now project to Exact types. The bare-Float exact mode matches filament-exact (ieee.rs: a bare Float32/Float64 is strict exact). But no IR criterion states the new record-field behavior: FR-352-AC-32 covers union payloads only, and four existing it tests and one reached test were re-pointed from Float32 to Clock instead. The CarriedQuantity field form has no positive test."
+    }
+  ],
+  "nonregression": "FND-001..005 remain fixed at 70b24456c: Verification cells are Test, FR-358-AC-19 and FR-352-AC-32 are unchanged, and FR-069-AC-12 now states the exact code, cause and loci."
 }
 ```

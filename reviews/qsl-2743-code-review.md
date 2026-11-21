@@ -82,10 +82,20 @@ Gates: no cargo was run by this reviewer (host thermal rule; no aggregate, works
 | FND-016 | fixed | Round 2 (head 16a686c). Fixed; the verbatim after_excerpt is in the round-2 data block below and in the round-2 tracker comment. |
 | FND-017 | fixed | Round 2 (head 16a686c). Fixed; the verbatim after_excerpt is in the round-2 data block below and in the round-2 tracker comment. |
 | FND-018 | fixed | Round 2 (head 16a686c). Fixed; the verbatim after_excerpt is in the round-2 data block below and in the round-2 tracker comment. |
+| FND-005 | still-open | Round 3 (head 70b2445). Fixed in part (34969ef2d, 8f8bd1c9e): integer range, profiled text, rational range and option payloads now join end to end through strict-admitted packages (checked_package_v2_model_fields.rs every_strict_admitted_non_scalar_payload_form_joins_and_each_wrong_witness_is_refused). Unit quantity, object Reference and record/tuple/union composites join with real witnesses (MUW-11), and enum-family payloads join with a real enum shape. A sequence payload is refused at intake, and ClockReference stays contract-backed unsupported. Still missing: a carried-quantity payload (value type Rational with a unit, admitted at intake through value_types) and a Duration payload (MemberType::Quantity of the duration unit, admitted at intake) have no end-to-end join. No test anywhere asserts a positive ValueType::CarriedQuantity projection, on the payload or the record-field path; payload_and_record_field_project_every_admitted_type_identically compares CarriedRational only as the same refusal on empty identities. |
+| FND-006 | fixed | Round 3 (head 70b2445). Fixed; the verbatim after_excerpt is in the round-3 data block below and in the round-3 tracker comment. |
+| FND-010 | fixed | Round 3 (head 70b2445). Fixed; the verbatim after_excerpt is in the round-3 data block below and in the round-3 tracker comment. |
+| FND-019 | fixed | Round 3 (head 70b2445). Fixed; the verbatim after_excerpt is in the round-3 data block below and in the round-3 tracker comment. |
+| FND-020 | fixed | Round 3 (head 70b2445). Fixed; the verbatim after_excerpt is in the round-3 data block below and in the round-3 tracker comment. |
+| FND-021 | fixed | Round 3 (head 70b2445). Fixed; the verbatim after_excerpt is in the round-3 data block below and in the round-3 tracker comment. |
 
 ## Disposition round 2 verdict
 
 **FAIL — MERGEABLE=FALSE.** Round 2 (head 16a686c): 14 of the 17 open findings are fixed. Still open: FND-005 (no strict-admitted end-to-end join for non-scalar admitted payloads), FND-006 (no object-field or tuple-position union projection), FND-010 (validate_and_rebind union stage and positive rebind unevidenced). New: FND-019 high (duplicated id derivation and projection, already divergent from record fields), FND-020 medium (closure-edge locus is Package, not the row FR-358-AC-17 names), FND-021 low. The tc_058 public_interface failure fails identically on origin/main 743b5e5f1, so it is not attributed to this PR.
+
+## Disposition round 3 verdict
+
+**FAIL — MERGEABLE=FALSE.** Round 3 (head 70b24456c): 5 of the 6 open code-review findings are fixed (FND-006, FND-010, FND-019, FND-020, FND-021). FND-005 stays open: no carried-quantity or Duration payload joins end to end, and no positive CarriedQuantity projection is asserted on either path. The FR-358-AC-17 wording contradiction and the unspecified record-field widening are recorded in the base SR (FND-008, FND-009).
 
 ## Machine-readable data
 
@@ -619,5 +629,48 @@ Gates: no cargo was run by this reviewer (host thermal rule; no aggregate, works
       "finding": "The test name and doc overclaim: 'every field form' covers only a direct and an optional record field. There is no object-type field, tuple position or collection field, so the name hides the gap recorded in FND-006."
     }
   ]
+}
+```
+
+## Disposition round 3 data
+
+```yaml
+{
+  "round": 3,
+  "head": "70b24456c7132d4603f0ddcaa5f3ba87aba3befc",
+  "dispositions": [
+    {
+      "fnd": "FND-005",
+      "outcome": "still-open",
+      "reason": "Fixed in part (34969ef2d, 8f8bd1c9e): integer range, profiled text, rational range and option payloads now join end to end through strict-admitted packages (checked_package_v2_model_fields.rs every_strict_admitted_non_scalar_payload_form_joins_and_each_wrong_witness_is_refused). Unit quantity, object Reference and record/tuple/union composites join with real witnesses (MUW-11), and enum-family payloads join with a real enum shape. A sequence payload is refused at intake, and ClockReference stays contract-backed unsupported. Still missing: a carried-quantity payload (value type Rational with a unit, admitted at intake through value_types) and a Duration payload (MemberType::Quantity of the duration unit, admitted at intake) have no end-to-end join. No test anywhere asserts a positive ValueType::CarriedQuantity projection, on the payload or the record-field path; payload_and_record_field_project_every_admitted_type_identically compares CarriedRational only as the same refusal on empty identities."
+    },
+    {
+      "fnd": "FND-006",
+      "outcome": "fixed",
+      "after_excerpt": "    let held = object\n        .fields()\n        .iter()\n        .find(|field| field.name() == \"held\")\n        .expect(\"the object's union field\");\n    assert_eq!(held.original_identity(), format!(\"{}/held\", orders(\"Node\")));\n    assert_eq!(held.value_type(), &handle);\n    assert_eq!(held.presence(), Presence::Required);\n    // The tuple position, by its author order.\n    let pair = view\n        .tuples()\n        .iter()\n        .find(|tuple| tuple.original_identity() == orders(\"Pair\"))\n        .expect(\"the selected tuple\");\n    assert_eq!(pair.positions(), [handle.clone()]);"
+    },
+    {
+      "fnd": "FND-010",
+      "outcome": "fixed",
+      "after_excerpt": "        .validate_and_rebind(&package, &mut budget)\n        .expect_err(\"a witness without the union row is incomplete\");\n    let choice: CheckedNodeId =\n        serde_json::from_value(node_id(&declaration_key(\"Choice\", \"variant_type\")))\n            .expect(\"the union node\");\n    assert_eq!(\n        refusal.code,\n        ExactTypeProjectionErrorCode::IncompleteIdentityWitness\n    );\n    assert_eq!(refusal.at.as_deref(), Some(&choice));\n    assert_eq!(refusal.requested.as_deref(), Some(&choice));\n    assert_eq!(refusal.form.as_deref(), Some(\"selected_model_union\"));"
+    },
+    {
+      "fnd": "FND-019",
+      "outcome": "fixed",
+      "after_excerpt": "    fn model_union_expected_type(\n        &self,\n        package: &CheckedPackageV2,\n        member: &MemberType,\n        node: &CheckedNodeId,\n        locus: &str,\n        budget: &mut NativeJoinBudget,\n    ) -> Res<ValueType> {\n        super::project_wrapped_record_field_type(\n            package,\n            self,\n            node,\n            node,\n            member,\n            budget,\n            u64::MAX,\n        )"
+    },
+    {
+      "fnd": "FND-020",
+      "outcome": "fixed",
+      "after_excerpt": "/// Locate the following closure charges at the admitted graph node being\n/// closed: a reached closure walks package nodes, not sidecar rows, so the node\n/// is the actual coordinate of the edge examined.\nfn at_closure_node(\n    package: &CheckedPackageV2,\n    budget: &mut NativeJoinBudget,\n    node: &CheckedNodeId,\n    form: &'static str,\n) {\n    let source = package.node_position(node).map_or(\n        NativeJoinLocusSource::Package,\n        NativeJoinLocusSource::GraphNode,\n    );\n    at_locus(budget, source, form);\n}"
+    },
+    {
+      "fnd": "FND-021",
+      "outcome": "fixed",
+      "after_excerpt": "    #[trace(\"FR-352-AC-35\", \"FR-358-AC-16\")]\n    #[test]\n    fn reached_read_joins_model_union_rows_and_projects_direct_and_optional_record_fields() {"
+    }
+  ],
+  "new_findings": [],
+  "nonregression": "The previously fixed FND-001..004, 007, 009, 011..018 were rechecked at 70b24456c against the changed paths: shared MemberType::node_id_in through PayloadNodeAlloc, charged before allocation; the payload projection delegates to project_wrapped_record_field_type; the closure locus is GraphNode; the handle preflight and common pass are unchanged; the row loci are unchanged; the union stage still retains into the local clone and publishes atomically; complete_selected_documents now skips only union-family variants. No regression found. Receipts: final_conf_muw 17 passed, final_lib_model_union 4, final_reached2 32, final_it_fields 90, final_it_cw 16, final_it_limits 7, final_it_map 17, final_conf_carried 19. Reviewer reruns at 70b24456c: lib exact_projection:: 20 passed rc=0, lib selected_facts 1 passed rc=0."
 }
 ```

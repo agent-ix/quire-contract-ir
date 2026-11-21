@@ -48,10 +48,16 @@ Reconciliation: quire matrix (quire 0.36.2, engine 0.50.2), no run evidence read
 | FND-003 | fixed | Round 2 (head 16a686c). Fixed; the verbatim after_excerpt is in the round-2 data block below and in the round-2 tracker comment. |
 | FND-004 | still-open | Round 2 (head 16a686c). Fixed in part: retained sets, receiver-unchanged on refusal, ForeignNode and UnknownNode are now evidenced (model_union_witness.rs:601, 1647, 1672). Still missing: the object-field projection of an admitted union that the original FR-352-AC-31 required has no test. The new FR-352-AC-35 drops it ('a record field and an optional record field') rather than evidencing it (quire matrix 0.36.2 rerun at 16a686c). |
 | FND-005 | fixed | Round 2 (head 16a686c). Fixed; the verbatim after_excerpt is in the round-2 data block below and in the round-2 tracker comment. |
+| FND-004 | fixed | Round 3 (head 70b2445). Fixed; the verbatim after_excerpt is in the round-3 data block below and in the round-3 tracker comment. |
+| FND-006 | fixed | Round 3 (head 70b2445). Fixed; the verbatim after_excerpt is in the round-3 data block below and in the round-3 tracker comment. |
 
 ## Disposition round 2 verdict
 
 **CONDITIONAL — MERGEABLE=FALSE.** Round 2 (head 16a686c): quire matrix 0.36.2 shows FR-352-AC-31..37, FR-358-AC-15..20 and FR-069-AC-11/12 all tagged, and no FR-830 tag remains untracked. FND-004 is still open (object-field projection evidence was removed with the criterion). New: FND-006 low (wrong FR-358-AC-17 bindings).
+
+## Disposition round 3 verdict
+
+**CONDITIONAL — MERGEABLE=FALSE (PR overall).** Round 3 (head 70b24456c): FND-004 and FND-006 are fixed. No new gap finding in this artifact; the record-field widening without a criterion is base FND-009.
 
 ## Machine-readable data
 
@@ -229,5 +235,28 @@ Reconciliation: quire matrix (quire 0.36.2, engine 0.50.2), no run evidence read
       "finding": "Wrong bindings: runtime_selected_types_declare_each_joined_union_by_its_type_handle (model_union_witness.rs:1505) and reached_read_joins_model_union_rows_and_projects_every_field_form (reached_model_read.rs:4377) carry #[trace(\"FR-358-AC-17\")] but assert no closure-edge count or edge-boundary locus. The reached read passes a caller-walked closure (Extent::Set), so the join charges no closure edges in it. Only the published-positive test (601) and budget_case_b02 (968) evidence AC-17."
     }
   ]
+}
+```
+
+## Disposition round 3 data
+
+```yaml
+{
+  "round": 3,
+  "head": "70b24456c7132d4603f0ddcaa5f3ba87aba3befc",
+  "dispositions": [
+    {
+      "fnd": "FND-004",
+      "outcome": "fixed",
+      "after_excerpt": "A full scope refuses an uncovered union with `IncompleteIdentityWitness` at `/model_unions`, and a reached scope with `UnavailableIdentityWitness`. Direct projection and a union-typed record field, optional record field, object field and tuple position return `ValueType::Composite(type_handle)` and never an enum; an object field keeps its admitted field identity and presence, and a tuple position keeps its authored order; the runtime selected-type declarations declare each joined union once, by that handle."
+    },
+    {
+      "fnd": "FND-006",
+      "outcome": "fixed",
+      "after_excerpt": "#[trace(\"FR-358-AC-17\", \"FR-358-AC-18\")]\n#[test]\nfn budget_case_b02_reached_closure_edge_boundary_denies_edge_then_first_row_join() {"
+    }
+  ],
+  "new_findings": [],
+  "nonregression": "FND-001, 002, 003 and 005 remain fixed: the trace tags of FR-069-AC-11/12, FR-352-AC-31..37 and FR-358-AC-15..20 are all present at 70b24456c (FR-358-AC-17 on the positive closure test, B-02 and B-08), and no FR-830 tag is present."
 }
 ```
