@@ -138,6 +138,7 @@ fn package(bytes: u64) -> CheckedPackageV2 {
     .expect("wire");
     let kinds = vec![CheckedNodeKind::ScalarType(ScalarTypeForm::Boolean); 4];
     let mut package = CheckedPackageV2 {
+        correlation: Default::default(),
         schedulability_claim_index: Vec::new(),
         monitor_plan_index: Vec::new(),
         terminal_rows: std::sync::Arc::new(Vec::new()),

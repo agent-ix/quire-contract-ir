@@ -450,6 +450,16 @@ pub enum CheckedProtocolRefusalDetail {
         /// The end term's semantic type, when it has one.
         actual: Option<CheckedNodeId>,
     },
+    /// A present `protocol_correlation_occurrences` leaves a canonical
+    /// `related` position of a control occurrence uncovered (FSpec FR-831).
+    CorrelationCoverage {
+        /// The control whose `related` position no row names.
+        control: CheckedNodeId,
+        /// Its `declaration` occurrence.
+        occurrence: CheckedOccurrence,
+        /// The first uncovered zero-based canonical position.
+        canonical_index: u64,
+    },
     /// An awaited control cannot produce the event shape the profile requires.
     AwaitedEvent {
         /// The offending control operator.

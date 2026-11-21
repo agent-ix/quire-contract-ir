@@ -269,6 +269,10 @@ const FORMS: &[(&[&str], &str)] = &[
     (&["temporal_bindings"], "temporal_bindings"),
     (&["temporal_clause_names"], "temporal_clause_names"),
     (&["claim_names"], "claim_names"),
+    (
+        &["protocol_correlation_occurrences"],
+        "protocol_correlation_occurrences",
+    ),
     (&["schedulability_claims"], "schedulability_claims"),
     (&["operation_effects"], "operation_effects"),
     (&["operation_bodies"], "operation_bodies"),

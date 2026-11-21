@@ -101,6 +101,7 @@ mod probabilistic_claims;
 mod probabilistic_delay;
 mod projection_read_form;
 mod protocol_locations;
+mod protocol_correlation;
 mod protocol_mutation_manifest;
 mod protocol_vectors;
 mod reaches_population;

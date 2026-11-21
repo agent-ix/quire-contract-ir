@@ -479,6 +479,7 @@ mod tests {
             "diagnostics": {"catalog": {"authority": "test", "identity": "diagnostics"}, "entries": []},
         }));
         CheckedPackageV2 {
+            correlation: Default::default(),
             schedulability_claim_index: Vec::new(),
             monitor_plan_index: Vec::new(),
             terminal_rows: std::sync::Arc::new(Vec::new()),

@@ -100,6 +100,7 @@ mod operations;
 mod owner;
 mod parameter_declaration;
 mod protocol_body;
+mod protocol_correlation;
 mod protocol_locations;
 mod reaches_population;
 mod refinement;
@@ -248,6 +249,10 @@ pub use timed_model::{
 };
 mod exact_projection;
 pub use claim_names::ClaimNameRow;
+pub use protocol_correlation::{
+    ProtocolCorrelationGroup, ProtocolCorrelationProvenance, ProtocolCorrelationReadError,
+    ProtocolCorrelationRow, ProtocolCorrelationTable, UnavailableCorrelationProvenance,
+};
 pub use exact_projection::{
     ExactTypeProjection, ExactTypeProjectionError, ExactTypeProjectionErrorCode, ModelUnionScope,
     SelectedEnumDeclarationRow, SelectedEnumMemberRow, SelectedExactDeclarationForm,
@@ -903,7 +908,7 @@ macro_rules! checked_package_envelope {
     ($($name:ident: $parameter:ident => $encoding:ident),+ $(,)?) => {
         #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
         #[serde(deny_unknown_fields)]
-        struct CheckedPackageEnvelope<C, N, L, G, S, R, T, B, M, K, H, Q, E, O, A, D> {
+        struct CheckedPackageEnvelope<C, N, L, G, S, R, T, B, M, K, H, Q, E, O, A, D, P> {
             $($name: $parameter,)+
             #[serde(default, skip_serializing_if = "Option::is_none")]
             refinement_step_rows: Option<R>,
@@ -915,6 +920,8 @@ macro_rules! checked_package_envelope {
             temporal_clause_names: Option<M>,
             #[serde(default, skip_serializing_if = "Option::is_none")]
             claim_names: Option<K>,
+            #[serde(default, skip_serializing_if = "Option::is_none")]
+            protocol_correlation_occurrences: Option<P>,
             #[serde(default, skip_serializing_if = "Option::is_none")]
             schedulability_claims: Option<H>,
             #[serde(default, deserialize_with = "operation_effects::present_rows", bound(deserialize = "Q: Deserialize<'de>"), skip_serializing_if = "Option::is_none")]
@@ -942,6 +949,7 @@ macro_rules! checked_package_envelope {
             &[OperationBodyRow],
             &[CheckedCapability],
             &CheckedDiagnosticsV2,
+            &[ProtocolCorrelationRow],
         > {
             fn encode_into<T: quire_canonical::Sink + ?Sized>(
                 &self,
@@ -961,6 +969,9 @@ macro_rules! checked_package_envelope {
                 }
                 if let Some(rows) = self.claim_names {
                     encode::elements(writer, "claim_names", rows)?;
+                }
+                if let Some(rows) = self.protocol_correlation_occurrences {
+                    encode::elements(writer, "protocol_correlation_occurrences", rows)?;
                 }
                 if let Some(rows) = self.schedulability_claims {
                     encode::elements(writer, "schedulability_claims", rows)?;
@@ -1007,6 +1018,7 @@ type CheckedPackageWireV2<Body = CheckedTerm> = CheckedPackageEnvelope<
     Vec<OperationBodyRow>,
     Vec<CheckedCapability>,
     CheckedDiagnosticsV2,
+    Vec<ProtocolCorrelationRow>,
 >;
 
 type RawCheckedPackageWireV2 = CheckedPackageWireV2<CheckedJson>;
@@ -1086,6 +1098,41 @@ pub fn encode_checked_package_v2_with_requirement_items<Body: quire_canonical::E
     diagnostics: &CheckedDiagnosticsV2,
     limits: quire_canonical::Limits,
 ) -> Result<Vec<u8>, quire_canonical::Error> {
+    encode_checked_package_v2_with_protocol_correlation_occurrences(
+        name,
+        lock,
+        semantic_graph,
+        sources,
+        sidecars,
+        requirement_items,
+        None,
+        capability_report,
+        diagnostics,
+        limits,
+    )
+}
+
+/// Canonically encodes a complete checked-package V2 envelope carrying the
+/// optional `protocol_correlation_occurrences` member (FSpec FR-831).
+///
+/// The rows are written exactly as supplied, in the supplied order: the writer
+/// neither sorts, deduplicates nor derives them, and `None` omits the member
+/// where `Some(&[])` writes an empty one.
+#[allow(clippy::too_many_arguments)] // Each sidecar is an independent optional envelope member.
+pub fn encode_checked_package_v2_with_protocol_correlation_occurrences<
+    Body: quire_canonical::Encode,
+>(
+    name: &str,
+    lock: &CheckedPackageLockV2,
+    semantic_graph: &CheckedSemanticGraphV2<Body>,
+    sources: CheckedPackageSourceCorrespondenceRef<'_>,
+    sidecars: CheckedPackageSidecarsRef<'_>,
+    requirement_items: Option<&[RequirementItemRow]>,
+    protocol_correlation_occurrences: Option<&[ProtocolCorrelationRow]>,
+    capability_report: &[CheckedCapability],
+    diagnostics: &CheckedDiagnosticsV2,
+    limits: quire_canonical::Limits,
+) -> Result<Vec<u8>, quire_canonical::Error> {
     if semantic_graph.nodes.iter().any(|node| {
         [&node.node_id, &node.semantic_type]
             .into_iter()
@@ -1111,6 +1158,7 @@ pub fn encode_checked_package_v2_with_requirement_items<Body: quire_canonical::E
         temporal_bindings: sidecars.temporal_bindings,
         temporal_clause_names: sidecars.temporal_clause_names,
         claim_names: sidecars.claim_names,
+        protocol_correlation_occurrences,
         schedulability_claims: sidecars.schedulability_claims,
         requirement_items,
         operation_effects: sidecars.operation_effects,
@@ -1200,6 +1248,7 @@ pub struct CheckedPackageV2 {
     direct_dependencies: Vec<std::sync::Arc<CheckedPackageV2>>,
     /// Exact identities reachable through the direct edges, shared with children.
     closure_index: ClosureIndex,
+    correlation: protocol_correlation::Retained,
     /// The operation catalog this package was admitted against.
     catalog: operation_catalog::CatalogRef,
 }
@@ -1756,6 +1805,7 @@ impl CheckedPackageV2 {
             temporal_bindings,
             temporal_clause_names,
             claim_names,
+            protocol_correlation_occurrences,
             schedulability_claims,
             requirement_items,
             operation_effects,
@@ -1794,6 +1844,7 @@ impl CheckedPackageV2 {
             temporal_bindings,
             temporal_clause_names,
             claim_names,
+            protocol_correlation_occurrences,
             schedulability_claims,
             requirement_items,
             operation_effects,
@@ -1802,6 +1853,11 @@ impl CheckedPackageV2 {
             diagnostics,
         };
         let node_index = retained_index::node_index(&wire, budget)?;
+        let protocol_controls = if wire.protocol_correlation_occurrences.is_some() {
+            protocol_correlation::control_positions(&kinds, &wire.semantic_graph.nodes, budget)?
+        } else {
+            Vec::new()
+        };
         let source_index = super::selected_population::source_index(&wire.source_map, budget)?;
         let terminal_rows = claim_terminal::retain_rows(
             &wire.semantic_graph.nodes,
@@ -1857,8 +1913,10 @@ impl CheckedPackageV2 {
             direct_dependencies,
             closure_index,
             catalog,
+            correlation: protocol_correlation::Retained::new(protocol_controls),
         };
-        let package = package.retain_admission(budget)?;
+        let mut package = package.retain_admission(budget)?;
+        package.correlation.groups = protocol_correlation::admit(&package, budget)?;
         Ok(package)
     }
 
@@ -5767,6 +5825,66 @@ mod tests {
         .expect("private owned wire")
     }
 
+    /// Trace: FR-378-AC-5.
+    #[test]
+    fn writer_preserves_correlation_rows_and_their_order() {
+        let control = super::test_support::id('b');
+        let row = |canonical_index: u64, alias: &str, source_ordinal: u64| {
+            json!({
+                "control": control, "occurrence": {"role": "declaration", "ordinal": 0},
+                "canonical_index": canonical_index, "alias": alias,
+                "source_ordinal": source_ordinal
+            })
+        };
+        // Reversed, repeated and unsorted on purpose: the writer neither sorts,
+        // deduplicates nor derives rows.
+        let authored: Vec<super::ProtocolCorrelationRow> = serde_json::from_value(json!([
+            row(1, "holder", 2),
+            row(0, "notice", 0),
+            row(0, "notice", 0),
+            row(1, "notice", 1)
+        ]))
+        .expect("closed rows");
+        let wire = tc_451_private_owned_wire();
+        for rows in [None, Some(Vec::new()), Some(authored.clone())] {
+            let bytes = super::encode_checked_package_v2_with_protocol_correlation_occurrences(
+                &wire.name,
+                &wire.lock,
+                &wire.semantic_graph,
+                super::CheckedPackageSourceCorrespondenceRef {
+                    source_map: &wire.source_map,
+                    refinement_step_rows: None,
+                },
+                super::CheckedPackageSidecarsRef {
+                    temporal_clause_names: None,
+                    claim_names: None,
+                    operation_effects: None,
+                    operation_bodies: None,
+                    checked_term_data: None,
+                    temporal_bindings: None,
+                    schedulability_claims: None,
+                },
+                None,
+                rows.as_deref(),
+                &wire.capability_report,
+                &wire.diagnostics,
+                quire_canonical::Limits::new(u64::MAX),
+            )
+            .expect("canonical envelope");
+            let written: serde_json::Value = serde_json::from_slice(&bytes).expect("json");
+            match &rows {
+                None => assert!(written.get("protocol_correlation_occurrences").is_none()),
+                Some(rows) => {
+                    let member = &written["protocol_correlation_occurrences"];
+                    assert_eq!(member.as_array().map(Vec::len), Some(rows.len()));
+                    let read: Vec<super::ProtocolCorrelationRow> =
+                        serde_json::from_value(member.clone()).expect("rows read back");
+                    assert_eq!(&read, rows, "rows and their order survive the writer");
+                }
+            }
+        }
+    }
+
     /// Trace: FR-038-AC-117.
     /// Provenance: IR-1196, FSL FR-264-AC-1.
     #[test]
@@ -5795,6 +5913,7 @@ mod tests {
 
                 let wire = tc_451_private_owned_wire();
                 let package = super::CheckedPackageV2 {
+                    correlation: Default::default(),
                     schedulability_claim_index: Vec::new(),
                     monitor_plan_index: Vec::new(),
                     terminal_rows: std::sync::Arc::new(Vec::new()),

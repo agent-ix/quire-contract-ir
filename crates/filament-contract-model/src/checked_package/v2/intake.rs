@@ -98,6 +98,8 @@ struct BorrowedWire {
     #[serde(default, deserialize_with = "super::document_de::exact_optional_vec")]
     claim_names: Option<Vec<super::ClaimNameRow>>,
     #[serde(default, deserialize_with = "super::document_de::exact_optional_vec")]
+    protocol_correlation_occurrences: Option<Vec<super::ProtocolCorrelationRow>>,
+    #[serde(default, deserialize_with = "super::document_de::exact_optional_vec")]
     schedulability_claims: Option<Vec<super::CheckedSchedulabilityClaimRow>>,
     #[serde(default, deserialize_with = "super::document_de::exact_optional_vec")]
     requirement_items: Option<Vec<super::requirement_records::RequirementItemWireRow>>,
@@ -327,6 +329,7 @@ pub(super) fn decode_borrowed_wire(
         temporal_bindings: wire.temporal_bindings,
         temporal_clause_names: wire.temporal_clause_names,
         claim_names: wire.claim_names,
+        protocol_correlation_occurrences: wire.protocol_correlation_occurrences,
         schedulability_claims: wire.schedulability_claims,
         requirement_items: wire.requirement_items,
         operation_effects: wire.operation_effects,
@@ -395,7 +398,12 @@ fn classify_wire_fault(
     }
     if code == UnknownMember {
         match original {
-            [Step::Key("temporal_clause_names" | "claim_names" | "schedulability_claims"), Step::Index(_), ..] =>
+            [Step::Key(
+                "temporal_clause_names"
+                | "claim_names"
+                | "protocol_correlation_occurrences"
+                | "schedulability_claims"
+            ), Step::Index(_), ..] =>
             {
                 code = MalformedWire;
                 length = 2;
@@ -725,6 +733,20 @@ pub(super) fn check_lossless_source(
         meter,
     )?;
     compare_optional_rows(root, "claim_names", wire.claim_names.as_deref(), meter)?;
+    // An empty member is a complete empty provenance (FR-831), so unlike the
+    // other row members it is compared, not refused.
+    match wire.protocol_correlation_occurrences.as_deref() {
+        Some(rows) => {
+            compare_row_collection(root, "protocol_correlation_occurrences", rows, &[], meter)?;
+        }
+        None if root.get("protocol_correlation_occurrences").is_some() => {
+            return Err(malformed(
+                root_at.key("protocol_correlation_occurrences"),
+                meter,
+            ));
+        }
+        None => {}
+    }
     compare_optional_rows(
         root,
         "schedulability_claims",

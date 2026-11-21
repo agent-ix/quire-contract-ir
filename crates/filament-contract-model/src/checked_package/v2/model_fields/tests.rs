@@ -1187,6 +1187,7 @@ fn build_fixture(document: &Value, declared: &[(&str, DeclarationForm)]) -> Fixt
         temporal_bindings: None,
         temporal_clause_names: None,
         claim_names: None,
+        protocol_correlation_occurrences: None,
         schedulability_claims: None,
         requirement_items: None,
         operation_effects: None,
@@ -1208,6 +1209,7 @@ fn build_fixture(document: &Value, declared: &[(&str, DeclarationForm)]) -> Fixt
     let kinds = vec![CheckedNodeKind::ScalarType(ScalarTypeForm::Boolean); nodes_len(&wire)];
     Fixture {
         package: CheckedPackageV2 {
+            correlation: Default::default(),
             schedulability_claim_index: Vec::new(),
             monitor_plan_index: Vec::new(),
             terminal_rows: std::sync::Arc::new(Vec::new()),
